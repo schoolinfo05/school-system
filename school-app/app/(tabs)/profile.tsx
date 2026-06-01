@@ -1,0 +1,213 @@
+// @ts-nocheck
+// app/(tabs)/profile.tsx — Student profile (fully polished)
+
+import { useEffect, useState } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet,
+  TouchableOpacity, Alert, ActivityIndicator,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import api, { removeToken } from '../../src/api';
+import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
+
+export default function Profile() {
+  const router = useRouter();
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem('role').then(role => {
+      if (role === 'teacher') {
+        router.replace('/(teacher)/profile');
+        return;
+      }
+      api.get('/dashboard/student')
+        .then(res => setData(res.data))
+        .finally(() => setLoading(false));
+    });
+  }, []);
+
+  const handleLogout = () => {
+    Alert.alert('Logout', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout', style: 'destructive',
+        onPress: async () => {
+          await api.post('/logout').catch(() => {});
+          await AsyncStorage.multiRemove(['token', 'role', 'user']);
+          removeToken();
+          router.replace('/login');
+        },
+      },
+    ]);
+  };
+
+  if (loading) return (
+    <View style={styles.center}>
+      <ActivityIndicator size="large" color={Colors.purple} />
+    </View>
+  );
+
+  const s        = data?.student;
+  const initials = s ? `${s.first_name[0]}${s.last_name[0]}`.toUpperCase() : '??';
+  const allGrades = data?.grades ? Object.values(data.grades).flat() : [];
+  const gwa = allGrades.length > 0
+    ? (allGrades.reduce((sum, g) => sum + parseFloat(g.score), 0) / allGrades.length).toFixed(1)
+    : '—';
+
+  const badges = [
+    parseFloat(gwa) >= 90 && { icon: '🏆', label: 'Honor Student' },
+    (data?.attendance_pct ?? 0) >= 90 && { icon: '📅', label: 'Perfect Attendance' },
+    allGrades.length > 0 && { icon: '📚', label: 'Active Learner' },
+    { icon: '⭐', label: `Enrolled ${s?.school_year}` },
+  ].filter(Boolean);
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+
+      {/* ── Hero ── */}
+      <View style={styles.hero}>
+        <View style={styles.avatar}>
+          <Text style={styles.initials}>{initials}</Text>
+        </View>
+        <Text style={styles.name}>{s?.first_name} {s?.last_name}</Text>
+        <Text style={styles.studentId}>{s?.student_id}</Text>
+        <View style={styles.heroStats}>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroVal}>{gwa}</Text>
+            <Text style={styles.heroLabel}>GWA</Text>
+          </View>
+          <View style={[styles.heroStat, styles.heroStatMiddle]}>
+            <Text style={styles.heroVal}>{data?.attendance_pct ?? 0}%</Text>
+            <Text style={styles.heroLabel}>Attendance</Text>
+          </View>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroVal}>{data?.pending_fees?.length ?? 0}</Text>
+            <Text style={styles.heroLabel}>Pending fees</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* ── Info ── */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Student Information</Text>
+        {[
+          ['School Year', s?.school_year],
+          ['Grade & Section', `Grade ${s?.grade_level} – ${s?.section}`],
+          ['Gender', s?.gender ? s.gender.charAt(0).toUpperCase() + s.gender.slice(1) : '—'],
+          ['Status', s?.status ? s.status.charAt(0).toUpperCase() + s.status.slice(1) : '—'],
+          ['Email', s?.email],
+        ].map(([label, value]) => (
+          <View key={label} style={styles.infoRow}>
+            <Text style={styles.infoLabel}>{label}</Text>
+            <Text style={styles.infoValue}>{value ?? '—'}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* ── Badges ── */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Achievements</Text>
+        <View style={styles.badgeGrid}>
+          {badges.map((b, i) => (
+            <View key={i} style={styles.badgeItem}>
+              <Text style={styles.badgeIcon}>{b.icon}</Text>
+              <Text style={styles.badgeName}>{b.label}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* ── Logout ── */}
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Logout</Text>
+      </TouchableOpacity>
+
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:      { flex: 1, backgroundColor: Colors.bg },
+  center:         { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bg },
+
+  hero:           {
+    backgroundColor: Colors.purple,
+    paddingTop: HEADER_TOP,
+    paddingBottom: 28,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  avatar:         {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  initials:       { color: '#fff', fontSize: Font.xxl, fontWeight: '700' },
+  name:           { color: '#fff', fontSize: Font.lg, fontWeight: '700' },
+  studentId:      { color: 'rgba(255,255,255,0.7)', fontSize: Font.xs, marginTop: 4, marginBottom: 20 },
+
+  heroStats:      {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  heroStat:       { flex: 1, alignItems: 'center', paddingVertical: 14 },
+  heroStatMiddle: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  heroVal:        { color: '#fff', fontSize: Font.xl, fontWeight: '700' },
+  heroLabel:      { color: 'rgba(255,255,255,0.7)', fontSize: Font.xs, marginTop: 2 },
+
+  card:           {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.lg,
+    marginHorizontal: 16,
+    marginTop: 14,
+    padding: 16,
+    ...Shadow.card,
+  },
+  sectionTitle:   { fontSize: Font.sm, fontWeight: '700', color: Colors.text, marginBottom: 14 },
+  infoRow:        {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderColor: Colors.border,
+  },
+  infoLabel:      { fontSize: Font.sm, color: Colors.textSub },
+  infoValue:      { fontSize: Font.sm, color: Colors.text, fontWeight: '500', maxWidth: '55%', textAlign: 'right' },
+
+  badgeGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  badgeItem:      {
+    backgroundColor: Colors.bg,
+    borderRadius: Radius.md,
+    padding: 14,
+    alignItems: 'center',
+    width: '47%',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  badgeIcon:      { fontSize: 28, marginBottom: 6 },
+  badgeName:      { fontSize: Font.xs, color: Colors.textSub, textAlign: 'center', fontWeight: '500' },
+
+  logoutBtn:      {
+    marginHorizontal: 16,
+    marginTop: 20,
+    backgroundColor: Colors.dangerLight,
+    borderRadius: Radius.lg,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#F5CCCC',
+  },
+  logoutText:     { color: Colors.danger, fontWeight: '700', fontSize: Font.sm },
+});
