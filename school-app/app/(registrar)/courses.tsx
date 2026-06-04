@@ -8,6 +8,9 @@ import {
   RefreshControl, Platform, StatusBar,
 } from 'react-native';
 import api from '../../src/api';
+import HeaderGradient from '../components/ui/HeaderGradient';
+import SearchBar from '../components/ui/SearchBar';
+import { useTheme } from '../../src/theme-context';
 
 const C = {
   blue: '#378ADD', blueLight: '#E6F1FB',
@@ -63,6 +66,7 @@ function ChipGroup({ options, value, onSelect }) {
 }
 
 export default function RegistrarCourses() {
+  const { theme } = useTheme();
   const [courses, setCourses]             = useState([]);
   const [loading, setLoading]             = useState(true);
   const [refreshing, setRefreshing]       = useState(false);
@@ -139,7 +143,7 @@ export default function RegistrarCourses() {
           try {
             await api.delete(`/courses/${course.id}`);
             setCourses(prev => prev.filter(item => item.id !== course.id));
-          } catch (e) {
+          } catch {
             Alert.alert('Error', 'Could not delete course.');
           }
         },
@@ -148,31 +152,32 @@ export default function RegistrarCourses() {
   };
 
   return (
-    <View style={s.container}>
-      <View style={s.header}>
-        <View>
-          <Text style={s.title}>Courses</Text>
-          <Text style={s.subtitle}>{courses.length} available courses</Text>
+    <View style={[s.container, { backgroundColor: theme.bg }]}> 
+      <HeaderGradient
+        title="Courses"
+        subtitle={`${courses.length} available courses`}
+        initials="CR"
+        stats={[
+          { label: 'Courses', value: courses.length, accent: '#FDE68A' },
+          { label: 'Active', value: courses.filter(c => c.is_active).length, accent: '#A7F3D0' },
+          { label: 'Search', value: search ? 'Filtered' : 'All', accent: '#C7D2FE' },
+        ]}
+      >
+        <View style={s.headerActions}>
+          <SearchBar
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search courses..."
+            onSubmitEditing={fetchCourses}
+          />
+          <TouchableOpacity style={s.addBtn} onPress={openAdd}>
+            <Text style={s.addBtnText}>+ Add</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={s.addBtn} onPress={openAdd}>
-          <Text style={s.addBtnText}>+ Add</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={s.searchWrapper}>
-        <TextInput
-          style={s.searchInput}
-          placeholder="Search courses..."
-          placeholderTextColor={C.muted}
-          value={search}
-          onChangeText={setSearch}
-          returnKeyType="search"
-          onSubmitEditing={fetchCourses}
-        />
-      </View>
+      </HeaderGradient>
 
       {loading ? (
-        <View style={s.center}><ActivityIndicator size="large" color={C.blue} /></View>
+        <View style={[s.center, { backgroundColor: theme.bg }]}><ActivityIndicator size="large" color={theme.primary} /></View>
       ) : (
         <ScrollView
           contentContainerStyle={s.list}
@@ -185,22 +190,22 @@ export default function RegistrarCourses() {
               <Text style={s.emptySub}>Add courses to allow students to select them during enrollment.</Text>
             </View>
           ) : courses.map(course => (
-            <View key={course.id} style={s.card}>
+            <View key={course.id} style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}> 
               <View style={s.cardRow}>
                 <View style={s.cardInfo}>
-                  <Text style={s.courseName}>{course.name}</Text>
+                  <Text style={[s.courseName, { color: theme.text }]}>{course.name}</Text>
                   <Text style={s.courseMeta}>{course.program_type === 'shs' ? 'SHS' : 'College'} • {course.is_active ? 'Active' : 'Inactive'}</Text>
                 </View>
                 <View style={s.actionsRow}>
-                  <TouchableOpacity style={s.editBtn} onPress={() => openEdit(course)}>
-                    <Text style={s.editBtnText}>Edit</Text>
+                  <TouchableOpacity style={[s.editBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]} onPress={() => openEdit(course)}>
+                    <Text style={[s.editBtnText, { color: theme.primary }]}>Edit</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.deleteBtn} onPress={() => handleDelete(course)}>
-                    <Text style={s.deleteBtnText}>Delete</Text>
+                  <TouchableOpacity style={[s.deleteBtn, { backgroundColor: theme.dangerLight, borderColor: theme.danger }]} onPress={() => handleDelete(course)}>
+                    <Text style={[s.deleteBtnText, { color: theme.danger }]}>Delete</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-              {course.description ? <Text style={s.courseDesc}>{course.description}</Text> : null}
+              {course.description ? <Text style={[s.courseDesc, { color: theme.textSub }]}>{course.description}</Text> : null}
             </View>
           ))}
         </ScrollView>
@@ -261,6 +266,7 @@ const s = StyleSheet.create({
   subtitle: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 4 },
   addBtn: { backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
   searchWrapper: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   searchInput: { backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: C.text, borderWidth: 1, borderColor: C.border },
   list: { padding: 16, paddingBottom: 28 },
@@ -270,11 +276,11 @@ const s = StyleSheet.create({
   courseName: { fontSize: 16, fontWeight: '700', color: C.text },
   courseMeta: { fontSize: 12, color: C.sub, marginTop: 4 },
   courseDesc: { color: C.sub, marginTop: 10, fontSize: 13, lineHeight: 18 },
-  actionsRow: { flexDirection: 'row' },
-  editBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: C.blueLight, marginRight: 8 },
-  editBtnText: { color: C.blue, fontWeight: '700', fontSize: 12 },
-  deleteBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: C.danger, },
-  deleteBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  actionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  editBtn: { minWidth: 64, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 999, backgroundColor: C.blueLight, borderWidth: 1, alignItems: 'center' },
+  editBtnText: { color: C.blue, fontWeight: '900', fontSize: 13 },
+  deleteBtn: { minWidth: 76, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 999, backgroundColor: C.danger, borderWidth: 1, alignItems: 'center' },
+  deleteBtnText: { color: '#fff', fontWeight: '900', fontSize: 13 },
   emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingTop: 64 },
   emptyIcon: { fontSize: 36 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: C.text, marginTop: 14 },

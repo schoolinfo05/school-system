@@ -9,10 +9,11 @@ class MarketplaceItem extends Model
     protected $fillable = [
         'user_id', 'title', 'description', 'price',
         'stock', 'category', 'condition', 'status', 'image', 'location',
-        'accepts_cash', 'accepts_gcash', 'accepts_qrph', 'gcash_name', 'gcash_number', 'qrph_image_url',
+        'accepts_cash', 'accepts_gcash', 'accepts_qrph', 'gcash_name', 'gcash_number', 'qrph_image_url','image_urls',
     ];
 
     protected $casts = [
+        'image_urls'   => 'array',
         'accepts_cash' => 'boolean',
         'accepts_gcash' => 'boolean',
         'accepts_qrph' => 'boolean',

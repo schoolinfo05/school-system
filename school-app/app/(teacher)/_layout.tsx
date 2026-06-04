@@ -4,20 +4,19 @@
 import { Tabs } from 'expo-router';
 import { Platform, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../../src/theme-context';
 
-const ACTIVE   = '#1D9E75';
-const INACTIVE = '#B0B7C3';
-
-function Icon({ emoji, focused }) {
+function Icon({ emoji, focused, color }) {
   return (
     <View style={{ alignItems: 'center', paddingTop: 2 }}>
-      <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.4 }}>{emoji}</Text>
+      <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.4, color }}>{emoji}</Text>
     </View>
   );
 }
 
 export default function TeacherLayout() {
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
 
   const bottomPadding = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 0);
   const tabHeight     = 54 + bottomPadding;
@@ -26,15 +25,15 @@ export default function TeacherLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor:   ACTIVE,
-        tabBarInactiveTintColor: INACTIVE,
+        tabBarActiveTintColor:   theme.primary,
+        tabBarInactiveTintColor: theme.textSub,
         tabBarStyle: {
           height:          tabHeight,
           paddingBottom:   bottomPadding,
           paddingTop:      6,
-          backgroundColor: '#FFFFFF',
+          backgroundColor: theme.navBg,
           borderTopWidth:  1,
-          borderTopColor:  '#EFEFEF',
+          borderTopColor:  theme.border,
           elevation: 12,
           shadowColor:   '#000',
           shadowOpacity: 0.1,
@@ -48,12 +47,13 @@ export default function TeacherLayout() {
         },
       }}
     >
-      <Tabs.Screen name="classes"    options={{ title: 'Classes',    tabBarIcon: ({ focused }) => <Icon emoji="📚" focused={focused} /> }} />
-      <Tabs.Screen name="grades"     options={{ title: 'Grades',     tabBarIcon: ({ focused }) => <Icon emoji="📝" focused={focused} /> }} />
-      <Tabs.Screen name="attendance" options={{ title: 'Attendance', tabBarIcon: ({ focused }) => <Icon emoji="📅" focused={focused} /> }} />
-      <Tabs.Screen name="market"     options={{ title: 'Market',     tabBarIcon: ({ focused }) => <Icon emoji="🛍️" focused={focused} /> }} />
-      <Tabs.Screen name="chat"       options={{ title: 'Chat',       tabBarIcon: ({ focused }) => <Icon emoji="💬" focused={focused} /> }} />
-      <Tabs.Screen name="profile"    options={{ title: 'Profile',    tabBarIcon: ({ focused }) => <Icon emoji="👤" focused={focused} /> }} />
+      <Tabs.Screen name="dashboard"  options={{ title: 'Dashboard',  tabBarIcon: ({ focused, color }) => <Icon emoji="DB" focused={focused} color={color} /> }} />
+      <Tabs.Screen name="classes"    options={{ title: 'Classes',    tabBarIcon: ({ focused, color }) => <Icon emoji="📚" focused={focused} color={color} /> }} />
+      <Tabs.Screen name="grades"     options={{ title: 'Grades',     tabBarIcon: ({ focused, color }) => <Icon emoji="📝" focused={focused} color={color} /> }} />
+      <Tabs.Screen name="attendance" options={{ title: 'Attendance', tabBarIcon: ({ focused, color }) => <Icon emoji="📅" focused={focused} color={color} /> }} />
+      <Tabs.Screen name="market"     options={{ title: 'Market',     tabBarIcon: ({ focused, color }) => <Icon emoji="🛍️" focused={focused} color={color} /> }} />
+      <Tabs.Screen name="chat"       options={{ title: 'Chat',       tabBarIcon: ({ focused, color }) => <Icon emoji="💬" focused={focused} color={color} /> }} />
+      <Tabs.Screen name="profile"    options={{ title: 'Profile',    tabBarIcon: ({ focused, color }) => <Icon emoji="👤" focused={focused} color={color} /> }} />
     </Tabs>
   );
 }

@@ -11,9 +11,18 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../src/api';
 import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
+import { useTheme } from '../../src/theme-context';
+
+function gradeColor(score, theme) {
+  if (score >= 90) return theme.success;
+  if (score >= 80) return theme.primary;
+  if (score >= 75) return theme.warning;
+  return theme.danger;
+}
 
 export default function Today() {
   const router = useRouter();
+  const { theme } = useTheme();
   const [data, setData]             = useState(null);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,8 +50,8 @@ export default function Today() {
   }, []);
 
   if (loading) return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" color={Colors.blue} />
+    <View style={[styles.center, { backgroundColor: theme.bg }]}>
+      <ActivityIndicator size="large" color={theme.primary} />
     </View>
   );
 
@@ -56,7 +65,7 @@ export default function Today() {
 
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={{ paddingBottom: 24 }}
       refreshControl={
         <RefreshControl refreshing={refreshing}
@@ -64,7 +73,7 @@ export default function Today() {
       }
     >
       {/* ── Header ── */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <Text style={styles.greeting}>{greeting} 👋</Text>
         <Text style={styles.name}>
           {student?.first_name} {student?.last_name}
@@ -76,40 +85,41 @@ export default function Today() {
 
       {/* ── Stat cards ── */}
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statVal}>{data?.attendance_pct ?? 0}%</Text>
-          <Text style={styles.statLabel}>Attendance</Text>
+        <View style={[styles.statCard, { backgroundColor: theme.card }]}> 
+          <Text style={[styles.statVal, { color: theme.text }]}>{data?.attendance_pct ?? 0}%</Text>
+          <Text style={[styles.statLabel, { color: theme.textSub }]}>Attendance</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statVal}>{gwa}</Text>
-          <Text style={styles.statLabel}>GWA</Text>
+        <View style={[styles.statCard, { backgroundColor: theme.card }]}> 
+          <Text style={[styles.statVal, { color: theme.text }]}>{gwa}</Text>
+          <Text style={[styles.statLabel, { color: theme.textSub }]}>GWA</Text>
         </View>
-        <View style={[styles.statCard,
-          { borderBottomWidth: 3, borderBottomColor: (data?.pending_fees?.length ?? 0) > 0 ? Colors.danger : Colors.green }]}>
+        <View style={[styles.statCard, { backgroundColor: theme.card },
+
+          { borderBottomWidth: 3, borderBottomColor: (data?.pending_fees?.length ?? 0) > 0 ? theme.danger : theme.success }]}>
           <Text style={[styles.statVal,
-            { color: (data?.pending_fees?.length ?? 0) > 0 ? Colors.danger : Colors.green }]}>
+            { color: (data?.pending_fees?.length ?? 0) > 0 ? theme.danger : theme.success }]}>
             {data?.pending_fees?.length ?? 0}
           </Text>
-          <Text style={styles.statLabel}>Pending fees</Text>
+          <Text style={[styles.statLabel, { color: theme.textSub }]}>Pending fees</Text>
         </View>
       </View>
 
       {/* ── Outstanding fees ── */}
       {(data?.pending_fees?.length ?? 0) > 0 && (
-        <View style={[styles.card, styles.feeCard]}>
+        <View style={[styles.card, styles.feeCard, { backgroundColor: theme.card, borderLeftColor: theme.danger }]}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>⚠️ Outstanding fees</Text>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>⚠️ Outstanding fees</Text>
           </View>
           {data.pending_fees.map((fee, i) => (
-            <View key={i} style={styles.feeRow}>
+            <View key={i} style={[styles.feeRow, { borderColor: theme.border }]}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.feeName}>{fee.type}</Text>
-                <Text style={styles.feeSub}>Q{fee.quarter} · Due {fee.due_date}</Text>
+                <Text style={[styles.feeName, { color: theme.text }]}>{fee.type}</Text>
+                <Text style={[styles.feeSub, { color: theme.textMuted }]}>Q{fee.quarter} · Due {fee.due_date}</Text>
               </View>
               <View style={[styles.badge,
-                fee.status === 'unpaid' ? styles.badgeRed : styles.badgeYellow]}>
+                { backgroundColor: fee.status === 'unpaid' ? theme.dangerLight : theme.warningLight }]}>
                 <Text style={[styles.badgeText,
-                  fee.status === 'unpaid' ? styles.badgeRedText : styles.badgeYellowText]}>
+                  { color: fee.status === 'unpaid' ? theme.danger : theme.warning }]}>
                   ₱{Number(fee.amount).toLocaleString()}
                 </Text>
               </View>
@@ -119,48 +129,48 @@ export default function Today() {
       )}
 
       {/* ── Latest grades ── */}
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: theme.card }]}> 
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Latest grades (Q4)</Text>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Latest grades (Q4)</Text>
           <TouchableOpacity onPress={() => router.push('/(tabs)/grades')}>
-            <Text style={styles.seeAll}>See all →</Text>
+            <Text style={[styles.seeAll, { color: theme.primary }]}>See all →</Text>
           </TouchableOpacity>
         </View>
         {data?.grades?.['4']?.length > 0
           ? data.grades['4'].map((g, i) => (
-            <View key={i} style={styles.gradeRow}>
+            <View key={i} style={[styles.gradeRow, { borderColor: theme.border }]}>
               <View style={[styles.gradeBar, {
                 width: `${Math.max(5, Math.min(100, ((g.score - 70) / 30) * 100))}%`,
-                backgroundColor: g.score >= 90 ? Colors.green : g.score >= 80 ? Colors.blue : g.score >= 75 ? Colors.warning : Colors.danger,
+                backgroundColor: gradeColor(g.score, theme),
               }]} />
-              <Text style={styles.subjectName}>{g.school_class?.subject ?? '—'}</Text>
+              <Text style={[styles.subjectName, { color: theme.textSub }]}>{g.school_class?.subject ?? '—'}</Text>
               <Text style={[styles.gradeScore, {
-                color: g.score >= 90 ? Colors.green : g.score >= 80 ? Colors.blue : g.score >= 75 ? Colors.warning : Colors.danger,
+                color: gradeColor(g.score, theme),
               }]}>
                 {g.score}
               </Text>
             </View>
           ))
-          : <Text style={styles.empty}>No Q4 grades recorded yet.</Text>
+          : <Text style={[styles.empty, { color: theme.textMuted }]}>No Q4 grades recorded yet.</Text>
         }
       </View>
 
       {/* ── Quick actions ── */}
       <View style={styles.quickRow}>
-        <TouchableOpacity style={[styles.quickCard, { backgroundColor: Colors.purpleLight }]}
+        <TouchableOpacity style={[styles.quickCard, { backgroundColor: theme.primaryLight }]}
           onPress={() => router.push('/(tabs)/study')}>
           <Text style={styles.quickIcon}>🎓</Text>
-          <Text style={[styles.quickLabel, { color: Colors.purple }]}>Study AI</Text>
+          <Text style={[styles.quickLabel, { color: theme.primary }]}>Study AI</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.quickCard, { backgroundColor: Colors.blueLight }]}
+        <TouchableOpacity style={[styles.quickCard, { backgroundColor: theme.primaryLight }]}
           onPress={() => router.push('/(tabs)/market')}>
           <Text style={styles.quickIcon}>🛍️</Text>
-          <Text style={[styles.quickLabel, { color: Colors.blue }]}>Marketplace</Text>
+          <Text style={[styles.quickLabel, { color: theme.primary }]}>Marketplace</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.quickCard, { backgroundColor: Colors.greenLight }]}
+        <TouchableOpacity style={[styles.quickCard, { backgroundColor: theme.primaryLight }]}
           onPress={() => router.push('/(tabs)/grades')}>
           <Text style={styles.quickIcon}>📊</Text>
-          <Text style={[styles.quickLabel, { color: Colors.green }]}>All grades</Text>
+          <Text style={[styles.quickLabel, { color: theme.primary }]}>All grades</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

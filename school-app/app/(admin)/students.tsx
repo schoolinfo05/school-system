@@ -1,33 +1,53 @@
 // @ts-nocheck
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, ActivityIndicator, RefreshControl,
-  Platform, StatusBar, Modal, KeyboardAvoidingView, Alert,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import HeaderGradient from '../components/ui/HeaderGradient';
 import api from '../../src/api';
-import { useTheme } from '../../src/theme-context';
 
-const HEADER_TOP = Platform.OS === 'android'
-  ? (StatusBar.currentHeight ?? 24) + 10 : 52;
+const STATUS = [
+  { value: 'active', label: 'Active', bg: '#DCFCE7', color: '#15803D' },
+  { value: 'inactive', label: 'Inactive', bg: '#FEE2E2', color: '#B91C1C' },
+  { value: 'graduated', label: 'Graduated', bg: '#E0F2FE', color: '#0369A1' },
+];
 
-const STATUS_CONFIG = {
-  active:    { label: 'Active',    bg: '#E1F5EE', color: '#1D9E75' },
-  inactive:  { label: 'Inactive',  bg: '#F8F0F2', color: '#D85A30' },
-  graduated: { label: 'Graduated', bg: '#E8F1FF', color: '#378ADD' },
+const emptyForm = {
+  student_id: '',
+  first_name: '',
+  last_name: '',
+  email: '',
+  phone: '',
+  birthdate: '',
+  gender: 'male',
+  address: '',
+  grade_level: '',
+  section: '',
+  school_year: '',
+  status: 'active',
 };
 
-export default function RegistrarStudents() {
-  const { theme } = useTheme();
-  const [students, setStudents]     = useState([]);
-  const [loading, setLoading]       = useState(true);
+export default function AdminStudents() {
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch]         = useState('');
-  const [selected, setSelected]     = useState(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selected, setSelected] = useState(null);
+  const [form, setForm] = useState(emptyForm);
   const [password, setPassword] = useState('');
   const totals = useMemo(() => ({
     active: students.filter(student => student.status === 'active').length,
@@ -35,29 +55,26 @@ export default function RegistrarStudents() {
     graduated: students.filter(student => student.status === 'graduated').length,
   }), [students]);
 
-  const fetchStudents = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      const res = await api.get('/students');
+      const params = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (search.trim()) params.search = search.trim();
+
+      const res = await api.get('/admin/students', { params });
       setStudents(res.data || []);
     } catch (e) {
-      console.log('Students fetch error:', e.message);
+      console.log('Admin students error:', e.message);
+      Alert.alert('Could not load students', e.response?.data?.message || 'Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [search, statusFilter]);
 
-  useEffect(() => { fetchStudents(); }, [fetchStudents]);
+  useEffect(() => { load(); }, [load]);
 
-  const filteredStudents = search.trim()
-    ? students.filter(student => {
-        const term = search.trim().toLowerCase();
-        return [student.first_name, student.last_name, student.email, student.student_id, student.grade_level, student.section]
-          .some(value => value?.toString().toLowerCase().includes(term));
-      })
-    : students;
-
-  const openDetail = (student) => {
+  const openStudent = (student) => {
     setSelected(student);
     setPassword('');
     setForm({
@@ -79,14 +96,15 @@ export default function RegistrarStudents() {
   const setField = (key, value) => setForm(current => ({ ...current, [key]: value }));
 
   const saveStudent = async () => {
-    if (!selected || !form) return;
+    if (!selected) return;
     if (!form.student_id.trim() || !form.first_name.trim() || !form.last_name.trim() || !form.email.trim()) {
       Alert.alert('Missing details', 'Student ID, first name, last name, and email are required.');
       return;
     }
+
     setSaving(true);
     try {
-      await api.put(`/registrar/students/${selected.id}`, {
+      await api.put(`/admin/students/${selected.id}`, {
         ...form,
         student_id: form.student_id.trim(),
         first_name: form.first_name.trim(),
@@ -94,9 +112,10 @@ export default function RegistrarStudents() {
         email: form.email.trim(),
       });
       setSelected(null);
-      await fetchStudents();
+      await load();
     } catch (e) {
-      Alert.alert('Could not save student', e.response?.data?.message || 'Please check the student details.');
+      const message = e.response?.data?.message || flattenErrors(e.response?.data?.errors) || 'Please check the student details.';
+      Alert.alert('Could not save student', message);
     } finally {
       setSaving(false);
     }
@@ -108,9 +127,10 @@ export default function RegistrarStudents() {
       Alert.alert('Password too short', 'Use at least 6 characters.');
       return;
     }
+
     setSaving(true);
     try {
-      await api.post(`/registrar/students/${selected.id}/reset-password`, { password: password.trim() });
+      await api.post(`/admin/students/${selected.id}/reset-password`, { password: password.trim() });
       setPassword('');
       Alert.alert('Password updated', 'The student can now sign in with the new password.');
     } catch (e) {
@@ -120,26 +140,50 @@ export default function RegistrarStudents() {
     }
   };
 
+  const deleteStudent = () => {
+    if (!selected) return;
+    Alert.alert(
+      'Delete student account',
+      `Delete ${selected.first_name} ${selected.last_name}? This also removes the linked login account.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.delete(`/admin/students/${selected.id}`);
+              setSelected(null);
+              await load();
+            } catch (e) {
+              Alert.alert('Could not delete student', e.response?.data?.message || 'Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
-    <View style={[s.container, { backgroundColor: theme.bg }]}> 
+    <View style={s.container}>
       <HeaderGradient
-        title="Students"
-        subtitle="Review approved learners and student profiles."
+        title="Manage students"
+        subtitle="Review student profiles, status, and classroom assignments."
         initials="ST"
         stats={[
-          { label: 'Active', value: totals.active, accent: '#1D9E75' },
-          { label: 'Inactive', value: totals.inactive, accent: '#D85A30' },
-          { label: 'Graduated', value: totals.graduated, accent: '#378ADD' },
+          { label: 'Active', value: totals.active, accent: '#15803D' },
+          { label: 'Inactive', value: totals.inactive, accent: '#B91C1C' },
+          { label: 'Graduated', value: totals.graduated, accent: '#0369A1' },
         ]}
       />
 
       <View style={s.searchRow}>
-        <View style={[s.searchCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+        <View style={s.searchCard}>
           <Feather name="search" size={18} color="#9CA3AF" style={s.searchIcon} />
           <TextInput
-            style={[s.searchInput, { color: theme.text }]}
-            placeholder="Search students by name, email, or ID"
-            placeholderTextColor={theme.textMuted}
+            style={s.searchInput}
+            placeholder="Search student ID, name, email, section"
+            placeholderTextColor="#9CA3AF"
             value={search}
             onChangeText={setSearch}
             returnKeyType="search"
@@ -147,45 +191,54 @@ export default function RegistrarStudents() {
         </View>
       </View>
 
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters} style={s.filtersScroll}>
+        <TouchableOpacity
+          style={[s.filterChip, statusFilter === 'all' && s.filterChipActive]}
+          onPress={() => setStatusFilter('all')}
+        >
+          <Text style={[s.filterText, statusFilter === 'all' && s.filterTextActive]}>All</Text>
+        </TouchableOpacity>
+        {STATUS.map(status => (
+          <TouchableOpacity
+            key={status.value}
+            style={[s.filterChip, statusFilter === status.value && s.filterChipActive]}
+            onPress={() => setStatusFilter(status.value)}
+          >
+            <Text style={[s.filterText, statusFilter === status.value && s.filterTextActive]}>{status.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
       {loading ? (
-        <View style={[s.center, { backgroundColor: theme.bg }]}> 
-          <ActivityIndicator size="large" color={theme.primary} />
+        <View style={s.center}>
+          <ActivityIndicator size="large" color="#334155" />
         </View>
       ) : (
         <ScrollView
           style={s.list}
-          contentContainerStyle={{ paddingBottom: 24 }}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchStudents(); }} />
-          }
+          contentContainerStyle={{ paddingBottom: 110 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
         >
-          {filteredStudents.length === 0 ? (
-            <View style={s.emptyWrap}>
-              <Text style={s.emptyIcon}>🧑‍🎓</Text>
+          {students.length === 0 ? (
+            <View style={s.empty}>
               <Text style={s.emptyTitle}>No students found</Text>
-              <Text style={s.emptySub}>Try adjusting your search or refresh the list.</Text>
+              <Text style={s.emptySub}>Try a different search or status filter.</Text>
             </View>
-          ) : filteredStudents.map((student, index) => {
-            const status = STATUS_CONFIG[student.status] || STATUS_CONFIG.active;
+          ) : students.map(student => {
+            const status = STATUS.find(item => item.value === student.status) || STATUS[0];
             return (
-              <TouchableOpacity
-                key={index}
-                style={[s.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => openDetail(student)}
-                activeOpacity={0.8}
-              >
-                <View style={s.cardRow}>
-                  <View style={[s.avatar, { backgroundColor: theme.successLight }]}> 
-                    <Text style={[s.avatarText, { color: theme.success }]}> 
-                      {student.first_name?.[0]}{student.last_name?.[0]}
-                    </Text>
+              <TouchableOpacity key={student.id} style={s.card} onPress={() => openStudent(student)} activeOpacity={0.82}>
+                <View style={s.cardTop}>
+                  <View style={s.avatar}>
+                    <Text style={s.avatarText}>{initials(student)}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[s.studentName, { color: theme.text }]}>{student.first_name} {student.last_name}</Text>
-                    <Text style={[s.studentMeta, { color: theme.textSub }]}>{student.student_id} · {student.email}</Text>
-                    <Text style={[s.studentProgram, { color: theme.textMuted }]}>{student.grade_level} · {student.section} · {student.school_year}</Text>
+                    <Text style={s.name}>{student.first_name} {student.last_name}</Text>
+                    <Text style={s.meta}>{student.student_id} · {student.email}</Text>
+                    <Text style={s.program}>{student.grade_level} · {student.section} · {student.school_year}</Text>
+                    <Text style={s.program}>{student.subjects?.length || 0} subject{student.subjects?.length === 1 ? '' : 's'}</Text>
                   </View>
-                  <View style={[s.statusBadge, { backgroundColor: status.bg }]}> 
+                  <View style={[s.statusBadge, { backgroundColor: status.bg }]}>
                     <Text style={[s.statusText, { color: status.color }]}>{status.label}</Text>
                   </View>
                 </View>
@@ -203,63 +256,60 @@ export default function RegistrarStudents() {
                 <Text style={s.modalTitle}>Student account</Text>
                 <Text style={s.modalSub}>{selected?.user?.email || selected?.email || 'Linked student login'}</Text>
               </View>
-              <TouchableOpacity style={s.modalClose} onPress={() => setSelected(null)}>
-                <Text style={s.modalCloseText}>✕</Text>
+              <TouchableOpacity style={s.closeBtn} onPress={() => setSelected(null)}>
+                <Text style={s.closeText}>X</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={s.form}>
-              <Field label="Student ID" value={form?.student_id} onChangeText={value => setField('student_id', value)} />
+              <Field label="Student ID" value={form.student_id} onChangeText={value => setField('student_id', value)} />
               <View style={s.twoCol}>
                 <View style={{ flex: 1 }}>
-                  <Field label="First name" value={form?.first_name} onChangeText={value => setField('first_name', value)} />
+                  <Field label="First name" value={form.first_name} onChangeText={value => setField('first_name', value)} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Field label="Last name" value={form?.last_name} onChangeText={value => setField('last_name', value)} />
+                  <Field label="Last name" value={form.last_name} onChangeText={value => setField('last_name', value)} />
                 </View>
               </View>
-              <Field label="Email" value={form?.email} onChangeText={value => setField('email', value)} keyboardType="email-address" autoCapitalize="none" />
-              <Field label="Phone" value={form?.phone} onChangeText={value => setField('phone', value)} keyboardType="phone-pad" />
+              <Field label="Email" value={form.email} onChangeText={value => setField('email', value)} keyboardType="email-address" autoCapitalize="none" />
+              <Field label="Phone" value={form.phone} onChangeText={value => setField('phone', value)} keyboardType="phone-pad" />
 
               <Text style={s.label}>Gender</Text>
               <View style={s.segment}>
                 {['male', 'female'].map(gender => (
                   <TouchableOpacity
                     key={gender}
-                    style={[s.segmentItem, form?.gender === gender && s.segmentActive]}
+                    style={[s.segmentItem, form.gender === gender && s.segmentActive]}
                     onPress={() => setField('gender', gender)}
                   >
-                    <Text style={[s.segmentText, form?.gender === gender && s.segmentTextActive]}>{gender}</Text>
+                    <Text style={[s.segmentText, form.gender === gender && s.segmentTextActive]}>{gender}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
               <View style={s.twoCol}>
                 <View style={{ flex: 1 }}>
-                  <Field label="Grade / Year" value={form?.grade_level} onChangeText={value => setField('grade_level', value)} />
+                  <Field label="Grade / Year" value={form.grade_level} onChangeText={value => setField('grade_level', value)} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Field label="Section" value={form?.section} onChangeText={value => setField('section', value)} />
+                  <Field label="Section" value={form.section} onChangeText={value => setField('section', value)} />
                 </View>
               </View>
-              <Field label="School year" value={form?.school_year} onChangeText={value => setField('school_year', value)} />
-              <Field label="Birthdate" value={form?.birthdate} onChangeText={value => setField('birthdate', value)} placeholder="YYYY-MM-DD" />
-              <Field label="Address" value={form?.address} onChangeText={value => setField('address', value)} multiline />
+              <Field label="School year" value={form.school_year} onChangeText={value => setField('school_year', value)} />
+              <Field label="Birthdate" value={form.birthdate} onChangeText={value => setField('birthdate', value)} placeholder="YYYY-MM-DD" />
+              <Field label="Address" value={form.address} onChangeText={value => setField('address', value)} multiline />
 
               <Text style={s.label}>Status</Text>
               <View style={s.statusPicker}>
-                {Object.keys(STATUS_CONFIG).map(statusKey => {
-                  const st = STATUS_CONFIG[statusKey];
-                  return (
-                    <TouchableOpacity
-                      key={statusKey}
-                      style={[s.statusOption, form?.status === statusKey && { backgroundColor: st.bg, borderColor: st.color }]}
-                      onPress={() => setField('status', statusKey)}
-                    >
-                      <Text style={[s.statusOptionText, form?.status === statusKey && { color: st.color }]}>{st.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {STATUS.map(status => (
+                  <TouchableOpacity
+                    key={status.value}
+                    style={[s.statusOption, form.status === status.value && { backgroundColor: status.bg, borderColor: status.color }]}
+                    onPress={() => setField('status', status.value)}
+                  >
+                    <Text style={[s.statusOptionText, form.status === status.value && { color: status.color }]}>{status.label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
 
               <View style={s.infoPanel}>
@@ -316,6 +366,10 @@ export default function RegistrarStudents() {
                   <Text style={s.resetText}>Update password</Text>
                 </TouchableOpacity>
               </View>
+
+              <TouchableOpacity style={s.deleteBtn} onPress={deleteStudent}>
+                <Text style={s.deleteText}>Delete student account</Text>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -346,9 +400,18 @@ function InfoRow({ label, value }) {
   );
 }
 
+function initials(student) {
+  return `${student.first_name?.[0] || ''}${student.last_name?.[0] || ''}`.toUpperCase() || 'ST';
+}
+
 function formatValue(value) {
   if (!value) return '-';
   return String(value).replace(/_/g, ' ');
+}
+
+function flattenErrors(errors) {
+  if (!errors) return '';
+  return Object.values(errors).flat().join('\n');
 }
 
 const s = StyleSheet.create({
@@ -358,17 +421,17 @@ const s = StyleSheet.create({
   searchCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 14, height: 52, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, elevation: 4 },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1, color: '#0F172A', fontSize: 14, height: 52 },
-  header: { backgroundColor: '#334155', paddingTop: HEADER_TOP, paddingHorizontal: 16, paddingBottom: 14 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '800' },
-  subtitle: { color: 'rgba(255,255,255,0.78)', fontSize: 13, marginTop: 4 },
-  filters: { gap: 8, paddingTop: 12 },
-  filterChip: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8, backgroundColor: 'rgba(255,255,255,0.12)' },
-  filterChipActive: { backgroundColor: '#fff' },
-  filterText: { color: 'rgba(255,255,255,0.78)', fontSize: 12, fontWeight: '800' },
-  filterTextActive: { color: '#334155' },
-  list: { flex: 1, paddingHorizontal: 12, paddingTop: 12 },
+  filtersScroll: { flexGrow: 0, maxHeight: 48, marginBottom: 12 },
+  filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 6 },
+  filterChip: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 10, backgroundColor: '#F1F5F9' },
+  filterChipActive: { backgroundColor: '#334155' },
+  filterText: { color: '#334155', fontSize: 12, fontWeight: '700' },
+  filterTextActive: { color: '#fff' },
+  list: { flex: 1, paddingHorizontal: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#334155', fontWeight: '900', fontSize: 13 },
   name: { color: '#111827', fontSize: 15, fontWeight: '800' },
   meta: { color: '#64748B', fontSize: 12, marginTop: 2 },
   program: { color: '#94A3B8', fontSize: 11, marginTop: 3 },
@@ -382,8 +445,8 @@ const s = StyleSheet.create({
   modalHeader: { padding: 18, borderBottomWidth: 1, borderColor: '#E5E7EB', flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   modalTitle: { color: '#111827', fontSize: 18, fontWeight: '900' },
   modalSub: { color: '#64748B', fontSize: 12, marginTop: 4 },
-  modalClose: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
-  modalCloseText: { color: '#334155', fontSize: 13, fontWeight: '900' },
+  closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
+  closeText: { color: '#334155', fontSize: 13, fontWeight: '900' },
   form: { padding: 18, paddingBottom: 30 },
   label: { color: '#334155', fontSize: 12, fontWeight: '900', marginBottom: 7, marginTop: 12 },
   input: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 11, paddingHorizontal: 13, minHeight: 46, color: '#111827', fontSize: 14, backgroundColor: '#fff' },
@@ -414,12 +477,4 @@ const s = StyleSheet.create({
   subjectMeta: { color: '#64748B', fontSize: 11, marginTop: 3 },
   subjectUnits: { color: '#334155', fontSize: 12, fontWeight: '900', backgroundColor: '#E2E8F0', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
   emptyInline: { color: '#64748B', fontSize: 12, paddingVertical: 8 },
-  // keep some legacy styles used above
-  studentCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
-  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#E1F5EE', justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 16, fontWeight: '700', color: '#1D9E75' },
-  studentName: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  studentMeta: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  studentProgram: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
 });

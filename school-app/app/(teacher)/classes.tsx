@@ -9,11 +9,12 @@ import {
 import { useRouter } from 'expo-router';
 import api from '../../src/api';
 import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
-
-const ACCENT = [Colors.green, Colors.blue, Colors.orange, Colors.purple];
+import { useTheme } from '../../src/theme-context';
 
 export default function Classes() {
   const router = useRouter();
+  const { theme } = useTheme();
+  const ACCENT = [theme.green, theme.primary, theme.orange, theme.purple];
   const [data, setData]             = useState(null);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -33,8 +34,8 @@ export default function Classes() {
   useEffect(() => { fetchDashboard(); }, []);
 
   if (loading) return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" color={Colors.green} />
+    <View style={[styles.center, { backgroundColor: theme.bg }]}>
+      <ActivityIndicator size="large" color={theme.primary} />
     </View>
   );
 
@@ -43,7 +44,7 @@ export default function Classes() {
 
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={{ paddingBottom: 32 }}
       refreshControl={
         <RefreshControl refreshing={refreshing}
@@ -51,7 +52,7 @@ export default function Classes() {
       }
     >
       {/* ── Header ── */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}> 
         <Text style={styles.greeting}>{greeting} 👋</Text>
         <Text style={styles.name}>{data?.teacher}</Text>
         <Text style={styles.role}>Teacher · S.Y. 2025–2026</Text>
@@ -59,58 +60,56 @@ export default function Classes() {
 
       {/* ── Stat cards ── */}
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statVal}>{data?.total_classes ?? 0}</Text>
-          <Text style={styles.statLabel}>Classes</Text>
+        <View style={[styles.statCard, { backgroundColor: theme.card }]}>
+          <Text style={[styles.statVal, { color: theme.text }]}>{data?.total_classes ?? 0}</Text>
+          <Text style={[styles.statLabel, { color: theme.textSub }]}>Classes</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statVal}>{data?.total_students ?? 0}</Text>
-          <Text style={styles.statLabel}>Students</Text>
+        <View style={[styles.statCard, { backgroundColor: theme.card }]}>
+          <Text style={[styles.statVal, { color: theme.text }]}>{data?.total_students ?? 0}</Text>
+          <Text style={[styles.statLabel, { color: theme.textSub }]}>Students</Text>
         </View>
-        <View style={[styles.statCard, { borderBottomWidth: 3, borderBottomColor: Colors.green }]}>
-          <Text style={[styles.statVal, { color: Colors.green }]}>{data?.today_attendance ?? 0}</Text>
-          <Text style={styles.statLabel}>Present today</Text>
+        <View style={[styles.statCard, { backgroundColor: theme.card, borderBottomWidth: 3, borderBottomColor: theme.success }]}> 
+          <Text style={[styles.statVal, { color: theme.success }]}>{data?.today_attendance ?? 0}</Text>
+          <Text style={[styles.statLabel, { color: theme.textSub }]}>Today</Text>
         </View>
       </View>
 
-      {/* ── My classes ── */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>My Classes</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textSub }]}>My Classes</Text>
       </View>
-
       {data?.classes?.length === 0
         ? (
-          <View style={styles.emptyCard}>
+          <View style={[styles.emptyCard, { backgroundColor: theme.card }]}>
             <Text style={styles.emptyIcon}>📚</Text>
-            <Text style={styles.emptyText}>No classes assigned yet.</Text>
+            <Text style={[styles.emptyText, { color: theme.textMuted }]}>No classes assigned yet.</Text>
           </View>
         )
         : data?.classes?.map((c, i) => (
-          <View key={i} style={styles.classCard}>
+          <View key={i} style={[styles.classCard, { backgroundColor: theme.card }]}> 
             <View style={[styles.classAccent, { backgroundColor: ACCENT[i % ACCENT.length] }]} />
             <View style={styles.classBody}>
-              <Text style={styles.className}>{c.subject}</Text>
-              <Text style={styles.classMeta}>
+              <Text style={[styles.className, { color: theme.text }]}>{c.subject}</Text>
+              <Text style={[styles.classMeta, { color: theme.textSub }]}>
                 {c.course ? `Year ${c.grade_level}` : `Grade ${c.grade_level}`} - {c.section} · {c.room || 'No room'} · {c.schedule}
               </Text>
               <View style={styles.classActions}>
                 <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: Colors.blueLight }]}
+                  style={[styles.actionBtn, { backgroundColor: theme.primary + '20' }]}
                   onPress={() => router.push({
                     pathname: '/(teacher)/grades',
                     params: { classId: String(c.id), subject: c.subject },
                   })}
                 >
-                  <Text style={[styles.actionText, { color: Colors.blue }]}>📝 Enter grades</Text>
+                  <Text style={[styles.actionText, { color: theme.primary }]}>📝 Enter grades</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: Colors.greenLight }]}
+                  style={[styles.actionBtn, { backgroundColor: theme.primary + '20' }]}
                   onPress={() => router.push({
                     pathname: '/(teacher)/attendance',
                     params: { classId: String(c.id), subject: c.subject },
                   })}
                 >
-                  <Text style={[styles.actionText, { color: Colors.green }]}>📅 Attendance</Text>
+                  <Text style={[styles.actionText, { color: theme.primary }]}>📅 Attendance</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -122,24 +121,24 @@ export default function Classes() {
       {data?.recent_grades?.length > 0 && (
         <>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recently Entered Grades</Text>
+            <Text style={[styles.sectionTitle, { color: theme.textSub }]}>Recently Entered Grades</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: theme.card }]}>
             {data.recent_grades.map((g, i) => (
-              <View key={i} style={styles.gradeRow}>
-                <View style={styles.gradeAvatar}>
-                  <Text style={styles.gradeAvatarText}>
+              <View key={i} style={[styles.gradeRow, { borderColor: theme.border }]}>
+                <View style={[styles.gradeAvatar, { backgroundColor: theme.primaryLight }]}>
+                  <Text style={[styles.gradeAvatarText, { color: theme.primary }]}>
                     {g.student?.first_name?.[0]}{g.student?.last_name?.[0]}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.gradeName}>
+                  <Text style={[styles.gradeName, { color: theme.text }]}>
                     {g.student?.first_name} {g.student?.last_name}
                   </Text>
-                  <Text style={styles.gradeMeta}>{g.school_class?.subject} · Q{g.quarter}</Text>
+                  <Text style={[styles.gradeMeta, { color: theme.textMuted }]}>{g.school_class?.subject} · Q{g.quarter}</Text>
                 </View>
                 <Text style={[styles.gradeScore, {
-                  color: g.score >= 85 ? Colors.green : g.score >= 75 ? Colors.warning : Colors.danger,
+                  color: g.score >= 85 ? theme.success : g.score >= 75 ? theme.warning : theme.danger,
                 }]}>
                   {g.score}
                 </Text>
@@ -225,11 +224,10 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: Colors.greenLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  gradeAvatarText: { fontSize: Font.xs, fontWeight: '700', color: Colors.green },
+  gradeAvatarText: { fontSize: Font.xs, fontWeight: '700' },
   gradeName:       { fontSize: Font.sm, fontWeight: '500', color: Colors.text },
   gradeMeta:       { fontSize: Font.xs, color: Colors.textMuted, marginTop: 1 },
   gradeScore:      { fontSize: Font.lg, fontWeight: '800' },

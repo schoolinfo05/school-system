@@ -10,9 +10,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
 import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
+import { useTheme } from '../../src/theme-context';
 
 export default function Profile() {
   const router = useRouter();
+  const { theme, themeName, setThemeName, themes } = useTheme();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -44,8 +46,8 @@ export default function Profile() {
   };
 
   if (loading) return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" color={Colors.purple} />
+    <View style={[styles.center, { backgroundColor: theme.bg }]}> 
+      <ActivityIndicator size="large" color={theme.primary} />
     </View>
   );
 
@@ -64,10 +66,10 @@ export default function Profile() {
   ].filter(Boolean);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={{ paddingBottom: 40 }}>
 
       {/* ── Hero ── */}
-      <View style={styles.hero}>
+      <View style={[styles.hero, { backgroundColor: theme.primary }]}>
         <View style={styles.avatar}>
           <Text style={styles.initials}>{initials}</Text>
         </View>
@@ -90,8 +92,33 @@ export default function Profile() {
       </View>
 
       {/* ── Info ── */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Student Information</Text>
+      <View style={[styles.card, { backgroundColor: theme.card }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Color Theme</Text>
+        <View style={styles.paletteRow}>
+          {Object.values(themes).map((palette) => (
+            <TouchableOpacity
+              key={palette.name}
+              style={[
+                styles.paletteOption,
+                { backgroundColor: theme.bg, borderColor: theme.border },
+                themeName === palette.name && { borderColor: theme.primary },
+              ]}
+              onPress={() => setThemeName(palette.name)}
+            >
+              <View style={[styles.paletteDot, { backgroundColor: palette.primary }]} />
+              <Text style={[
+                styles.paletteLabel,
+                { color: themeName === palette.name ? theme.primary : theme.textSub },
+              ]}>
+                {palette.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      <View style={[styles.card, { backgroundColor: theme.card }]}> 
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Student Information</Text>
         {[
           ['School Year', s?.school_year],
           ['Grade & Section', `Grade ${s?.grade_level} – ${s?.section}`],
@@ -99,29 +126,29 @@ export default function Profile() {
           ['Status', s?.status ? s.status.charAt(0).toUpperCase() + s.status.slice(1) : '—'],
           ['Email', s?.email],
         ].map(([label, value]) => (
-          <View key={label} style={styles.infoRow}>
-            <Text style={styles.infoLabel}>{label}</Text>
-            <Text style={styles.infoValue}>{value ?? '—'}</Text>
+          <View key={label} style={[styles.infoRow, { borderColor: theme.border }]}>
+            <Text style={[styles.infoLabel, { color: theme.textSub }]}>{label}</Text>
+            <Text style={[styles.infoValue, { color: theme.text }]}>{value ?? '—'}</Text>
           </View>
         ))}
       </View>
 
       {/* ── Badges ── */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Achievements</Text>
+      <View style={[styles.card, { backgroundColor: theme.card }]}> 
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Achievements</Text>
         <View style={styles.badgeGrid}>
           {badges.map((b, i) => (
-            <View key={i} style={styles.badgeItem}>
+            <View key={i} style={[styles.badgeItem, { backgroundColor: theme.bg, borderColor: theme.border }]}>
               <Text style={styles.badgeIcon}>{b.icon}</Text>
-              <Text style={styles.badgeName}>{b.label}</Text>
+              <Text style={[styles.badgeName, { color: theme.textSub }]}>{b.label}</Text>
             </View>
           ))}
         </View>
       </View>
 
       {/* ── Logout ── */}
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Logout</Text>
+      <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.dangerLight, borderColor: theme.danger }]} onPress={handleLogout}>
+        <Text style={[styles.logoutText, { color: theme.danger }]}>Logout</Text>
       </TouchableOpacity>
 
     </ScrollView>
@@ -198,6 +225,24 @@ const styles = StyleSheet.create({
   },
   badgeIcon:      { fontSize: 28, marginBottom: 6 },
   badgeName:      { fontSize: Font.xs, color: Colors.textSub, textAlign: 'center', fontWeight: '500' },
+
+  paletteRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  paletteOption:  {
+    flex: 1,
+    minWidth: 80,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  paletteDot:     {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginBottom: 8,
+  },
+  paletteLabel:   { fontSize: Font.xs, fontWeight: '700' },
 
   logoutBtn:      {
     marginHorizontal: 16,

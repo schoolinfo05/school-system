@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import api from '../src/api';
+import HeaderGradient from './components/ui/HeaderGradient';
 
 const C = {
   primary:     '#378ADD',
@@ -92,14 +93,16 @@ export default function EnrollmentStatusScreen() {
 
   return (
     <View style={s.container}>
-      {/* Header */}
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-          <Text style={s.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>Check Application Status</Text>
-        <Text style={s.headerSub}>Enter your email to view status</Text>
-      </View>
+      <HeaderGradient
+        title="Application Status"
+        subtitle="Enter your email to view your enrollment progress"
+        initials="ST"
+        stats={[
+          { label: 'Pending', value: statusCfg?.label ?? 'Start', accent: '#FCD34D' },
+          { label: 'Name', value: app ? `${app.first_name} ${app.last_name}` : 'Unknown', accent: '#A5B4FC' },
+          { label: 'Email', value: email || 'Enter email', accent: '#FBCFE8' },
+        ]}
+      />
 
       <ScrollView 
         contentContainerStyle={s.body} 

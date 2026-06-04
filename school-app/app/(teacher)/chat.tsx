@@ -9,6 +9,7 @@ import {
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../src/api';
+import HeaderGradient from '../components/ui/HeaderGradient';
 
 const C = {
   green: '#1D9E75',
@@ -90,10 +91,16 @@ export default function TeacherChat() {
   if (!isThread) {
     return (
       <View style={s.container}>
-        <View style={s.header}>
-          <Text style={s.title}>Chat</Text>
-          <Text style={s.sub}>Answer questions from your assigned students</Text>
-        </View>
+        <HeaderGradient
+          title="Chat"
+          subtitle="Answer questions from your assigned students"
+          initials="TC"
+          stats={[
+            { label: 'Contacts', value: contacts.length, accent: '#A5F3FC' },
+            { label: 'Messages', value: messages.length, accent: '#FDE68A' },
+            { label: 'Status', value: loading ? 'Loading' : 'Ready', accent: '#FBCFE8' },
+          ]}
+        />
 
         {loading ? (
           <View style={s.center}><ActivityIndicator color={C.green} /></View>
@@ -121,7 +128,7 @@ export default function TeacherChat() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.contactName}>{item.name}</Text>
-                  <Text style={s.contactRole}>Student</Text>
+                  <Text style={s.contactRole} numberOfLines={2}>{studentMeta(item)}</Text>
                   {item.last_message ? (
                     <Text style={s.lastMessage} numberOfLines={1}>{item.last_message}</Text>
                   ) : null}
@@ -144,12 +151,20 @@ export default function TeacherChat() {
       style={s.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={s.header}>
+      <HeaderGradient
+        title={contactName ?? 'Student'}
+        subtitle="Teacher conversation"
+        initials={(contactName ?? 'S').slice(0, 2).toUpperCase()}
+        stats={[
+          { label: 'Messages', value: messages.length, accent: '#A5F3FC' },
+          { label: 'Unread', value: messages.filter(m => m.sender_id !== myId && !m.read).length, accent: '#FDE68A' },
+          { label: 'Status', value: loading ? 'Loading' : 'Open', accent: '#FBCFE8' },
+        ]}
+      >
         <TouchableOpacity onPress={() => router.push('/(teacher)/chat')} style={s.backBtn}>
           <Text style={s.backText}>← Students</Text>
         </TouchableOpacity>
-        <Text style={s.title} numberOfLines={1}>{contactName ?? 'Student'}</Text>
-      </View>
+      </HeaderGradient>
 
       {loading ? (
         <View style={s.center}><ActivityIndicator color={C.green} /></View>
@@ -204,6 +219,12 @@ export default function TeacherChat() {
       </View>
     </KeyboardAvoidingView>
   );
+}
+
+function studentMeta(item) {
+  const info = item.student_info ?? {};
+  const parts = [info.year, info.section, info.program, info.school_year].filter(Boolean);
+  return parts.length ? parts.join(' • ') : 'Student';
 }
 
 const s = StyleSheet.create({

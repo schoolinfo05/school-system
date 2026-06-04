@@ -7,6 +7,8 @@ import {
   RefreshControl, Platform, StatusBar,
 } from 'react-native';
 import api from '../../src/api';
+import HeaderGradient from '../components/ui/HeaderGradient';
+import { useTheme } from '../../src/theme-context';
 
 const C = {
   blue: '#378ADD', blueLight: '#E6F1FB',
@@ -24,6 +26,7 @@ const DAY_COLORS = {
 };
 
 export default function MySubjects() {
+  const { theme } = useTheme();
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,16 +44,20 @@ export default function MySubjects() {
   const totalUnits = data?.subjects?.reduce((sum, s) => sum + s.units_lec + s.units_lab, 0) ?? 0;
 
   return (
-    <View style={s.container}>
-      <View style={s.header}>
-        <Text style={s.title}>My Subjects</Text>
-        <Text style={s.subtitle}>
-          {data?.sections?.[0]?.name ?? 'No section assigned yet'}
-        </Text>
-      </View>
+    <View style={[s.container, { backgroundColor: theme.bg }]}> 
+      <HeaderGradient
+        title="My Subjects"
+        subtitle={data?.sections?.[0]?.name ?? 'No section assigned yet'}
+        initials="MS"
+        stats={[
+          { label: 'Subjects', value: data?.subjects?.length ?? 0, accent: '#FDE68A' },
+          { label: 'Units', value: totalUnits, accent: '#A7F3D0' },
+          { label: 'Sections', value: data?.sections?.length ?? 0, accent: '#C7D2FE' },
+        ]}
+      />
 
       {loading ? (
-        <View style={s.center}><ActivityIndicator size="large" color={C.blue} /></View>
+        <View style={[s.center, { backgroundColor: theme.bg }]}><ActivityIndicator size="large" color={theme.primary} /></View>
       ) : (
         <ScrollView contentContainerStyle={s.body}
           refreshControl={<RefreshControl refreshing={refreshing}
@@ -58,15 +65,15 @@ export default function MySubjects() {
 
           {/* Summary bar */}
           {data?.subjects?.length > 0 && (
-            <View style={s.summaryBar}>
+            <View style={[s.summaryBar, { backgroundColor: theme.card, borderColor: theme.border }]}> 
               <View style={s.summaryItem}>
-                <Text style={s.summaryCount}>{data.subjects.length}</Text>
-                <Text style={s.summaryLabel}>Subjects</Text>
+                <Text style={[s.summaryCount, { color: theme.primary }]}>{data.subjects.length}</Text>
+                <Text style={[s.summaryLabel, { color: theme.textMuted }]}>Subjects</Text>
               </View>
-              <View style={s.summaryDivider} />
+              <View style={[s.summaryDivider, { backgroundColor: theme.border }]} />
               <View style={s.summaryItem}>
-                <Text style={s.summaryCount}>{totalUnits}</Text>
-                <Text style={s.summaryLabel}>Total Units</Text>
+                <Text style={[s.summaryCount, { color: theme.primary }]}>{totalUnits}</Text>
+                <Text style={[s.summaryLabel, { color: theme.textMuted }]}>Total Units</Text>
               </View>
               <View style={s.summaryDivider} />
               <View style={s.summaryItem}>
@@ -80,25 +87,25 @@ export default function MySubjects() {
           {!data?.subjects?.length ? (
             <View style={s.emptyWrap}>
               <Text style={s.emptyIcon}>📚</Text>
-              <Text style={s.emptyTitle}>No subjects yet</Text>
-              <Text style={s.emptySub}>{"You haven't been assigned to a section yet."}{'\n'}Please contact the registrar.</Text>
+              <Text style={[s.emptyTitle, { color: theme.text }]}>No subjects yet</Text>
+              <Text style={[s.emptySub, { color: theme.textSub }]}>{"You haven't been assigned to a section yet."}{'\n'}Please contact the registrar.</Text>
             </View>
           ) : (
             data.subjects.map((sub, i) => {
               const dayColor = DAY_COLORS[sub.day] ?? { bg: C.bg, text: C.sub };
               return (
-                <View key={i} style={s.subjectCard}>
+                <View key={i} style={[s.subjectCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
                   <View style={s.subjectTop}>
-                    <View style={s.codeTag}>
-                      <Text style={s.codeText}>{sub.code}</Text>
+                    <View style={[s.codeTag, { backgroundColor: theme.primaryLight }]}> 
+                      <Text style={[s.codeText, { color: theme.primary }]}>{sub.code}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={s.subjectName}>{sub.name}</Text>
-                      <Text style={s.sectionName}>📍 {sub.section_name}</Text>
+                      <Text style={[s.subjectName, { color: theme.text }]}>{sub.name}</Text>
+                      <Text style={[s.sectionName, { color: theme.textSub }]}>📍 {sub.section_name}</Text>
                     </View>
-                    <View style={s.unitsTag}>
-                      <Text style={s.unitsText}>{sub.units_lec + sub.units_lab}</Text>
-                      <Text style={s.unitsLabel}>units</Text>
+                    <View style={[s.unitsTag, { backgroundColor: theme.bg }]}> 
+                      <Text style={[s.unitsText, { color: theme.text }]}>{sub.units_lec + sub.units_lab}</Text>
+                      <Text style={[s.unitsLabel, { color: theme.textSub }]}>units</Text>
                     </View>
                   </View>
 
@@ -110,21 +117,21 @@ export default function MySubjects() {
                       </View>
                     )}
                     {sub.time_start && (
-                      <Text style={s.schedText}>
+                      <Text style={[s.schedText, { color: theme.textSub }]}> 
                         🕐 {sub.time_start} – {sub.time_end}
                       </Text>
                     )}
                     {sub.room && (
-                      <Text style={s.schedText}>🚪 {sub.room}</Text>
+                      <Text style={[s.schedText, { color: theme.textSub }]}>🚪 {sub.room}</Text>
                     )}
                     {sub.teacher && (
-                      <Text style={s.teacherText}>👨‍🏫 {sub.teacher}</Text>
+                      <Text style={[s.teacherText, { color: theme.textSub }]}>👨‍🏫 {sub.teacher}</Text>
                     )}
                   </View>
 
                   <View style={s.unitDetailRow}>
-                    <Text style={s.unitDetailText}>Lec: {sub.units_lec} units</Text>
-                    <Text style={s.unitDetailText}>Lab: {sub.units_lab} units</Text>
+                    <Text style={[s.unitDetailText, { color: theme.textMuted }]}>Lec: {sub.units_lec} units</Text>
+                    <Text style={[s.unitDetailText, { color: theme.textMuted }]}>Lab: {sub.units_lab} units</Text>
                   </View>
                 </View>
               );

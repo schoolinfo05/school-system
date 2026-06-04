@@ -13,9 +13,13 @@ use App\Http\Controllers\Api\EnrollmentController;
 use App\Http\Controllers\Api\CourseController;
 use App\Http\Controllers\Api\SubjectSectionController;
 use App\Http\Controllers\Api\TeacherChatController;
+use App\Http\Controllers\Api\AdminUserController;
+use App\Http\Controllers\Api\AdminStudentController;
 
 // ── Public routes (no login required) ────────────────────────────
 Route::post('/login',            [AuthController::class, 'login']);
+Route::post('/forgot-password',  [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password',   [AuthController::class, 'resetPassword']);
 Route::post('/enrollment',       [EnrollmentController::class, 'store']);
 Route::get('/enrollment/status', [EnrollmentController::class, 'status']);
 Route::get('/enrollment/lookup', [EnrollmentController::class, 'lookup']);
@@ -107,4 +111,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/registrar/enrollments/{id}/approve',  [EnrollmentController::class, 'approve']);
     Route::post('/registrar/enrollments/{id}/reject',   [EnrollmentController::class, 'reject']);
     Route::post('/registrar/students',                  [EnrollmentController::class, 'storeStudent']);
+    Route::get('/registrar/students',                   [AdminStudentController::class, 'index']);
+    Route::put('/registrar/students/{student}',         [AdminStudentController::class, 'update']);
+    Route::post('/registrar/students/{student}/reset-password', [AdminStudentController::class, 'resetPassword']);
+
+    // Admin
+    Route::get('/admin/dashboard',      [AdminUserController::class, 'dashboard']);
+    Route::get('/admin/users',          [AdminUserController::class, 'index']);
+    Route::post('/admin/users',         [AdminUserController::class, 'store']);
+    Route::put('/admin/users/{user}',   [AdminUserController::class, 'update']);
+    Route::delete('/admin/users/{user}', [AdminUserController::class, 'destroy']);
+    Route::get('/admin/students',       [AdminStudentController::class, 'index']);
+    Route::put('/admin/students/{student}', [AdminStudentController::class, 'update']);
+    Route::post('/admin/students/{student}/reset-password', [AdminStudentController::class, 'resetPassword']);
+    Route::delete('/admin/students/{student}', [AdminStudentController::class, 'destroy']);
 });

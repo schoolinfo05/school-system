@@ -1,7 +1,7 @@
 // @ts-nocheck
 // app/(tabs)/chat.tsx — Student chat with assigned teachers
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, KeyboardAvoidingView,
   Platform, StyleSheet, Text, TextInput, TouchableOpacity, View,
@@ -9,6 +9,8 @@ import {
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../src/api';
+import HeaderGradient from '../components/ui/HeaderGradient';
+import { useTheme } from '../../src/theme-context';
 
 const C = {
   blue: '#378ADD',
@@ -23,6 +25,7 @@ const C = {
 
 export default function Chat() {
   const router = useRouter();
+  const { theme } = useTheme();
   const { contactId, contactName } = useLocalSearchParams();
   const [myId, setMyId] = useState(null);
   const [contacts, setContacts] = useState([]);
@@ -34,14 +37,25 @@ export default function Chat() {
 
   const isThread = !!contactId;
 
-  useEffect(() => {
-    AsyncStorage.getItem('user').then(raw => {
-      if (raw) setMyId(JSON.parse(raw).id);
-    });
+  const loadCurrentUser = useCallback(async () => {
+    try {
+      const res = await api.get('/me');
+      if (res.data?.user?.id) {
+        setMyId(res.data.user.id);
+        await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
+        return;
+      }
+    } catch (e) {
+      console.log('Current user error:', e.message);
+    }
+
+    const raw = await AsyncStorage.getItem('user');
+    setMyId(raw ? JSON.parse(raw).id : null);
   }, []);
 
   const loadContacts = useCallback(async () => {
     try {
+      setMessages([]);
       const res = await api.get('/teacher-chat/contacts');
       setContacts(res.data ?? []);
     } catch (e) {
@@ -54,6 +68,7 @@ export default function Chat() {
   const loadMessages = useCallback(async () => {
     if (!contactId) return;
     try {
+      setMessages([]);
       const res = await api.get(`/teacher-chat/${contactId}/messages`);
       setMessages(res.data ?? []);
     } catch (e) {
@@ -66,9 +81,10 @@ export default function Chat() {
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
+      loadCurrentUser();
       if (isThread) loadMessages();
       else loadContacts();
-    }, [isThread, loadContacts, loadMessages])
+    }, [isThread, loadContacts, loadCurrentUser, loadMessages])
   );
 
   const send = async () => {
@@ -89,11 +105,17 @@ export default function Chat() {
 
   if (!isThread) {
     return (
-      <View style={s.container}>
-        <View style={s.header}>
-          <Text style={s.title}>Chat</Text>
-          <Text style={s.sub}>Ask questions to your assigned teachers</Text>
-        </View>
+      <View style={[s.container, { backgroundColor: theme.bg }]}> 
+        <HeaderGradient
+          title="Chat"
+          subtitle="Ask questions to your assigned teachers"
+          initials="CT"
+          stats={[
+            { label: 'Contacts', value: contacts.length, accent: '#A5F3FC' },
+            { label: 'Messages', value: messages.length, accent: '#FDE68A' },
+            { label: 'Status', value: loading ? 'Loading' : 'Ready', accent: '#FBCFE8' },
+          ]}
+        />
 
         {loading ? (
           <View style={s.center}><ActivityIndicator color={C.blue} /></View>
@@ -110,25 +132,25 @@ export default function Chat() {
             contentContainerStyle={{ padding: 16 }}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={s.contactCard}
+                style={[s.contactCard, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => router.push({
                   pathname: '/(tabs)/chat',
                   params: { contactId: String(item.id), contactName: item.name },
                 })}
               >
-                <View style={s.avatar}>
-                  <Text style={s.avatarText}>{(item.name ?? 'T')[0].toUpperCase()}</Text>
+                <View style={[s.avatar, { backgroundColor: theme.primaryLight }]}> 
+                  <Text style={[s.avatarText, { color: theme.primary }]}>{(item.name ?? 'T')[0].toUpperCase()}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.contactName}>{item.name}</Text>
-                  <Text style={s.contactRole}>Teacher</Text>
+                  <Text style={[s.contactName, { color: theme.text }]}>{item.name}</Text>
+                  <Text style={[s.contactRole, { color: theme.textSub }]}>Teacher</Text>
                   {item.last_message ? (
-                    <Text style={s.lastMessage} numberOfLines={1}>{item.last_message}</Text>
+                    <Text style={[s.lastMessage, { color: theme.textSub }]} numberOfLines={1}>{item.last_message}</Text>
                   ) : null}
                 </View>
                 {item.unread > 0 && (
-                  <View style={s.unreadBadge}>
-                    <Text style={s.unreadText}>{item.unread}</Text>
+                  <View style={[s.unreadBadge, { backgroundColor: theme.primary }]}> 
+                    <Text style={[s.unreadText, { color: theme.card }]}>{item.unread}</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -141,18 +163,26 @@ export default function Chat() {
 
   return (
     <KeyboardAvoidingView
-      style={s.container}
+      style={[s.container, { backgroundColor: theme.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={s.header}>
+      <HeaderGradient
+        title={contactName ?? 'Teacher'}
+        subtitle="Student conversation"
+        initials={(contactName ?? 'T').slice(0, 2).toUpperCase()}
+        stats={[
+          { label: 'Messages', value: messages.length, accent: '#A5F3FC' },
+          { label: 'Unread', value: messages.filter(m => m.sender_id !== myId && !m.read).length, accent: '#FDE68A' },
+          { label: 'Status', value: loading ? 'Loading' : 'Open', accent: '#FBCFE8' },
+        ]}
+      >
         <TouchableOpacity onPress={() => router.push('/(tabs)/chat')} style={s.backBtn}>
           <Text style={s.backText}>← Teachers</Text>
         </TouchableOpacity>
-        <Text style={s.title} numberOfLines={1}>{contactName ?? 'Teacher'}</Text>
-      </View>
+      </HeaderGradient>
 
       {loading ? (
-        <View style={s.center}><ActivityIndicator color={C.blue} /></View>
+        <View style={[s.center, { backgroundColor: theme.bg }]}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <FlatList
           ref={listRef}
@@ -170,9 +200,9 @@ export default function Chat() {
           renderItem={({ item }) => {
             const mine = item.sender_id === myId;
             return (
-              <View style={[s.bubble, mine ? s.bubbleMine : s.bubbleTheirs]}>
-                {!mine && <Text style={s.sender}>{item.sender?.name?.split(' ')[0]}</Text>}
-                <Text style={[s.bubbleText, mine ? s.bubbleTextMine : s.bubbleTextTheirs]}>
+              <View style={[s.bubble, mine ? s.bubbleMine : s.bubbleTheirs, { backgroundColor: mine ? theme.primaryLight : theme.card }]}> 
+                {!mine && <Text style={[s.sender, { color: theme.textSub }]}>{item.sender?.name?.split(' ')[0]}</Text>}
+                <Text style={[s.bubbleText, mine ? s.bubbleTextMine : s.bubbleTextTheirs, { color: mine ? theme.text : theme.text }]}>
                   {item.message}
                 </Text>
                 <Text style={[s.time, mine ? s.timeMine : s.timeTheirs]}>
@@ -186,20 +216,20 @@ export default function Chat() {
 
       <View style={s.inputRow}>
         <TextInput
-          style={s.input}
+          style={[s.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
           placeholder="Type your question..."
-          placeholderTextColor={C.muted}
+          placeholderTextColor={theme.textMuted}
           value={input}
           onChangeText={setInput}
           multiline
           maxLength={1000}
         />
         <TouchableOpacity
-          style={[s.sendBtn, (!input.trim() || sending) && s.sendBtnDisabled]}
+          style={[s.sendBtn, { backgroundColor: theme.primary }, (!input.trim() || sending) && s.sendBtnDisabled]}
           onPress={send}
           disabled={!input.trim() || sending}
         >
-          {sending ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.sendText}>Send</Text>}
+          {sending ? <ActivityIndicator size="small" color={theme.card} /> : <Text style={[s.sendText, { color: theme.card }]}>Send</Text>}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

@@ -8,6 +8,8 @@ import {
   RefreshControl, Platform, StatusBar,
 } from 'react-native';
 import api from '../../src/api';
+import HeaderGradient from '../components/ui/HeaderGradient';
+import SearchBar from '../components/ui/SearchBar';
 
 const C = {
   blue:        '#378ADD',
@@ -139,28 +141,23 @@ export default function RegistrarEnrollments() {
 
   return (
     <View style={s.container}>
-
-      {/* Header */}
-      <View style={s.header}>
-        <View style={s.headerTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.title}>Enrollment Applications</Text>
-            <Text style={s.subtitle}>Review and manage student applications</Text>
-          </View>
-        </View>
-        <View style={s.searchBox}>
-          <Text style={s.searchIcon}>🔍</Text>
-          <TextInput
-            style={s.searchInput}
-            placeholder="Search by name or email..."
-            placeholderTextColor="rgba(255,255,255,0.6)"
-            value={search}
-            onChangeText={setSearch}
-            onSubmitEditing={fetchApplications}
-            returnKeyType="search"
-          />
-        </View>
-      </View>
+      <HeaderGradient
+        title="Applications"
+        subtitle="Review and manage student enrollment requests"
+        initials="EN"
+        stats={[
+          { label: 'Pending', value: counts.pending, accent: '#FBBF24' },
+          { label: 'Approved', value: counts.approved, accent: '#34D399' },
+          { label: 'Rejected', value: counts.rejected, accent: '#FCA5A5' },
+        ]}
+      >
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search by name or email..."
+          onSubmitEditing={fetchApplications}
+        />
+      </HeaderGradient>
 
       {/* Summary bar */}
       {!loading && (

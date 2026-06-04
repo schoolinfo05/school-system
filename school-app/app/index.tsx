@@ -15,7 +15,15 @@ export default function Index() {
       const role  = pairs[1][1];
       if (token) {
         setToken(token);
-        setRoute(role === 'teacher' ? '/(teacher)/classes' : '/(tabs)/today');
+        if (role === 'admin') {
+          setRoute('/(admin)/dashboard');
+        } else if (role === 'teacher') {
+          setRoute('/(teacher)/classes');
+        } else if (role === 'registrar') {
+          setRoute('/(registrar)/enrollments');
+        } else {
+          setRoute('/(tabs)/today');
+        }
       } else {
         setRoute('/login');
       }

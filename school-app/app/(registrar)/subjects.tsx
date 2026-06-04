@@ -8,6 +8,8 @@ import {
   RefreshControl, Platform, StatusBar,
 } from 'react-native';
 import api from '../../src/api';
+import HeaderGradient from '../components/ui/HeaderGradient';
+import SearchBar from '../components/ui/SearchBar';
 
 const C = {
   blue: '#378ADD', blueLight: '#E6F1FB',
@@ -165,24 +167,23 @@ export default function RegistrarSubjects() {
 
   return (
     <View style={s.container}>
-      <View style={s.header}>
-        <View style={s.headerTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.title}>Subjects</Text>
-            <Text style={s.subtitle}>{subjects.length} subjects in the system</Text>
-          </View>
-          <TouchableOpacity style={s.addBtn} onPress={openAdd}>
-            <Text style={s.addBtnText}>+ Add</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={s.searchBox}>
-          <Text>🔍</Text>
-          <TextInput style={s.searchInput} placeholder="Search subjects..."
-            placeholderTextColor="rgba(255,255,255,0.6)"
-            value={search} onChangeText={setSearch} onSubmitEditing={fetchSubjects}
-            returnKeyType="search" />
-        </View>
-      </View>
+      <HeaderGradient
+        title="Subjects"
+        subtitle={`${subjects.length} subjects in the system`}
+        initials="SB"
+        stats={[
+          { label: 'Subjects', value: subjects.length, accent: '#FEF08A' },
+          { label: 'Courses', value: courses.length, accent: '#BFDBFE' },
+          { label: 'Status', value: search ? 'Filtered' : 'All', accent: '#FBCFE8' },
+        ]}
+      >
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search subjects..."
+          onSubmitEditing={fetchSubjects}
+        />
+      </HeaderGradient>
 
       {loading ? (
         <View style={s.center}><ActivityIndicator size="large" color={C.blue} /></View>

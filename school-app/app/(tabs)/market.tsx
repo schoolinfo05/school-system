@@ -1,14 +1,18 @@
 // @ts-nocheck
-// app/(tabs)/market.tsx — Marketplace screen with My Listings section
+// app/(tabs)/market.tsx — Marketplace screen with item image upload + detail modal
 
 import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   TouchableOpacity, TextInput, RefreshControl, Alert, Modal,
-  Platform, StatusBar, Image,
+  Platform, StatusBar, Image, Dimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import HeaderGradient from '../components/ui/HeaderGradient';
+import SearchBar from '../components/ui/SearchBar';
 import api from '../../src/api';
+import { useTheme } from '../../src/theme-context';
 
 // ── Design tokens ──────────────────────────────────────────────
 const C = {
@@ -27,6 +31,8 @@ const C = {
   sub:         '#6B7280',
   muted:       '#B0B7C3',
 };
+
+const SCREEN_W = Dimensions.get('window').width;
 
 const HEADER_TOP = Platform.OS === 'android'
   ? (StatusBar.currentHeight ?? 24) + 10
@@ -76,6 +82,7 @@ const DEFAULT_PAYMENT_OPTIONS = {
 };
 
 export default function Market() {
+  const { theme } = useTheme();
   const [role, setRole]             = useState(null);
   const [viewMode, setViewMode]     = useState('browse');
   const [items, setItems]           = useState([]);
@@ -99,6 +106,23 @@ export default function Market() {
   const [paymentMethod, setPaymentMethod] = useState('gcash');
   const [paymentReference, setPaymentReference] = useState('');
   const [checkoutQuantity, setCheckoutQuantity] = useState('1');
+  const [qrphImage, setQrphImage] = useState(null);
+
+  // ── Item detail modal ────────────────────────────────────────
+  const [viewItem, setViewItem]           = useState(null);
+  const [galleryIndex, setGalleryIndex]   = useState(0);
+
+  // ── Item image state ─────────────────────────────────────────
+  const [itemImages, setItemImages]         = useState([]);
+  const [editItemImages, setEditItemImages] = useState([]);
+
+  // ── Edit modal state ─────────────────────────────────────────
+  const [showEdit, setShowEdit]           = useState(false);
+  const [editItem, setEditItem]           = useState(null);
+  const [editForm, setEditForm]           = useState(null);
+  const [editQrphImage, setEditQrphImage] = useState(null);
+  const [saving, setSaving]               = useState(false);
+
   const [form, setForm] = useState({
     title: '', description: '', price: '', stock: '1',
     category: 'books', condition: 'good', location: 'Cebu City',
@@ -120,19 +144,12 @@ export default function Market() {
   }, []);
 
   useEffect(() => {
-    if (role && !canManageListings && viewMode === 'mine') {
-      setViewMode('browse');
-    }
-    if (role && !canManageListings && viewMode === 'sales') {
-      setViewMode('browse');
-    }
-    if (role && !canBuyItems && viewMode === 'orders') {
-      setViewMode('browse');
-    }
+    if (role && !canManageListings && viewMode === 'mine') setViewMode('browse');
+    if (role && !canManageListings && viewMode === 'sales') setViewMode('browse');
+    if (role && !canBuyItems && viewMode === 'orders') setViewMode('browse');
   }, [role, canManageListings, canBuyItems, viewMode]);
 
   // ── Data fetching ───────────────────────────────────────────
-  // Uses your index() — only returns status=available items
   const fetchItems = useCallback(async () => {
     try {
       const params = {};
@@ -148,7 +165,6 @@ export default function Market() {
     }
   }, [category, search]);
 
-  // Uses your myItems() — returns ALL statuses for the logged-in user
   const fetchMyItems = useCallback(async () => {
     try {
       const res = await api.get('/marketplace/my-items');
@@ -195,7 +211,43 @@ export default function Market() {
     else fetchItems();
   }, [viewMode, fetchItems, fetchMyItems, fetchMyOrders, fetchSales]);
 
-  // ── Post item — uses your store() ───────────────────────────
+  // ── Image pickers ───────────────────────────────────────────
+  const pickItemImages = async (setter) => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Allow photo access to upload item images.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: 3,
+      allowsEditing: false,
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets?.length) {
+      setter(result.assets.slice(0, 3));
+    }
+  };
+
+  const pickQrphImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Allow photo access to upload the QRPH image.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.9,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setQrphImage(result.assets[0]);
+      setForm(p => ({ ...p, qrph_image_url: '' }));
+    }
+  };
+
+  // ── Post item ───────────────────────────────────────────────
   const handleSell = async () => {
     if (!canManageListings) {
       Alert.alert('Not allowed', 'Only school management can post marketplace items.');
@@ -214,15 +266,45 @@ export default function Market() {
       Alert.alert('GCash details required', 'Enter the GCash account name and number for online payment.');
       return;
     }
+    if (form.accepts_qrph && !qrphImage && !form.qrph_image_url.trim()) {
+      Alert.alert('QRPH image required', 'Please upload the QRPH image for this item.');
+      return;
+    }
+
     setPosting(true);
     try {
-      await api.post('/marketplace', {
+      const payload = new FormData();
+      Object.entries({
         ...form,
-        price: parseFloat(form.price),
-        stock: parseInt(form.stock, 10),
-        gcash_name: form.accepts_gcash ? form.gcash_name.trim() : null,
-        gcash_number: form.accepts_gcash ? form.gcash_number.trim() : null,
+        price:         String(parseFloat(form.price)),
+        stock:         String(parseInt(form.stock, 10)),
+        accepts_cash:  form.accepts_cash  ? '1' : '0',
+        accepts_gcash: form.accepts_gcash ? '1' : '0',
+        accepts_qrph:  form.accepts_qrph  ? '1' : '0',
+        gcash_name:    form.accepts_gcash ? form.gcash_name.trim()   : '',
+        gcash_number:  form.accepts_gcash ? form.gcash_number.trim() : '',
+      }).forEach(([key, value]) => payload.append(key, value ?? ''));
+
+      if (qrphImage) {
+        payload.append('qrph_image', {
+          uri:  qrphImage.uri,
+          name: qrphImage.fileName || 'qrph.jpg',
+          type: qrphImage.mimeType || 'image/jpeg',
+        });
+      }
+
+      itemImages.forEach((img, idx) => {
+        payload.append('item_images[]', {
+          uri:  img.uri,
+          name: img.fileName || `item-${idx}.jpg`,
+          type: img.mimeType || 'image/jpeg',
+        });
       });
+
+      await api.post('/marketplace', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
       setShowSell(false);
       setForm({
         title: '', description: '', price: '', stock: '1',
@@ -230,6 +312,8 @@ export default function Market() {
         accepts_cash: true, accepts_gcash: true, accepts_qrph: true,
         gcash_name: '', gcash_number: '', qrph_image_url: '',
       });
+      setItemImages([]);
+      setQrphImage(null);
       if (viewMode === 'mine') fetchMyItems(); else fetchItems();
       Alert.alert('Listed!', 'Your item has been posted.');
     } catch {
@@ -239,13 +323,120 @@ export default function Market() {
     }
   };
 
-  // ── Update status — uses your update() via PUT /marketplace/{id}
-  // Your update() accepts any of: title, description, price, category, condition, status, location
+  // ── Edit item ───────────────────────────────────────────────
+  const openEdit = (item) => {
+    setEditItem(item);
+    setEditForm({
+      title:          item.title          ?? '',
+      description:    item.description    ?? '',
+      price:          String(item.price   ?? ''),
+      stock:          String(item.stock   ?? '1'),
+      category:       item.category       ?? 'books',
+      condition:      item.condition      ?? 'good',
+      location:       item.location       ?? '',
+      accepts_cash:   !!item.accepts_cash,
+      accepts_gcash:  !!item.accepts_gcash,
+      accepts_qrph:   !!item.accepts_qrph,
+      gcash_name:     item.gcash_name     ?? '',
+      gcash_number:   item.gcash_number   ?? '',
+      qrph_image_url: item.qrph_image_url ?? '',
+    });
+    setEditQrphImage(null);
+    setEditItemImages([]);
+    setShowEdit(true);
+  };
+
+  const pickEditQrphImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Allow photo access to upload the QRPH image.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.9,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setEditQrphImage(result.assets[0]);
+      setEditForm(p => ({ ...p, qrph_image_url: '' }));
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!editItem || !editForm) return;
+    if (!editForm.title.trim() || !editForm.description.trim() || !editForm.price || !editForm.stock) {
+      Alert.alert('Missing info', 'Please fill in title, description, price, and stock.');
+      return;
+    }
+    if (!editForm.accepts_cash && !editForm.accepts_gcash && !editForm.accepts_qrph) {
+      Alert.alert('Payment required', 'Select at least one payment method.');
+      return;
+    }
+    if (editForm.accepts_gcash && (!editForm.gcash_name.trim() || !editForm.gcash_number.trim())) {
+      Alert.alert('GCash details required', 'Enter the GCash account name and number.');
+      return;
+    }
+    if (editForm.accepts_qrph && !editQrphImage && !editForm.qrph_image_url.trim()) {
+      Alert.alert('QRPH image required', 'Please upload the QRPH image.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = new FormData();
+      Object.entries({
+        ...editForm,
+        price:         String(parseFloat(editForm.price)),
+        stock:         String(parseInt(editForm.stock, 10)),
+        accepts_cash:  editForm.accepts_cash  ? '1' : '0',
+        accepts_gcash: editForm.accepts_gcash ? '1' : '0',
+        accepts_qrph:  editForm.accepts_qrph  ? '1' : '0',
+        gcash_name:    editForm.accepts_gcash ? editForm.gcash_name.trim()   : '',
+        gcash_number:  editForm.accepts_gcash ? editForm.gcash_number.trim() : '',
+      }).forEach(([key, value]) => payload.append(key, value ?? ''));
+
+      if (editQrphImage) {
+        payload.append('qrph_image', {
+          uri:  editQrphImage.uri,
+          name: editQrphImage.fileName || 'qrph.jpg',
+          type: editQrphImage.mimeType || 'image/jpeg',
+        });
+      }
+
+      editItemImages.forEach((img, idx) => {
+        payload.append('item_images[]', {
+          uri:  img.uri,
+          name: img.fileName || `item-${idx}.jpg`,
+          type: img.mimeType || 'image/jpeg',
+        });
+      });
+
+      payload.append('_method', 'PUT');
+
+      const res = await api.post(`/marketplace/${editItem.id}`, payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const updated = res.data;
+      setMyItems(prev => prev.map(i => i.id === updated.id ? updated : i));
+      setItems(prev   => prev.map(i => i.id === updated.id ? updated : i));
+      setShowEdit(false);
+      setEditItem(null);
+      setEditItemImages([]);
+      Alert.alert('Updated!', 'Your listing has been updated.');
+    } catch {
+      Alert.alert('Error', 'Could not update item. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Update status ───────────────────────────────────────────
   const handleUpdateStatus = async (item, newStatus) => {
     setUpdatingId(item.id);
     try {
       await api.put(`/marketplace/${item.id}`, { status: newStatus });
-      // Optimistic update — no need to refetch
       setMyItems(prev =>
         prev.map(i => i.id === item.id ? { ...i, status: newStatus } : i)
       );
@@ -256,7 +447,7 @@ export default function Market() {
     }
   };
 
-  // ── Delete — uses your destroy() ───────────────────────────
+  // ── Delete ──────────────────────────────────────────────────
   const handleDelete = (item) => {
     Alert.alert(
       'Delete listing',
@@ -309,12 +500,12 @@ export default function Market() {
     setBuyingId(checkoutItem.id);
     try {
       const res = await api.post(`/marketplace/${checkoutItem.id}/buy`, {
-        payment_method: paymentMethod,
+        payment_method:   paymentMethod,
         quantity,
         gcash_reference: ['gcash', 'qrph'].includes(paymentMethod) ? paymentReference.trim() : null,
       });
       const updated = res.data.item;
-      const order = res.data.order;
+      const order   = res.data.order;
       setItems(prev =>
         updated.stock > 0
           ? prev.map(i => i.id === updated.id ? updated : i)
@@ -380,20 +571,30 @@ export default function Market() {
     }
   };
 
+  // ── Open item detail ────────────────────────────────────────
+  const openItemDetail = (item) => {
+    setViewItem(item);
+    setGalleryIndex(0);
+  };
+
   const renderOrderCard = (order) => {
-    const item = order.item ?? {};
-    const isGcash = order.payment_method === 'gcash';
-    const isQrph = order.payment_method === 'qrph';
+    const item        = order.item ?? {};
+    const isGcash     = order.payment_method === 'gcash';
+    const isQrph      = order.payment_method === 'qrph';
     const isCancelled = order.status === 'cancelled';
     const isCompleted = order.status === 'completed';
-    const canCancel = !isCancelled && !isCompleted;
+    const canCancel   = !isCancelled && !isCompleted;
 
     return (
       <View key={order.id} style={s.orderCard}>
         <View style={s.orderTop}>
-          <View style={s.orderIcon}>
-            <Text style={s.orderIconText}>{CAT_EMOJI[item.category] ?? '📦'}</Text>
-          </View>
+          <TouchableOpacity style={s.orderIcon} onPress={() => item.id && openItemDetail(item)} activeOpacity={0.8}>
+            {item.image_urls?.[0] ? (
+              <Image source={{ uri: item.image_urls[0] }} style={s.orderThumb} resizeMode="cover" />
+            ) : (
+              <Text style={s.orderIconText}>{CAT_EMOJI[item.category] ?? '📦'}</Text>
+            )}
+          </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={s.orderTitle}>{item.title ?? 'Marketplace item'}</Text>
             <Text style={s.orderSeller}>Seller: {order.seller?.name ?? item.seller?.name ?? 'School Marketplace'}</Text>
@@ -456,19 +657,23 @@ export default function Market() {
   };
 
   const renderSaleCard = (order) => {
-    const item = order.item ?? {};
-    const buyerName = order.buyer?.name ?? 'Student buyer';
-    const status = order.status ?? 'reserved';
-    const isCancelled = status === 'cancelled';
-    const isPaid = status === 'paid';
-    const canVerify = ['pending_verification', 'reserved'].includes(status) && ['gcash', 'qrph'].includes(order.payment_method);
+    const item       = order.item ?? {};
+    const buyerName  = order.buyer?.name ?? 'Student buyer';
+    const status     = order.status ?? 'reserved';
+    const isCancelled= status === 'cancelled';
+    const isPaid     = status === 'paid';
+    const canVerify  = ['pending_verification', 'reserved'].includes(status) && ['gcash', 'qrph'].includes(order.payment_method);
 
     return (
       <View key={order.id} style={s.orderCard}>
         <View style={s.orderTop}>
-          <View style={s.orderIcon}>
-            <Text style={s.orderIconText}>{CAT_EMOJI[item.category] ?? '📦'}</Text>
-          </View>
+          <TouchableOpacity style={s.orderIcon} onPress={() => item.id && openItemDetail(item)} activeOpacity={0.8}>
+            {item.image_urls?.[0] ? (
+              <Image source={{ uri: item.image_urls[0] }} style={s.orderThumb} resizeMode="cover" />
+            ) : (
+              <Text style={s.orderIconText}>{CAT_EMOJI[item.category] ?? '📦'}</Text>
+            )}
+          </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={s.orderTitle}>{item.title ?? 'Marketplace item'}</Text>
             <Text style={s.orderSeller}>Buyer: {buyerName}</Text>
@@ -535,7 +740,7 @@ export default function Market() {
     );
   };
 
-  // ── Render card (shared between browse + my listings) ───────
+  // ── Render card ─────────────────────────────────────────────
   const renderCard = (item, i) => {
     const cond          = CONDITION_MAP[item.condition] ?? CONDITION_MAP.good;
     const status        = STATUS_MAP[item.status]       ?? STATUS_MAP.available;
@@ -545,26 +750,46 @@ export default function Market() {
     const isUpdating    = updatingId === item.id;
     const isBuying      = buyingId === item.id;
     const isMine        = viewMode === 'mine';
+    const firstImage    = item.image_urls?.[0] ?? null;
 
     return (
       <View key={i} style={[s.itemCard, isUnavailable && !isMine && s.itemCardDimmed]}>
 
-        {/* Image area with status badge */}
-        <View style={s.itemImg}>
-          <Text style={s.itemImgEmoji}>{CAT_EMOJI[item.category] ?? '📦'}</Text>
+        {/* Tappable image area → opens detail modal */}
+        <TouchableOpacity
+          style={s.itemImg}
+          onPress={() => openItemDetail(item)}
+          activeOpacity={0.88}
+        >
+          {firstImage ? (
+            <Image
+              source={{ uri: firstImage }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={s.itemImgEmoji}>{CAT_EMOJI[item.category] ?? '📦'}</Text>
+          )}
           <View style={[s.statusBadge, { backgroundColor: status.bg }]}>
             <Text style={s.statusBadgeText}>{status.label}</Text>
           </View>
-        </View>
+          {item.image_urls?.length > 1 && (
+            <View style={s.photoCountBadge}>
+              <Text style={s.photoCountText}>+{item.image_urls.length - 1}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
         {/* Body */}
         <View style={s.itemBody}>
-          <Text
-            style={[s.itemTitle, isUnavailable && !isMine && s.textDimmed]}
-            numberOfLines={2}
-          >
-            {item.title}
-          </Text>
+          <TouchableOpacity onPress={() => openItemDetail(item)} activeOpacity={0.7}>
+            <Text
+              style={[s.itemTitle, isUnavailable && !isMine && s.textDimmed]}
+              numberOfLines={2}
+            >
+              {item.title}
+            </Text>
+          </TouchableOpacity>
 
           <Text style={[s.itemPrice, isSold && !isMine && s.itemPriceSold]}>
             ₱{Number(item.price).toLocaleString()}
@@ -581,7 +806,6 @@ export default function Market() {
             )}
           </View>
 
-          {/* Location */}
           {item.location ? (
             <Text style={s.itemLocation} numberOfLines={1}>
               📍 {item.location}
@@ -589,9 +813,9 @@ export default function Market() {
           ) : null}
           <Text style={s.stockText}>{item.stock ?? 1} in stock</Text>
           <View style={s.paymentRow}>
-            {item.accepts_qrph ? <Text style={s.paymentBadge}>QRPH</Text> : null}
+            {item.accepts_qrph  ? <Text style={s.paymentBadge}>QRPH</Text>  : null}
             {item.accepts_gcash ? <Text style={s.paymentBadge}>GCash</Text> : null}
-            {item.accepts_cash ? <Text style={s.paymentBadge}>Cash</Text> : null}
+            {item.accepts_cash  ? <Text style={s.paymentBadge}>Cash</Text>  : null}
           </View>
 
           {/* ── My Listings: action buttons ── */}
@@ -601,7 +825,6 @@ export default function Market() {
                 <ActivityIndicator size="small" color={C.blue} style={{ marginVertical: 8 }} />
               ) : (
                 <>
-                  {/* Relist — only show if currently unavailable */}
                   {isUnavailable && (
                     <TouchableOpacity
                       style={[s.actionBtn, s.actionBtnGreen]}
@@ -610,8 +833,6 @@ export default function Market() {
                       <Text style={[s.actionBtnText, { color: C.green }]}>✅ Relist</Text>
                     </TouchableOpacity>
                   )}
-
-                  {/* Mark as sold — hide if already sold */}
                   {!isSold && (
                     <TouchableOpacity
                       style={[s.actionBtn, s.actionBtnDanger]}
@@ -620,8 +841,6 @@ export default function Market() {
                       <Text style={[s.actionBtnText, { color: C.danger }]}>🚫 Mark Sold</Text>
                     </TouchableOpacity>
                   )}
-
-                  {/* Mark as reserved — hide if already reserved */}
                   {!isReserved && (
                     <TouchableOpacity
                       style={[s.actionBtn, s.actionBtnWarning]}
@@ -630,8 +849,12 @@ export default function Market() {
                       <Text style={[s.actionBtnText, { color: C.warning }]}>🔒 Reserve</Text>
                     </TouchableOpacity>
                   )}
-
-                  {/* Delete */}
+                  <TouchableOpacity
+                    style={[s.actionBtn, s.actionBtnEdit]}
+                    onPress={() => openEdit(item)}
+                  >
+                    <Text style={[s.actionBtnText, { color: C.blue }]}>✏️ Edit</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={[s.actionBtn, s.actionBtnDelete]}
                     onPress={() => handleDelete(item)}
@@ -643,13 +866,13 @@ export default function Market() {
             </View>
           ) : canBuyItems ? (
             <TouchableOpacity
-              style={[s.buyBtn, isBuying && { opacity: 0.6 }]}
-              onPress={() => openCheckout(item)}
-              disabled={isBuying}
+              style={[s.buyBtn, (isBuying || isUnavailable) && { opacity: 0.6 }]}
+              onPress={() => !isUnavailable && openCheckout(item)}
+              disabled={isBuying || isUnavailable}
             >
               {isBuying
                 ? <ActivityIndicator size="small" color="#fff" />
-                : <Text style={s.buyBtnText}>Checkout</Text>
+                : <Text style={s.buyBtnText}>{isUnavailable ? 'Unavailable' : 'Checkout'}</Text>
               }
             </TouchableOpacity>
           ) : null}
@@ -660,32 +883,33 @@ export default function Market() {
 
   // ── Render ───────────────────────────────────────────────────
   return (
-    <View style={s.container}>
-
-      {/* ── Header ── */}
-      <View style={s.header}>
-        <View style={s.headerTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.title}>Marketplace</Text>
-            <Text style={s.subtitle}>
-              {viewMode === 'mine'
-                ? 'Manage your listings'
-                : viewMode === 'sales'
-                ? 'Track buyers, payments, and stock'
-                : viewMode === 'orders'
-                ? 'Track reserved items and checkout payments'
-                : 'Browse fixed-price school marketplace items'}
-            </Text>
-          </View>
-          {canManageListings && (
-            <TouchableOpacity style={s.sellBtn} onPress={() => setShowSell(true)}>
-              <Text style={s.sellBtnText}>+ Sell</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Browse / My Listings toggle */}
-        <View style={s.toggleRow}>
+    <View style={[s.container, { backgroundColor: theme.bg }]}>
+      <HeaderGradient
+        title="Marketplace"
+        subtitle={
+          viewMode === 'mine'
+            ? 'Manage your listings'
+            : viewMode === 'sales'
+            ? 'Track buyers, payments, and stock'
+            : viewMode === 'orders'
+            ? 'Track reserved items and checkout payments'
+            : 'Browse fixed-price school marketplace items'
+        }
+        initials="MK"
+        stats={[
+          { label: 'Browse', value: items.length, accent: '#A5F3FC' },
+          { label: 'Sales', value: viewMode === 'sales' ? sales.length : 0, accent: '#FCD34D' },
+          { label: 'Orders', value: viewMode === 'orders' ? orders.length : 0, accent: '#FCA5A5' },
+        ]}
+      >
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search items..."
+          onSubmitEditing={fetchItems}
+        />
+      </HeaderGradient>
+      <View style={s.toggleRow}>
           <TouchableOpacity
             style={[s.toggleBtn, viewMode === 'browse' && s.toggleBtnActive]}
             onPress={() => setViewMode('browse')}
@@ -726,26 +950,7 @@ export default function Market() {
           )}
         </View>
 
-        {/* Search row — browse mode only */}
-        {viewMode === 'browse' && (
-          <View style={s.searchRow}>
-            <View style={s.searchBox}>
-              <Text style={s.searchIcon}>🔍</Text>
-              <TextInput
-                style={s.searchInput}
-                placeholder="Search items..."
-                placeholderTextColor="rgba(255,255,255,0.6)"
-                value={search}
-                onChangeText={setSearch}
-                onSubmitEditing={fetchItems}
-                returnKeyType="search"
-              />
-            </View>
-          </View>
-        )}
-      </View>
-
-      {/* ── Category tabs — browse mode only ── */}
+      {/* ── Category tabs ── */}
       {viewMode === 'browse' && (
         <View style={s.catWrapper}>
           <ScrollView
@@ -784,7 +989,7 @@ export default function Market() {
           </Text>
           <Text style={s.summaryDivider}>·</Text>
           <Text style={s.summaryItem}>
-            <Text style={[s.summaryCount, { color: C.danger }]}>
+            <Text style={[s.summaryCount, { color: theme.danger }]}>
               {myItems.filter(i => i.status === 'sold').length}
             </Text>
             {'  sold'}
@@ -801,8 +1006,8 @@ export default function Market() {
 
       {/* ── Items grid ── */}
       {loading ? (
-        <View style={s.center}>
-          <ActivityIndicator size="large" color={C.blue} />
+        <View style={[s.center, { backgroundColor: theme.bg }]}> 
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       ) : (
         <ScrollView
@@ -852,6 +1057,149 @@ export default function Market() {
           )}
         </ScrollView>
       )}
+
+      {/* ══════════════════════════════════════════════════════
+          ── Item Detail Modal ──
+      ══════════════════════════════════════════════════════ */}
+      <Modal visible={!!viewItem} animationType="slide" presentationStyle="pageSheet">
+        <View style={s.modal}>
+          {/* Header */}
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle} numberOfLines={1}>{viewItem?.title}</Text>
+            <TouchableOpacity style={s.modalCloseBtn} onPress={() => setViewItem(null)}>
+              <Text style={s.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+
+            {/* ── Image gallery (horizontal pager) ── */}
+            {viewItem?.image_urls?.length > 0 ? (
+              <>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={s.detailGallery}
+                  onScroll={e => {
+                    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+                    setGalleryIndex(idx);
+                  }}
+                  scrollEventThrottle={16}
+                >
+                  {viewItem.image_urls.map((url, i) => (
+                    <Image
+                      key={i}
+                      source={{ uri: url }}
+                      style={[s.detailGalleryImg, { width: SCREEN_W }]}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </ScrollView>
+                {/* Dot indicators */}
+                {viewItem.image_urls.length > 1 && (
+                  <View style={s.dotRow}>
+                    {viewItem.image_urls.map((_, i) => (
+                      <View
+                        key={i}
+                        style={[s.dot, i === galleryIndex && s.dotActive]}
+                      />
+                    ))}
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={s.detailGalleryEmpty}>
+                <Text style={{ fontSize: 72 }}>{CAT_EMOJI[viewItem?.category] ?? '📦'}</Text>
+              </View>
+            )}
+
+            <View style={{ padding: 16 }}>
+
+              {/* Price row */}
+              <View style={s.detailPriceRow}>
+                <Text style={s.detailPrice}>₱{Number(viewItem?.price ?? 0).toLocaleString()}</Text>
+                <View style={[s.condBadge, { backgroundColor: CONDITION_MAP[viewItem?.condition]?.bg ?? C.bg }]}>
+                  <Text style={[s.condText, { color: CONDITION_MAP[viewItem?.condition]?.text ?? C.sub }]}>
+                    {CONDITION_MAP[viewItem?.condition]?.label ?? viewItem?.condition}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Status + stock row */}
+              <View style={s.detailStatusRow}>
+                <View style={[s.detailStatusBadge, { backgroundColor: STATUS_MAP[viewItem?.status]?.bg ?? C.green }]}>
+                  <Text style={s.statusBadgeText}>{STATUS_MAP[viewItem?.status]?.label ?? 'AVAILABLE'}</Text>
+                </View>
+                <Text style={s.stockText}>{viewItem?.stock ?? 0} in stock</Text>
+              </View>
+
+              {/* Description */}
+              <Text style={s.detailSectionLabel}>Description</Text>
+              <Text style={s.detailDescription}>{viewItem?.description}</Text>
+
+              {/* Location */}
+              {viewItem?.location ? (
+                <>
+                  <Text style={s.detailSectionLabel}>Location</Text>
+                  <Text style={s.detailMeta}>📍 {viewItem.location}</Text>
+                </>
+              ) : null}
+
+              {/* Seller */}
+              <Text style={s.detailSectionLabel}>Seller</Text>
+              <View style={s.detailSellerRow}>
+                <View style={s.detailSellerAvatar}>
+                  <Text style={s.detailSellerAvatarText}>
+                    {(viewItem?.seller?.name ?? 'S').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={s.detailSellerName}>{viewItem?.seller?.name ?? 'School Marketplace'}</Text>
+              </View>
+
+              {/* Payment methods */}
+              <Text style={s.detailSectionLabel}>Accepted Payments</Text>
+              <View style={s.paymentRow}>
+                {viewItem?.accepts_qrph  ? <Text style={s.paymentBadge}>QRPH</Text>  : null}
+                {viewItem?.accepts_gcash ? <Text style={s.paymentBadge}>GCash</Text> : null}
+                {viewItem?.accepts_cash  ? <Text style={s.paymentBadge}>Cash</Text>  : null}
+              </View>
+
+              {/* ── Action buttons ── */}
+              <View style={s.detailActions}>
+                {canBuyItems && viewItem?.status === 'available' && (
+                  <TouchableOpacity
+                    style={s.detailBuyBtn}
+                    onPress={() => {
+                      setViewItem(null);
+                      openCheckout(viewItem);
+                    }}
+                  >
+                    <Text style={s.buyBtnText}>🛒  Checkout</Text>
+                  </TouchableOpacity>
+                )}
+                {canBuyItems && viewItem?.status !== 'available' && (
+                  <View style={[s.detailBuyBtn, { backgroundColor: C.muted }]}>
+                    <Text style={s.buyBtnText}>Unavailable</Text>
+                  </View>
+                )}
+                {canManageListings && (
+                  <TouchableOpacity
+                    style={[s.detailEditBtn]}
+                    onPress={() => {
+                      setViewItem(null);
+                      openEdit(viewItem);
+                    }}
+                  >
+                    <Text style={[s.actionBtnText, { color: C.blue }]}>✏️  Edit listing</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* ── Sell Modal ── */}
       <Modal visible={showSell} animationType="slide" presentationStyle="pageSheet">
@@ -928,6 +1276,26 @@ export default function Market() {
               value={form.location}
               onChangeText={v => setForm(p => ({ ...p, location: v }))} />
 
+            <Text style={s.fieldLabel}>Item Photos (up to 3)</Text>
+            <TouchableOpacity style={s.uploadBtn} onPress={() => pickItemImages(setItemImages)}>
+              <Text style={s.uploadBtnText}>
+                {itemImages.length > 0
+                  ? `📷  ${itemImages.length} photo(s) selected — tap to change`
+                  : '📷  Add item photos'}
+              </Text>
+            </TouchableOpacity>
+            {itemImages.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {itemImages.map((img, i) => (
+                    <Image key={i} source={{ uri: img.uri }} style={s.itemPhotoThumb} resizeMode="cover" />
+                  ))}
+                </View>
+              </ScrollView>
+            ) : (
+              <Text style={s.helperText}>{"Optional but recommended - helps buyers see exactly what you're selling."}</Text>
+            )}
+
             <Text style={s.fieldLabel}>Payment Methods</Text>
             <View style={s.chipRow}>
               <TouchableOpacity
@@ -969,16 +1337,16 @@ export default function Market() {
 
             {form.accepts_qrph && (
               <View style={s.paymentPanel}>
-                <Text style={s.fieldLabel}>QRPH Image URL</Text>
-                <TextInput style={s.fieldInput}
-                  placeholder="https://.../school-qr.png"
-                  value={form.qrph_image_url}
-                  onChangeText={v => setForm(p => ({ ...p, qrph_image_url: v }))}
-                  autoCapitalize="none" />
-                {form.qrph_image_url ? (
+                <Text style={s.fieldLabel}>QRPH Image *</Text>
+                <TouchableOpacity style={s.uploadBtn} onPress={pickQrphImage}>
+                  <Text style={s.uploadBtnText}>{qrphImage ? 'Change QRPH image' : 'Upload QRPH image'}</Text>
+                </TouchableOpacity>
+                {qrphImage ? (
+                  <Image source={{ uri: qrphImage.uri }} style={s.qrPreview} resizeMode="contain" />
+                ) : form.qrph_image_url ? (
                   <Image source={{ uri: form.qrph_image_url }} style={s.qrPreview} resizeMode="contain" />
                 ) : (
-                  <Text style={s.helperText}>Paste a QR image link here, or leave blank to use the school QRPH image.</Text>
+                  <Text style={s.helperText}>Select the QR image from your gallery. The app will upload it automatically.</Text>
                 )}
               </View>
             )}
@@ -999,10 +1367,204 @@ export default function Market() {
         </View>
       </Modal>
 
+      {/* ── Edit Modal ── */}
+      <Modal visible={showEdit} animationType="slide" presentationStyle="pageSheet">
+        <View style={s.modal}>
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>Edit listing</Text>
+            <TouchableOpacity style={s.modalCloseBtn} onPress={() => setShowEdit(false)}>
+              <Text style={s.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {editForm && (
+            <ScrollView contentContainerStyle={s.modalBody} keyboardShouldPersistTaps="handled">
+
+              <Text style={s.fieldLabel}>Title *</Text>
+              <TextInput style={s.fieldInput}
+                placeholder="e.g. Science 10 Textbook"
+                value={editForm.title}
+                onChangeText={v => setEditForm(p => ({ ...p, title: v }))} />
+
+              <Text style={s.fieldLabel}>Description *</Text>
+              <TextInput style={[s.fieldInput, { height: 90, textAlignVertical: 'top' }]}
+                placeholder="Describe your item"
+                value={editForm.description}
+                onChangeText={v => setEditForm(p => ({ ...p, description: v }))}
+                multiline />
+
+              <Text style={s.fieldLabel}>Price (₱) *</Text>
+              <TextInput style={s.fieldInput}
+                placeholder="0"
+                value={editForm.price}
+                onChangeText={v => setEditForm(p => ({ ...p, price: v }))}
+                keyboardType="numeric" />
+
+              <Text style={s.fieldLabel}>Stock *</Text>
+              <TextInput style={s.fieldInput}
+                placeholder="1"
+                value={editForm.stock}
+                onChangeText={v => setEditForm(p => ({ ...p, stock: v.replace(/[^0-9]/g, '') }))}
+                keyboardType="number-pad" />
+
+              <Text style={s.fieldLabel}>Category</Text>
+              <View style={s.chipRow}>
+                {['books', 'uniforms', 'electronics', 'supplies', 'other'].map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[s.chip, editForm.category === c && s.chipActive]}
+                    onPress={() => setEditForm(p => ({ ...p, category: c }))}
+                  >
+                    <Text style={[s.chipText, editForm.category === c && s.chipTextActive]}>
+                      {CAT_EMOJI[c]}  {c}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={s.fieldLabel}>Condition</Text>
+              <View style={s.chipRow}>
+                {['new', 'like_new', 'good', 'fair'].map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[s.chip, editForm.condition === c && s.chipActive]}
+                    onPress={() => setEditForm(p => ({ ...p, condition: c }))}
+                  >
+                    <Text style={[s.chipText, editForm.condition === c && s.chipTextActive]}>
+                      {c.replace('_', ' ')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={s.fieldLabel}>Location</Text>
+              <TextInput style={s.fieldInput}
+                placeholder="e.g. Cebu City"
+                value={editForm.location}
+                onChangeText={v => setEditForm(p => ({ ...p, location: v }))} />
+
+              <Text style={s.fieldLabel}>Item Photos (up to 3)</Text>
+              <TouchableOpacity style={s.uploadBtn} onPress={() => pickItemImages(setEditItemImages)}>
+                <Text style={s.uploadBtnText}>
+                  {editItemImages.length > 0
+                    ? `📷  ${editItemImages.length} new photo(s) — tap to change`
+                    : editItem?.image_urls?.length
+                    ? `📷  ${editItem.image_urls.length} existing — tap to replace all`
+                    : '📷  Add item photos'}
+                </Text>
+              </TouchableOpacity>
+              {editItemImages.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {editItemImages.map((img, i) => (
+                      <Image key={i} source={{ uri: img.uri }} style={s.itemPhotoThumb} resizeMode="cover" />
+                    ))}
+                  </View>
+                </ScrollView>
+              ) : editItem?.image_urls?.length ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {editItem.image_urls.map((url, i) => (
+                      <Image key={i} source={{ uri: url }} style={s.itemPhotoThumb} resizeMode="cover" />
+                    ))}
+                  </View>
+                </ScrollView>
+              ) : (
+                <Text style={s.helperText}>No photos yet. Tap above to add some.</Text>
+              )}
+
+              <Text style={s.fieldLabel}>Payment Methods</Text>
+              <View style={s.chipRow}>
+                <TouchableOpacity
+                  style={[s.chip, editForm.accepts_qrph && s.chipActive]}
+                  onPress={() => setEditForm(p => ({ ...p, accepts_qrph: !p.accepts_qrph }))}
+                >
+                  <Text style={[s.chipText, editForm.accepts_qrph && s.chipTextActive]}>QRPH</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.chip, editForm.accepts_gcash && s.chipActive]}
+                  onPress={() => setEditForm(p => ({ ...p, accepts_gcash: !p.accepts_gcash }))}
+                >
+                  <Text style={[s.chipText, editForm.accepts_gcash && s.chipTextActive]}>GCash online</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.chip, editForm.accepts_cash && s.chipActive]}
+                  onPress={() => setEditForm(p => ({ ...p, accepts_cash: !p.accepts_cash }))}
+                >
+                  <Text style={[s.chipText, editForm.accepts_cash && s.chipTextActive]}>Cash</Text>
+                </TouchableOpacity>
+              </View>
+
+              {editForm.accepts_gcash && (
+                <View style={s.paymentPanel}>
+                  <Text style={s.fieldLabel}>GCash Account Name *</Text>
+                  <TextInput style={s.fieldInput}
+                    placeholder="Account name"
+                    value={editForm.gcash_name}
+                    onChangeText={v => setEditForm(p => ({ ...p, gcash_name: v }))} />
+
+                  <Text style={s.fieldLabel}>GCash Number *</Text>
+                  <TextInput style={s.fieldInput}
+                    placeholder="09XXXXXXXXX"
+                    value={editForm.gcash_number}
+                    onChangeText={v => setEditForm(p => ({ ...p, gcash_number: v }))}
+                    keyboardType="phone-pad" />
+                </View>
+              )}
+
+              {editForm.accepts_qrph && (
+                <View style={s.paymentPanel}>
+                  <Text style={s.fieldLabel}>QRPH Image *</Text>
+                  <TouchableOpacity style={s.uploadBtn} onPress={pickEditQrphImage}>
+                    <Text style={s.uploadBtnText}>
+                      {editQrphImage
+                        ? 'Change QRPH image'
+                        : editForm.qrph_image_url
+                        ? 'Replace QRPH image'
+                        : 'Upload QRPH image'}
+                    </Text>
+                  </TouchableOpacity>
+                  {editQrphImage ? (
+                    <Image source={{ uri: editQrphImage.uri }} style={s.qrPreview} resizeMode="contain" />
+                  ) : editForm.qrph_image_url ? (
+                    <Image source={{ uri: editForm.qrph_image_url }} style={s.qrPreview} resizeMode="contain" />
+                  ) : (
+                    <Text style={s.helperText}>Select the QR image from your gallery.</Text>
+                  )}
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[s.postBtn, saving && { opacity: 0.6 }]}
+                onPress={handleEdit}
+                disabled={saving}
+              >
+                {saving
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.postBtnText}>Save changes</Text>
+                }
+              </TouchableOpacity>
+
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
+
+      {/* ── Checkout Modal ── */}
       <Modal visible={!!checkoutItem} transparent animationType="fade">
         <View style={s.checkoutBackdrop}>
           <View style={s.checkoutCard}>
             <Text style={s.checkoutTitle}>Checkout</Text>
+
+            {checkoutItem?.image_urls?.[0] && (
+              <Image
+                source={{ uri: checkoutItem.image_urls[0] }}
+                style={s.checkoutItemImage}
+                resizeMode="cover"
+              />
+            )}
+
             <Text style={s.checkoutItem}>{checkoutItem?.title}</Text>
             <Text style={s.checkoutPrice}>
               ₱{Number((checkoutItem?.price ?? 0) * (parseInt(checkoutQuantity, 10) || 1)).toLocaleString()}
@@ -1117,6 +1679,7 @@ export default function Market() {
         </View>
       </Modal>
 
+      {/* ── Cancel Order Modal ── */}
       <Modal visible={!!cancelOrder} transparent animationType="fade">
         <View style={s.checkoutBackdrop}>
           <View style={s.checkoutCard}>
@@ -1217,6 +1780,7 @@ const s = StyleSheet.create({
   },
   searchIcon:  { fontSize: 14 },
   searchInput: { flex: 1, color: '#fff', fontSize: 13 },
+
   catWrapper: {
     backgroundColor: C.card,
     borderBottomWidth: 1,
@@ -1289,27 +1853,29 @@ const s = StyleSheet.create({
     backgroundColor: C.blueLight,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
+  orderThumb:    { width: 44, height: 44, borderRadius: 12 },
   orderIconText: { fontSize: 22 },
-  orderTitle: { fontSize: 14, color: C.text, fontWeight: '800' },
-  orderSeller: { fontSize: 12, color: C.sub, marginTop: 3 },
-  orderStatus: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
-  orderStatusPaid: { backgroundColor: C.greenLight },
-  orderStatusReserved: { backgroundColor: C.warningLight },
-  orderStatusCancelled: { backgroundColor: C.dangerLight },
-  orderStatusText: { fontSize: 10, fontWeight: '900' },
-  orderStatusPaidText: { color: C.green },
+  orderTitle:   { fontSize: 14, color: C.text, fontWeight: '800' },
+  orderSeller:  { fontSize: 12, color: C.sub, marginTop: 3 },
+  orderStatus:  { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
+  orderStatusPaid:         { backgroundColor: C.greenLight },
+  orderStatusReserved:     { backgroundColor: C.warningLight },
+  orderStatusCancelled:    { backgroundColor: C.dangerLight },
+  orderStatusText:         { fontSize: 10, fontWeight: '900' },
+  orderStatusPaidText:     { color: C.green },
   orderStatusReservedText: { color: C.warning },
-  orderStatusCancelledText: { color: C.danger },
-  orderMetaGrid: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  orderMetaItem: { flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10 },
+  orderStatusCancelledText:{ color: C.danger },
+  orderMetaGrid:  { flexDirection: 'row', gap: 10, marginTop: 14 },
+  orderMetaItem:  { flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10 },
   orderMetaLabel: { fontSize: 11, color: C.muted, fontWeight: '700' },
   orderMetaValue: { fontSize: 14, color: C.text, fontWeight: '800', marginTop: 3 },
-  referenceBox: { marginTop: 12, backgroundColor: C.blueLight, borderRadius: 10, padding: 10 },
-  cancelReasonBox: { marginTop: 12, backgroundColor: C.dangerLight, borderRadius: 10, padding: 10 },
+  referenceBox:   { marginTop: 12, backgroundColor: C.blueLight, borderRadius: 10, padding: 10 },
+  cancelReasonBox:{ marginTop: 12, backgroundColor: C.dangerLight, borderRadius: 10, padding: 10 },
   referenceLabel: { fontSize: 11, color: C.blue, fontWeight: '800' },
   referenceValue: { fontSize: 14, color: C.text, fontWeight: '800', marginTop: 3 },
-  orderNote: { marginTop: 12, color: C.sub, fontSize: 12 },
+  orderNote:      { marginTop: 12, color: C.sub, fontSize: 12 },
   orderCancelBtn: {
     marginTop: 12,
     borderRadius: 10,
@@ -1328,12 +1894,14 @@ const s = StyleSheet.create({
     backgroundColor: C.green,
   },
   verifyBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+
   itemCardDimmed: { opacity: 0.72 },
   itemImg: {
     backgroundColor: '#F0F4FF',
-    height: 100,
+    height: 120,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
   itemImgEmoji: { fontSize: 40 },
 
@@ -1345,6 +1913,16 @@ const s = StyleSheet.create({
     paddingVertical: 4,
   },
   statusBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+
+  photoCountBadge: {
+    position: 'absolute',
+    bottom: 8, right: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  photoCountText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 
   itemBody:      { padding: 10 },
   itemTitle:     { fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 4, lineHeight: 18 },
@@ -1362,8 +1940,8 @@ const s = StyleSheet.create({
   condText:   { fontSize: 10, fontWeight: '600' },
   sellerName: { fontSize: 11, color: C.muted, maxWidth: '50%' },
   itemLocation: { fontSize: 11, color: C.muted, marginBottom: 6 },
-  stockText: { fontSize: 11, color: C.sub, marginBottom: 6, fontWeight: '600' },
-  paymentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 8 },
+  stockText:    { fontSize: 11, color: C.sub, marginBottom: 6, fontWeight: '600' },
+  paymentRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 8 },
   paymentBadge: {
     backgroundColor: C.blueLight,
     color: C.blue,
@@ -1381,9 +1959,10 @@ const s = StyleSheet.create({
   actionBtnGreen:   { backgroundColor: C.greenLight,   borderColor: C.green   },
   actionBtnDanger:  { backgroundColor: C.dangerLight,  borderColor: C.danger  },
   actionBtnWarning: { backgroundColor: C.warningLight, borderColor: C.warning },
+  actionBtnEdit:    { backgroundColor: C.blueLight,    borderColor: C.blue    },
   actionBtnDelete:  { backgroundColor: C.bg,           borderColor: C.border  },
-  buyBtn:           { backgroundColor: C.green, borderRadius: 10, paddingVertical: 9, alignItems: 'center', marginTop: 2 },
-  buyBtnText:       { color: '#fff', fontSize: 12, fontWeight: '800' },
+  buyBtn:     { backgroundColor: C.green, borderRadius: 10, paddingVertical: 9, alignItems: 'center', marginTop: 2 },
+  buyBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
 
   emptyWrap:    { width: '100%', alignItems: 'center', paddingVertical: 60 },
   emptyIcon:    { fontSize: 52, marginBottom: 12 },
@@ -1400,19 +1979,20 @@ const s = StyleSheet.create({
     padding: 16, paddingTop: 52,
     borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  modalTitle:     { fontSize: 18, fontWeight: '700', color: C.text },
+  modalTitle:     { fontSize: 18, fontWeight: '700', color: C.text, flex: 1, marginRight: 12 },
   modalCloseBtn:  { padding: 4 },
   modalCloseText: { fontSize: 18, color: C.muted },
   modalBody:      { padding: 16 },
   fieldLabel:     { fontSize: 13, fontWeight: '600', color: C.sub, marginTop: 16, marginBottom: 6 },
-  fieldInput:     {
+  fieldInput: {
     borderWidth: 1, borderColor: C.border,
     borderRadius: 10, padding: 12,
     fontSize: 14, color: C.text, backgroundColor: C.bg,
   },
-  paymentPanel:   { backgroundColor: C.bg, borderRadius: 12, padding: 12, marginTop: 10 },
-  chipRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip:           {
+  helperText:   { fontSize: 12, color: C.muted, marginTop: 8 },
+  paymentPanel: { backgroundColor: C.bg, borderRadius: 12, padding: 12, marginTop: 10 },
+  chipRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip:         {
     paddingHorizontal: 14, paddingVertical: 7,
     borderRadius: 20, backgroundColor: C.bg,
     borderWidth: 1, borderColor: C.border,
@@ -1422,6 +2002,104 @@ const s = StyleSheet.create({
   chipTextActive: { color: C.blue, fontWeight: '700' },
   postBtn:        { backgroundColor: C.blue, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
   postBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  itemPhotoThumb: {
+    width: 90,
+    height: 90,
+    borderRadius: 10,
+    backgroundColor: C.bg,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+
+  // ── Item Detail Modal styles ──────────────────────────────────
+  detailGallery:      { width: '100%', height: 280 },
+  detailGalleryImg:   { height: 280 },
+  detailGalleryEmpty: {
+    height: 220,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F0F4FF',
+  },
+  dotRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  dot:       { width: 7, height: 7, borderRadius: 4, backgroundColor: C.muted },
+  dotActive: { backgroundColor: C.blue, width: 18 },
+
+  detailPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  detailPrice: { fontSize: 28, fontWeight: '800', color: C.blue },
+
+  detailStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  detailStatusBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+
+  detailSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.muted,
+    marginTop: 16,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  detailDescription: {
+    fontSize: 14,
+    color: C.text,
+    lineHeight: 22,
+  },
+  detailMeta: { fontSize: 14, color: C.sub },
+
+  detailSellerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  detailSellerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.blueLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailSellerAvatarText: { fontSize: 15, fontWeight: '800', color: C.blue },
+  detailSellerName:       { fontSize: 14, fontWeight: '600', color: C.text },
+
+  detailActions: { marginTop: 24, gap: 10 },
+  detailBuyBtn: {
+    backgroundColor: C.green,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  detailEditBtn: {
+    backgroundColor: C.blueLight,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.blue,
+  },
+
+  // ── Checkout modal ────────────────────────────────────────────
   checkoutBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
@@ -1436,12 +2114,20 @@ const s = StyleSheet.create({
     borderColor: C.border,
   },
   checkoutTitle: { fontSize: 18, fontWeight: '800', color: C.text },
-  checkoutItem: { fontSize: 14, color: C.sub, marginTop: 6 },
+  checkoutItem:  { fontSize: 14, color: C.sub, marginTop: 6 },
   checkoutPrice: { fontSize: 24, fontWeight: '800', color: C.blue, marginTop: 8 },
+
+  checkoutItemImage: {
+    width: '100%',
+    height: 160,
+    borderRadius: 12,
+    marginTop: 12,
+    backgroundColor: C.bg,
+  },
+
   quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   quantityBtn: {
-    width: 42,
-    height: 42,
+    width: 42, height: 42,
     borderRadius: 12,
     backgroundColor: C.blueLight,
     justifyContent: 'center',
@@ -1450,7 +2136,7 @@ const s = StyleSheet.create({
     borderColor: '#CFE3FA',
   },
   quantityBtnText: { color: C.blue, fontSize: 20, fontWeight: '900' },
-  quantityInput: { flex: 1, textAlign: 'center', fontWeight: '800' },
+  quantityInput:   { flex: 1, textAlign: 'center', fontWeight: '800' },
   gcashBox: {
     backgroundColor: C.blueLight,
     borderRadius: 12,
@@ -1458,10 +2144,12 @@ const s = StyleSheet.create({
     marginTop: 14,
   },
   gcashTitle: { fontSize: 13, fontWeight: '800', color: C.blue, marginBottom: 6 },
-  gcashLine: { fontSize: 13, color: C.text, marginTop: 2 },
-  qrImage: { width: '100%', height: 220, backgroundColor: '#fff', borderRadius: 10, marginVertical: 10 },
-  qrPreview: { width: '100%', height: 160, backgroundColor: '#fff', borderRadius: 10, marginTop: 10 },
-  cancelPrompt: { color: C.sub, fontSize: 13, marginTop: 10, marginBottom: 12 },
+  gcashLine:  { fontSize: 13, color: C.text, marginTop: 2 },
+  qrImage:    { width: '100%', height: 220, backgroundColor: '#fff', borderRadius: 10, marginVertical: 10 },
+  qrPreview:  { width: '100%', height: 160, backgroundColor: '#fff', borderRadius: 10, marginTop: 10 },
+  uploadBtn:  { backgroundColor: C.blueLight, borderRadius: 10, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: C.blue },
+  uploadBtnText: { color: C.blue, fontSize: 13, fontWeight: '800' },
+  cancelPrompt:      { color: C.sub, fontSize: 13, marginTop: 10, marginBottom: 12 },
   cancelReasonInput: { height: 96, textAlignVertical: 'top' },
   checkoutActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
   cancelBtn: {
@@ -1473,8 +2161,8 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  cancelBtnText: { color: C.sub, fontWeight: '700' },
-  payBtn: { flex: 1.3, backgroundColor: C.green, borderRadius: 12, padding: 14, alignItems: 'center' },
+  cancelBtnText:    { color: C.sub, fontWeight: '700' },
+  payBtn:           { flex: 1.3, backgroundColor: C.green,  borderRadius: 12, padding: 14, alignItems: 'center' },
   confirmCancelBtn: { flex: 1.1, backgroundColor: C.danger, borderRadius: 12, padding: 14, alignItems: 'center' },
-  payBtnText: { color: '#fff', fontWeight: '800' },
+  payBtnText:       { color: '#fff', fontWeight: '800' },
 });

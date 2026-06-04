@@ -10,23 +10,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import api from '../../src/api';
 import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
+import { useTheme } from '../../src/theme-context';
 
 const QUARTERS = ['1', '2', '3', '4'];
-const ACCENT = [Colors.green, Colors.blue, Colors.orange, Colors.purple];
-
-function getRemark(score) {
-  if (score >= 90) return { text: 'Outstanding',         color: Colors.green   };
-  if (score >= 85) return { text: 'Very Satisfactory',   color: Colors.blue    };
-  if (score >= 80) return { text: 'Satisfactory',        color: Colors.textSub };
-  if (score >= 75) return { text: 'Fairly Satisfactory', color: Colors.warning  };
-  return               { text: 'Did Not Meet',           color: Colors.danger  };
+function getRemark(score, theme) {
+  if (score >= 90) return { text: 'Outstanding',         color: theme.green   };
+  if (score >= 85) return { text: 'Very Satisfactory',   color: theme.primary };
+  if (score >= 80) return { text: 'Satisfactory',        color: theme.textSub };
+  if (score >= 75) return { text: 'Fairly Satisfactory', color: theme.warning };
+  return               { text: 'Did Not Meet',           color: theme.danger  };
 }
 
 export default function Grades() {
   const router    = useRouter();
+  const { theme } = useTheme();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeQ, setActiveQ] = useState('4');
+  const ACCENT = [theme.green, theme.primary, theme.orange, theme.purple];
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(role => {
@@ -41,8 +42,8 @@ export default function Grades() {
   }, []);
 
   if (loading) return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" color={Colors.green} />
+    <View style={[styles.center, { backgroundColor: theme.bg }]}> 
+      <ActivityIndicator size="large" color={theme.primary} />
     </View>
   );
 
@@ -53,10 +54,10 @@ export default function Grades() {
     : '—';
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 32 }}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={{ paddingBottom: 32 }}>
 
       {/* ── Header ── */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}> 
         <Text style={styles.title}>My Grades</Text>
         <Text style={styles.sub}>S.Y. {data?.student?.school_year}</Text>
         <View style={styles.gwaRow}>
@@ -80,7 +81,7 @@ export default function Grades() {
         {QUARTERS.map(q => (
           <TouchableOpacity
             key={q}
-            style={[styles.tab, activeQ === q && { backgroundColor: Colors.green, borderColor: Colors.green }]}
+            style={[styles.tab, activeQ === q && { backgroundColor: theme.primary, borderColor: theme.primary }]}
             onPress={() => setActiveQ(q)}
           >
             <Text style={[styles.tabText, activeQ === q && styles.tabTextActive]}>
@@ -100,17 +101,17 @@ export default function Grades() {
             </View>
           )
           : grades.map((g, i) => {
-            const rem = getRemark(parseFloat(g.score));
+            const rem = getRemark(parseFloat(g.score), theme);
             const pct = Math.max(5, Math.min(100, ((parseFloat(g.score) - 70) / 30) * 100));
             return (
-              <View key={i} style={styles.subjectCard}>
+              <View key={i} style={[styles.subjectCard, { backgroundColor: theme.card }]}> 
                 <View style={[styles.accentBar, { backgroundColor: ACCENT[i % ACCENT.length] }]} />
                 <View style={styles.subjectBody}>
                   <View style={styles.subjectTop}>
                     <Text style={styles.subjectName}>{g.school_class?.subject ?? '—'}</Text>
                     <Text style={[styles.score, { color: rem.color }]}>{g.score}</Text>
                   </View>
-                  <View style={styles.barTrack}>
+                  <View style={[styles.barTrack, { backgroundColor: theme.border }]}> 
                     <View style={[styles.barFill, {
                       width: `${pct}%`,
                       backgroundColor: ACCENT[i % ACCENT.length],

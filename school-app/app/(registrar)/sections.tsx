@@ -8,6 +8,7 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import api from '../../src/api';
+import HeaderGradient from '../components/ui/HeaderGradient';
 
 const C = {
   blue: '#378ADD', blueLight: '#E6F1FB',
@@ -384,17 +385,20 @@ export default function Sections() {
 
   return (
     <View style={s.container}>
-      <View style={s.header}>
-        <View style={s.headerTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.title}>Sections</Text>
-            <Text style={s.subtitle}>{sections.length} active sections</Text>
-          </View>
-          <TouchableOpacity style={s.addBtn} onPress={openCreate}>
-            <Text style={s.addBtnText}>+ Create</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <HeaderGradient
+        title="Sections"
+        subtitle={`${sections.length} active sections`}
+        initials="SC"
+        stats={[
+          { label: 'Sections', value: sections.length, accent: '#C7D2FE' },
+          { label: 'Students', value: enrolledStudents.length, accent: '#A7F3D0' },
+          { label: 'Open', value: sections.filter(sec => sec.is_open).length, accent: '#FDE68A' },
+        ]}
+      >
+        <TouchableOpacity style={s.addBtn} onPress={openCreate}>
+          <Text style={s.addBtnText}>+ Create</Text>
+        </TouchableOpacity>
+      </HeaderGradient>
 
       {loading ? (
         <View style={s.center}><ActivityIndicator size="large" color={C.blue} /></View>

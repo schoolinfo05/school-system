@@ -4,7 +4,7 @@ import { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   Alert, ActivityIndicator, KeyboardAvoidingView,
-  ScrollView, Platform,
+  ScrollView, Platform, Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { setToken } from '../src/api';
@@ -27,14 +27,16 @@ export default function Login() {
       await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
       setToken(token);
 
-      if (role === 'teacher') {
+      if (role === 'admin') {
+        router.replace('/(admin)/dashboard');
+      } else if (role === 'teacher') {
         router.replace('/(teacher)/classes');
-      } else if (role === 'registrar' || role === 'admin') {
+      } else if (role === 'registrar') {
         router.replace('/(registrar)/enrollments');
       } else {
         router.replace('/(tabs)/today');
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Login failed', 'Invalid email or password.');
     } finally {
       setLoading(false);
@@ -53,9 +55,9 @@ export default function Login() {
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
-        <Text style={styles.logo}>🏫</Text>
-        <Text style={styles.title}>School System</Text>
-        <Text style={styles.sub}>Sign in to your account</Text>
+        <Image source={require('../assets/images/schoolbuds-logo.png')} style={styles.logoImage} resizeMode="contain" />
+        <Text style={styles.title}>SchoolBuds</Text>
+        <Text style={styles.sub}>All Things School. One Bud Away</Text>
 
         <TextInput
           style={styles.input}
@@ -87,6 +89,11 @@ export default function Login() {
             <Text style={styles.eyeIcon}>{showPassword ? '🙈' : '👁️'}</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity style={styles.forgotBtn} onPress={() => router.push('/forgot-password')}>
+          <Text style={styles.forgotText}>Forgot password?</Text>
+        </TouchableOpacity>
+
         <View style={{ height: 14 }} />
 
         <TouchableOpacity style={styles.btn} onPress={handleLogin} disabled={loading}>
@@ -131,7 +138,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 28,
   },
-  logo:  { fontSize: 48, textAlign: 'center', marginBottom: 12 },
+  logoImage: { width: 150, height: 150, alignSelf: 'center', marginBottom: 12 },
   title: { fontSize: 28, fontWeight: '600', color: '#1a1a1a', textAlign: 'center' },
   sub:   { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 36, marginTop: 6 },
   input: {
@@ -153,6 +160,8 @@ const styles = StyleSheet.create({
   },
   enrollBtnText: { color: '#378ADD', fontWeight: '600', fontSize: 15 },
 
+  forgotBtn: { alignItems: 'center', marginBottom: 10 },
+  forgotText: { color: '#378ADD', fontSize: 13, fontWeight: '600' },
   statusLink:     { alignItems: 'center', marginBottom: 8 },
   statusLinkText: { color: '#378ADD', fontSize: 13 },
 

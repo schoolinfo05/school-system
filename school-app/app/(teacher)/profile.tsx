@@ -4,9 +4,11 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIn
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
+import { useTheme } from '../../src/theme-context';
 
 export default function TeacherProfile() {
   const router = useRouter();
+  const { theme } = useTheme();
   const [user, setUser]     = useState(null);
   const [data, setData]     = useState(null);
   const [loading, setLoading] = useState(true);
@@ -34,8 +36,8 @@ export default function TeacherProfile() {
   };
 
   if (loading) return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" color="#1D9E75"/>
+    <View style={[styles.center, { backgroundColor: theme.bg }]}>
+      <ActivityIndicator size="large" color={theme.primary}/>
     </View>
   );
 
@@ -43,8 +45,8 @@ export default function TeacherProfile() {
   const initials = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.hero}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.bg }]}> 
+      <View style={[styles.hero, { backgroundColor: theme.primary }]}> 
         <View style={styles.avatar}>
           <Text style={styles.initials}>{initials}</Text>
         </View>
@@ -69,8 +71,8 @@ export default function TeacherProfile() {
         </View>
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Account information</Text>
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+        <Text style={[styles.cardTitle, { color: theme.text }]}>Account information</Text>
         {[
           ['Name',         name],
           ['Email',        user?.email ?? '—'],
@@ -84,8 +86,8 @@ export default function TeacherProfile() {
         ))}
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>My classes</Text>
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+        <Text style={[styles.cardTitle, { color: theme.text }]}>My classes</Text>
         {data?.classes?.length > 0
           ? data.classes.map((c, i) => (
             <View key={i} style={styles.classRow}>
@@ -103,8 +105,8 @@ export default function TeacherProfile() {
         }
       </View>
 
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Logout</Text>
+      <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.dangerLight }]} onPress={handleLogout}>
+        <Text style={[styles.logoutText, { color: theme.danger }]}>Logout</Text>
       </TouchableOpacity>
       <View style={{ height:32 }}/>
     </ScrollView>

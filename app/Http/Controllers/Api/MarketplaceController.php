@@ -8,6 +8,7 @@ use App\Models\MarketplaceMessage;
 use App\Models\MarketplaceOrder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 class MarketplaceController extends Controller
 {
@@ -39,19 +40,22 @@ class MarketplaceController extends Controller
         }
 
         $request->validate([
-            'title'       => 'required|string|max:100',
-            'description' => 'required|string|max:500',
-            'price'       => 'required|numeric|min:0',
-            'stock'       => 'required|integer|min:1',
-            'category'    => 'required|in:books,uniforms,electronics,supplies,other',
-            'condition'   => 'required|in:new,like_new,good,fair',
-            'location'    => 'nullable|string',
-            'accepts_cash' => 'nullable|boolean',
-            'accepts_gcash' => 'nullable|boolean',
-            'accepts_qrph' => 'nullable|boolean',
-            'gcash_name'   => 'nullable|string|max:100',
-            'gcash_number' => 'nullable|string|max:30',
+            'title'          => 'required|string|max:100',
+            'description'    => 'required|string|max:500',
+            'price'          => 'required|numeric|min:0',
+            'stock'          => 'required|integer|min:1',
+            'category'       => 'required|in:books,uniforms,electronics,supplies,other',
+            'condition'      => 'required|in:new,like_new,good,fair',
+            'location'       => 'nullable|string',
+            'accepts_cash'   => 'nullable|boolean',
+            'accepts_gcash'  => 'nullable|boolean',
+            'accepts_qrph'   => 'nullable|boolean',
+            'gcash_name'     => 'nullable|string|max:100',
+            'gcash_number'   => 'nullable|string|max:30',
             'qrph_image_url' => 'nullable|string|max:1000',
+            'qrph_image'     => 'nullable|image|max:4096',
+            'item_images'    => 'nullable|array|max:3',
+            'item_images.*'  => 'image|max:4096',
         ]);
 
         if (!$request->boolean('accepts_cash') && !$request->boolean('accepts_gcash') && !$request->boolean('accepts_qrph')) {
@@ -62,13 +66,35 @@ class MarketplaceController extends Controller
             return response()->json(['message' => 'GCash name and number are required for online payment.'], 422);
         }
 
+        if ($request->boolean('accepts_qrph') && !$request->filled('qrph_image_url') && !$request->hasFile('qrph_image')) {
+            return response()->json(['message' => 'QRPH image is required when QRPH is enabled.'], 422);
+        }
+
+        // Handle QRPH image
+        $qrphImageUrl = $request->qrph_image_url;
+        if ($request->hasFile('qrph_image')) {
+            $path = $request->file('qrph_image')->store('qrph', 'public');
+            $qrphImageUrl = url(Storage::url($path));
+        }
+
+        // Handle item images (up to 3)
+        $imageUrls = [];
+        if ($request->hasFile('item_images')) {
+            foreach ($request->file('item_images') as $img) {
+                $path = $img->store('marketplace-images', 'public');
+                $imageUrls[] = url(Storage::url($path));
+            }
+        }
+
         $item = MarketplaceItem::create([
             ...$request->only([
                 'title', 'description', 'price', 'stock', 'category', 'condition',
                 'location', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
-                'gcash_name', 'gcash_number', 'qrph_image_url',
+                'gcash_name', 'gcash_number',
             ]),
-            'user_id' => $request->user()->id,
+            'qrph_image_url' => $qrphImageUrl,
+            'image_urls'     => $imageUrls,
+            'user_id'        => $request->user()->id,
         ]);
 
         return response()->json($item->load('seller'), 201);
@@ -84,9 +110,9 @@ class MarketplaceController extends Controller
     public function buy(Request $request, MarketplaceItem $item)
     {
         $request->validate([
-            'payment_method' => 'required|in:cash,gcash,qrph',
+            'payment_method'  => 'required|in:cash,gcash,qrph',
             'gcash_reference' => 'required_if:payment_method,gcash|required_if:payment_method,qrph|nullable|string|max:100',
-            'quantity' => 'nullable|integer|min:1',
+            'quantity'        => 'nullable|integer|min:1',
         ]);
 
         if ($item->user_id === $request->user()->id) {
@@ -117,14 +143,14 @@ class MarketplaceController extends Controller
 
         $newStock = max(0, $item->stock - $quantity);
         $item->update([
-            'stock' => $newStock,
+            'stock'  => $newStock,
             'status' => $newStock === 0 ? 'reserved' : 'available',
         ]);
 
         $paymentText = match ($request->payment_method) {
-            'gcash' => 'GCash' . ($request->gcash_reference ? " (reference: {$request->gcash_reference})" : ''),
-            'qrph' => 'QRPH' . ($request->gcash_reference ? " (reference: {$request->gcash_reference})" : ''),
-            default => 'Cash on meetup',
+            'gcash'  => 'GCash' . ($request->gcash_reference ? " (reference: {$request->gcash_reference})" : ''),
+            'qrph'   => 'QRPH'  . ($request->gcash_reference ? " (reference: {$request->gcash_reference})" : ''),
+            default  => 'Cash on meetup',
         };
 
         MarketplaceMessage::create([
@@ -136,18 +162,18 @@ class MarketplaceController extends Controller
 
         $order = MarketplaceOrder::create([
             'marketplace_item_id' => $item->id,
-            'buyer_id' => $request->user()->id,
-            'seller_id' => $item->user_id,
-            'quantity' => $quantity,
-            'unit_price' => $item->price,
-            'total_amount' => $item->price * $quantity,
-            'payment_method' => $request->payment_method,
-            'gcash_reference' => in_array($request->payment_method, ['gcash', 'qrph'], true) ? $request->gcash_reference : null,
-            'status' => in_array($request->payment_method, ['gcash', 'qrph'], true) ? 'pending_verification' : 'reserved',
+            'buyer_id'            => $request->user()->id,
+            'seller_id'           => $item->user_id,
+            'quantity'            => $quantity,
+            'unit_price'          => $item->price,
+            'total_amount'        => $item->price * $quantity,
+            'payment_method'      => $request->payment_method,
+            'gcash_reference'     => in_array($request->payment_method, ['gcash', 'qrph'], true) ? $request->gcash_reference : null,
+            'status'              => in_array($request->payment_method, ['gcash', 'qrph'], true) ? 'pending_verification' : 'reserved',
         ]);
 
         return response()->json([
-            'item' => $item->load('seller'),
+            'item'  => $item->load('seller'),
             'order' => $order->load(['item.seller', 'seller']),
         ]);
     }
@@ -183,20 +209,20 @@ class MarketplaceController extends Controller
 
         $newStock = max(0, $item->stock - $quantity);
         $item->update([
-            'stock' => $newStock,
+            'stock'  => $newStock,
             'status' => $newStock === 0 ? 'reserved' : 'available',
         ]);
 
         $order = MarketplaceOrder::create([
             'marketplace_item_id' => $item->id,
-            'buyer_id' => $request->user()->id,
-            'seller_id' => $item->user_id,
-            'quantity' => $quantity,
-            'unit_price' => $item->price,
-            'total_amount' => $item->price * $quantity,
-            'payment_method' => 'gcash',
-            'status' => 'reserved',
-            'paymongo_status' => 'pending',
+            'buyer_id'            => $request->user()->id,
+            'seller_id'           => $item->user_id,
+            'quantity'            => $quantity,
+            'unit_price'          => $item->price,
+            'total_amount'        => $item->price * $quantity,
+            'payment_method'      => 'gcash',
+            'status'              => 'reserved',
+            'paymongo_status'     => 'pending',
         ]);
 
         $response = Http::withBasicAuth($secretKey, '')
@@ -204,24 +230,24 @@ class MarketplaceController extends Controller
             ->post('https://api.paymongo.com/v1/checkout_sessions', [
                 'data' => [
                     'attributes' => [
-                        'description' => "Marketplace order #{$order->id}",
-                        'reference_number' => "MKT-{$order->id}",
-                        'line_items' => [[
+                        'description'          => "Marketplace order #{$order->id}",
+                        'reference_number'     => "MKT-{$order->id}",
+                        'line_items'           => [[
                             'currency' => 'PHP',
-                            'amount' => (int) round($item->price * 100),
-                            'name' => $item->title,
+                            'amount'   => (int) round($item->price * 100),
+                            'name'     => $item->title,
                             'quantity' => $quantity,
                         ]],
                         'payment_method_types' => ['gcash'],
-                        'send_email_receipt' => false,
-                        'show_description' => true,
-                        'show_line_items' => true,
-                        'success_url' => config('services.paymongo.success_url'),
-                        'cancel_url' => config('services.paymongo.cancel_url'),
-                        'metadata' => [
+                        'send_email_receipt'   => false,
+                        'show_description'     => true,
+                        'show_line_items'      => true,
+                        'success_url'          => config('services.paymongo.success_url'),
+                        'cancel_url'           => config('services.paymongo.cancel_url'),
+                        'metadata'             => [
                             'marketplace_order_id' => (string) $order->id,
-                            'marketplace_item_id' => (string) $item->id,
-                            'buyer_id' => (string) $request->user()->id,
+                            'marketplace_item_id'  => (string) $item->id,
+                            'buyer_id'             => (string) $request->user()->id,
                         ],
                     ],
                 ],
@@ -229,27 +255,25 @@ class MarketplaceController extends Controller
 
         if (!$response->successful()) {
             $item->update([
-                'stock' => $item->stock + $quantity,
+                'stock'  => $item->stock + $quantity,
                 'status' => 'available',
             ]);
             $order->update([
-                'status' => 'cancelled',
+                'status'          => 'cancelled',
                 'paymongo_status' => 'checkout_failed',
-                'notes' => $response->json('errors.0.detail') ?? 'PayMongo checkout session could not be created.',
+                'notes'           => $response->json('errors.0.detail') ?? 'PayMongo checkout session could not be created.',
             ]);
 
-            return response()->json([
-                'message' => $order->notes,
-            ], 422);
+            return response()->json(['message' => $order->notes], 422);
         }
 
-        $session = $response->json('data');
-        $attributes = $session['attributes'] ?? [];
-        $checkoutUrl = $attributes['checkout_url'] ?? $attributes['url'] ?? null;
+        $session      = $response->json('data');
+        $attributes   = $session['attributes'] ?? [];
+        $checkoutUrl  = $attributes['checkout_url'] ?? $attributes['url'] ?? null;
 
         $order->update([
             'paymongo_checkout_id' => $session['id'] ?? null,
-            'checkout_url' => $checkoutUrl,
+            'checkout_url'         => $checkoutUrl,
         ]);
 
         MarketplaceMessage::create([
@@ -261,23 +285,68 @@ class MarketplaceController extends Controller
 
         return response()->json([
             'checkout_url' => $checkoutUrl,
-            'item' => $item->fresh()->load('seller'),
-            'order' => $order->fresh()->load(['item.seller', 'seller']),
+            'item'         => $item->fresh()->load('seller'),
+            'order'        => $order->fresh()->load(['item.seller', 'seller']),
         ]);
     }
 
-    // PUT /api/marketplace/{item} — full update (title, price, status, etc.)
+    // PUT /api/marketplace/{item} — full update
     public function update(Request $request, MarketplaceItem $item)
     {
         if ($item->user_id !== $request->user()->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-        $item->update($request->only([
-            'title', 'description', 'price', 'stock', 'category', 'condition', 'status',
-            'location', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
-            'gcash_name', 'gcash_number', 'qrph_image_url',
-        ]));
-        return response()->json($item);
+
+        $request->validate([
+            'title'          => 'nullable|string|max:100',
+            'description'    => 'nullable|string|max:500',
+            'price'          => 'nullable|numeric|min:0',
+            'stock'          => 'nullable|integer|min:0',
+            'category'       => 'nullable|in:books,uniforms,electronics,supplies,other',
+            'condition'      => 'nullable|in:new,like_new,good,fair',
+            'status'         => 'nullable|in:available,reserved,sold',
+            'location'       => 'nullable|string',
+            'accepts_cash'   => 'nullable|boolean',
+            'accepts_gcash'  => 'nullable|boolean',
+            'accepts_qrph'   => 'nullable|boolean',
+            'gcash_name'     => 'nullable|string|max:100',
+            'gcash_number'   => 'nullable|string|max:30',
+            'qrph_image_url' => 'nullable|string|max:1000',
+            'qrph_image'     => 'nullable|image|max:4096',
+            'item_images'    => 'nullable|array|max:3',
+            'item_images.*'  => 'image|max:4096',
+        ]);
+
+        // Handle QRPH image
+        $qrphImageUrl = $item->qrph_image_url;
+        if ($request->hasFile('qrph_image')) {
+            $path = $request->file('qrph_image')->store('qrph', 'public');
+            $qrphImageUrl = url(Storage::url($path));
+        } elseif ($request->filled('qrph_image_url')) {
+            $qrphImageUrl = $request->qrph_image_url;
+        }
+
+        // Handle item images — replace all if new ones are uploaded, otherwise keep existing
+        $imageUrls = $item->image_urls ?? [];
+        if ($request->hasFile('item_images')) {
+            $imageUrls = [];
+            foreach ($request->file('item_images') as $img) {
+                $path = $img->store('marketplace-images', 'public');
+                $imageUrls[] = url(Storage::url($path));
+            }
+        }
+
+        $item->update([
+            ...$request->only([
+                'title', 'description', 'price', 'stock', 'category', 'condition', 'status',
+                'location', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
+                'gcash_name', 'gcash_number',
+            ]),
+            'qrph_image_url' => $qrphImageUrl,
+            'image_urls'     => $imageUrls,
+        ]);
+
+        return response()->json($item->load('seller'));
     }
 
     // DELETE /api/marketplace/{item}
@@ -331,11 +400,11 @@ class MarketplaceController extends Controller
     {
         return response()->json([
             'qrph' => [
-                'account_name' => config('services.qrph.account_name'),
-                'account_number' => config('services.qrph.account_number'),
-                'image_url' => config('services.qrph.image_url'),
-                'instructions' => config('services.qrph.instructions'),
-                'enabled' => (bool) (config('services.qrph.image_url') || config('services.qrph.account_number')),
+                'account_name'  => config('services.qrph.account_name'),
+                'account_number'=> config('services.qrph.account_number'),
+                'image_url'     => config('services.qrph.image_url'),
+                'instructions'  => config('services.qrph.instructions'),
+                'enabled'       => (bool) (config('services.qrph.image_url') || config('services.qrph.account_number')),
             ],
         ]);
     }
@@ -352,7 +421,7 @@ class MarketplaceController extends Controller
         }
 
         $order->update([
-            'status' => 'paid',
+            'status'  => 'paid',
             'paid_at' => now(),
         ]);
 
@@ -388,14 +457,14 @@ class MarketplaceController extends Controller
         $item = $order->item;
         if ($item) {
             $item->update([
-                'stock' => $item->stock + $order->quantity,
+                'stock'  => $item->stock + $order->quantity,
                 'status' => 'available',
             ]);
         }
 
         $order->update([
             'status' => 'cancelled',
-            'notes' => $request->reason,
+            'notes'  => $request->reason,
         ]);
 
         MarketplaceMessage::create([
@@ -411,16 +480,16 @@ class MarketplaceController extends Controller
     // POST /api/paymongo/webhook — PayMongo payment confirmation
     public function paymongoWebhook(Request $request)
     {
-        $payload = $request->all();
-        $attributes = $payload['data']['attributes'] ?? [];
-        $eventType = $attributes['type'] ?? null;
-        $eventData = $attributes['data'] ?? [];
-        $eventAttributes = $eventData['attributes'] ?? [];
-        $metadata = $eventAttributes['metadata'] ?? [];
+        $payload        = $request->all();
+        $attributes     = $payload['data']['attributes'] ?? [];
+        $eventType      = $attributes['type'] ?? null;
+        $eventData      = $attributes['data'] ?? [];
+        $eventAttributes= $eventData['attributes'] ?? [];
+        $metadata       = $eventAttributes['metadata'] ?? [];
 
-        $orderId = $metadata['marketplace_order_id'] ?? null;
+        $orderId         = $metadata['marketplace_order_id'] ?? null;
         $referenceNumber = $eventAttributes['reference_number'] ?? $eventAttributes['external_reference_number'] ?? null;
-        $checkoutId = $eventData['id'] ?? null;
+        $checkoutId      = $eventData['id'] ?? null;
 
         $order = $orderId
             ? MarketplaceOrder::find($orderId)
@@ -436,15 +505,15 @@ class MarketplaceController extends Controller
 
         if (in_array($eventType, ['payment.paid', 'checkout_session.payment.paid', 'checkout_session.completed'], true)) {
             $order->update([
-                'status' => 'paid',
-                'paymongo_status' => 'paid',
-                'paymongo_payment_id' => $eventAttributes['payment_intent_id'] ?? $eventData['id'] ?? $order->paymongo_payment_id,
-                'paid_at' => now(),
+                'status'               => 'paid',
+                'paymongo_status'      => 'paid',
+                'paymongo_payment_id'  => $eventAttributes['payment_intent_id'] ?? $eventData['id'] ?? $order->paymongo_payment_id,
+                'paid_at'              => now(),
             ]);
         } elseif (in_array($eventType, ['payment.failed', 'checkout_session.payment.failed'], true)) {
             $order->update([
                 'paymongo_status' => 'failed',
-                'notes' => $eventAttributes['failed_message'] ?? 'PayMongo payment failed.',
+                'notes'           => $eventAttributes['failed_message'] ?? 'PayMongo payment failed.',
             ]);
         }
 
