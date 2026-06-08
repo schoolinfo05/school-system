@@ -9,7 +9,7 @@ class Subject extends Model
     protected $fillable = [
         'code', 'name', 'description',
         'units_lec', 'units_lab',
-        'program_type', 'course', 'year_level', 'strand',
+        'program_type', 'course', 'year_level', 'strand', 'semester',
         'is_active',
     ];
 

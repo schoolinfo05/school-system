@@ -33,8 +33,14 @@ class SubjectSectionController extends Controller
                    ->orWhereNull('strand')
                    ->orWhere('strand', '');
             }))
-            ->when($request->search, fn($q) => $q->where('name', 'like', "%{$request->search}%")
-                                                         ->orWhere('code', 'like', "%{$request->search}%"))
+            ->when($request->semester, fn($q) => $q->where('semester', $request->semester))
+            ->when($request->search, function ($q) use ($request) {
+                $search = $request->search;
+                $q->where(function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%")
+                        ->orWhere('code', 'like', "%{$search}%");
+                });
+            })
             ->where('is_active', true)
             ->orderBy('code')
             ->get();
@@ -57,6 +63,7 @@ class SubjectSectionController extends Controller
             'course'           => 'nullable|string|max:100',
             'year_level'       => 'nullable|string|max:5',
             'strand'           => 'nullable|string|max:20',
+            'semester'         => 'nullable|in:1st,2nd,summer',
             'prerequisite_ids' => 'nullable|array',
             'prerequisite_ids.*' => 'distinct|integer|exists:subjects,id',
         ]);
@@ -64,7 +71,7 @@ class SubjectSectionController extends Controller
         $data = $request->only([
             'code', 'name', 'description',
             'units_lec', 'units_lab',
-            'program_type', 'course', 'year_level', 'strand',
+            'program_type', 'course', 'year_level', 'strand', 'semester',
             'is_active',
         ]);
         $data['course'] = $data['course'] === '' ? null : $data['course'];
@@ -95,6 +102,7 @@ class SubjectSectionController extends Controller
             'course'           => 'nullable|string|max:100',
             'year_level'       => 'nullable|string|max:5',
             'strand'           => 'nullable|string|max:20',
+            'semester'         => 'nullable|in:1st,2nd,summer',
             'prerequisite_ids' => 'nullable|array',
             'prerequisite_ids.*' => 'distinct|integer|exists:subjects,id',
         ]);
@@ -102,7 +110,7 @@ class SubjectSectionController extends Controller
         $data = $request->only([
             'code', 'name', 'description',
             'units_lec', 'units_lab',
-            'program_type', 'course', 'year_level', 'strand',
+            'program_type', 'course', 'year_level', 'strand', 'semester',
             'is_active',
         ]);
         $data['course'] = $data['course'] === '' ? null : $data['course'];

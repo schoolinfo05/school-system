@@ -92,6 +92,7 @@ class SchoolSeeder extends Seeder
                 'course'      => 'BS Information Technology',
                 'year_level'  => '1',
                 'strand'      => null,
+                'semester'    => '1st',
             ],
             [
                 'code'        => 'IT102',
@@ -103,6 +104,7 @@ class SchoolSeeder extends Seeder
                 'course'      => 'BS Information Technology',
                 'year_level'  => '1',
                 'strand'      => null,
+                'semester'    => '2nd',
             ],
             [
                 'code'        => 'IT103',
@@ -114,6 +116,7 @@ class SchoolSeeder extends Seeder
                 'course'      => 'BS Information Technology',
                 'year_level'  => '2',
                 'strand'      => null,
+                'semester'    => '1st',
             ],
         ];
 

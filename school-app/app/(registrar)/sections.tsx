@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import api from '../../src/api';
 import HeaderGradient from '../components/ui/HeaderGradient';
+import SearchBar from '../components/ui/SearchBar';
 
 const C = {
   blue: '#378ADD', blueLight: '#E6F1FB',
@@ -74,6 +75,7 @@ export default function Sections() {
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -100,7 +102,9 @@ export default function Sections() {
 
   const fetchSections = useCallback(async () => {
     try {
-      const res = await api.get('/sections');
+      const res = await api.get('/sections', {
+        params: { search: search.trim() || undefined },
+      });
       setSections(res.data ?? []);
     } catch (e) {
       console.log('Sections fetch error:', e.message);
@@ -108,7 +112,7 @@ export default function Sections() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [search]);
 
   const fetchSubjects = useCallback(async () => {
     try {
@@ -187,17 +191,21 @@ export default function Sections() {
       teacher.name?.toLowerCase().includes(q) || teacher.email?.toLowerCase().includes(q)
     );
   }, [teacherSearch, teachers]);
+
   const selectedTeacher = useMemo(
     () => teachers.find(teacher => String(teacher.id) === String(assignment.teacher_id)),
     [assignment.teacher_id, teachers]
   );
+
   const enrolledStudents = useMemo(() => editing?.students ?? [], [editing?.students]);
+
   const availableStudents = useMemo(() => {
     const enrolledIds = enrolledStudents.map(student => student.id);
     return students.filter(student => !enrolledIds.includes(student.user_id));
   }, [enrolledStudents, students]);
 
   const assignedSubjects = useMemo(() => editing?.section_subjects ?? [], [editing?.section_subjects]);
+
   const availableSubjects = useMemo(() => {
     if (!editing) return [];
     const assignedIds = assignedSubjects.map(item => item.subject_id);
@@ -210,6 +218,17 @@ export default function Sections() {
       return sameProgram && sameYear && courseMatch && !assignedIds.includes(subject.id);
     });
   }, [assignedSubjects, editing, subjects]);
+
+  // Filtered sections for search (client-side fallback)
+  const filteredSections = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return sections;
+    return sections.filter(sec =>
+      sec.name?.toLowerCase().includes(q) ||
+      sec.course?.toLowerCase().includes(q) ||
+      sec.strand?.toLowerCase().includes(q)
+    );
+  }, [sections, search]);
 
   const openCreate = () => {
     setEditing(null);
@@ -395,9 +414,20 @@ export default function Sections() {
           { label: 'Open', value: sections.filter(sec => sec.is_open).length, accent: '#FDE68A' },
         ]}
       >
-        <TouchableOpacity style={s.addBtn} onPress={openCreate}>
-          <Text style={s.addBtnText}>+ Create</Text>
-        </TouchableOpacity>
+        {/* Search + Create button row */}
+        <View style={s.searchRow}>
+          <View style={{ flex: 1 }}>
+            <SearchBar
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search sections..."
+              onSubmitEditing={fetchSections}
+            />
+          </View>
+          <TouchableOpacity style={s.addBtn} onPress={openCreate}>
+            <Text style={s.addBtnText}>+ Create</Text>
+          </TouchableOpacity>
+        </View>
       </HeaderGradient>
 
       {loading ? (
@@ -412,13 +442,13 @@ export default function Sections() {
             />
           }
         >
-          {sections.length === 0 ? (
+          {filteredSections.length === 0 ? (
             <View style={s.empty}>
               <Text style={s.emptyIcon}>🏫</Text>
-              <Text style={s.emptyTitle}>No sections yet</Text>
-              <Text style={s.emptySub}>{'Tap "+ Create" to add your first section.'}</Text>
+              <Text style={s.emptyTitle}>{search ? 'No results found' : 'No sections yet'}</Text>
+              <Text style={s.emptySub}>{search ? 'Try a different search term.' : 'Tap "+ Create" to add your first section.'}</Text>
             </View>
-          ) : sections.map(section => (
+          ) : filteredSections.map(section => (
             <TouchableOpacity key={section.id} style={s.card} onPress={() => openEdit(section)}>
               <View style={s.cardTop}>
                 <View style={s.sectionBadge}>
@@ -446,7 +476,7 @@ export default function Sections() {
               )}
               <View style={s.cardFooter}>
                 <Text style={s.footerText}>{section.school_year} · {section.semester} semester</Text>
-                <Text style={s.editHint}>Edit</Text>
+                <Text style={s.editHint}>Edit →</Text>
               </View>
             </TouchableOpacity>
           ))}
@@ -455,206 +485,224 @@ export default function Sections() {
 
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
         <View style={s.modal}>
+          {/* Modal Header */}
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>{editing ? 'Edit Section' : 'Create Section'}</Text>
-            <TouchableOpacity onPress={() => setShowModal(false)}>
+            <View style={s.modalHeaderLeft}>
+              <Text style={s.modalTitle}>{editing ? `Edit: ${editing.name}` : 'Create Section'}</Text>
+              <Text style={s.modalSubtitle}>{editing ? 'Update section details' : 'Fill in the section info below'}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowModal(false)} style={s.closeBtn}>
               <Text style={s.closeText}>✕</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView contentContainerStyle={s.modalBody} keyboardShouldPersistTaps="handled">
-            <Field label="Section Name *">
-              <TextInput
-                style={s.input}
-                value={form.name}
-                onChangeText={v => set('name', v)}
-                placeholder="e.g. BSIT 3A"
-                placeholderTextColor={C.muted}
-              />
-            </Field>
 
-            <Field label="Program Type">
-              <ChipGroup
-                value={form.program_type}
-                onSelect={v => {
-                  setForm(prev => ({ ...prev, program_type: v, course: '', strand: '', year_level: '' }));
-                  setCourseSearch('');
-                  setCourseDropdownOpen(false);
-                }}
-                options={[
-                  { key: 'college', label: 'College' },
-                  { key: 'shs', label: 'SHS' },
-                ]}
-              />
-            </Field>
+            {/* ── SECTION INFO CARD ── */}
+            <View style={s.sectionCard}>
+              <Text style={s.sectionCardTitle}>📋 Section Info</Text>
 
-            {form.program_type === 'college' ? (
-              <>
-                <Field label="Active Course">
-                  <TouchableOpacity
-                    style={[s.dropdown, form.course && s.dropdownActive]}
-                    onPress={() => setCourseDropdownOpen(open => !open)}
-                  >
-                    <Text style={[s.dropdownLabel, !form.course && { color: C.muted }]}>
-                      {form.course || 'Select active course'}
-                    </Text>
-                    <Text style={s.dropdownArrow}>{courseDropdownOpen ? '▲' : '▼'}</Text>
-                  </TouchableOpacity>
-                  {courseDropdownOpen && (
-                    <View style={s.dropdownPanel}>
-                      <TextInput
-                        style={[s.input, s.courseSearchInput]}
-                        value={courseSearch}
-                        onChangeText={setCourseSearch}
-                        placeholder="Search active courses..."
-                        placeholderTextColor={C.muted}
-                      />
-                      {loadingCourses ? (
-                        <View style={s.dropdownLoading}><ActivityIndicator color={C.blue} /></View>
-                      ) : (
-                        <ScrollView style={s.dropdownScroll} keyboardShouldPersistTaps="handled">
-                          {courses.map(course => (
-                            <TouchableOpacity
-                              key={course.id}
-                              style={[s.courseOption, form.course === course.name && s.courseOptionActive]}
-                              onPress={() => {
-                                set('course', course.name);
-                                setCourseDropdownOpen(false);
-                              }}
-                            >
-                              <Text style={s.courseOptionText}>{course.name}</Text>
-                            </TouchableOpacity>
-                          ))}
-                          {courses.length === 0 && (
-                            <Text style={s.dropdownEmpty}>No active college courses found.</Text>
-                          )}
-                        </ScrollView>
-                      )}
-                    </View>
-                  )}
-                </Field>
-                <Field label="Year Level">
-                  <ChipGroup
-                    value={form.year_level}
-                    onSelect={v => set('year_level', v)}
-                    options={[
-                      { key: '1', label: '1st' },
-                      { key: '2', label: '2nd' },
-                      { key: '3', label: '3rd' },
-                      { key: '4', label: '4th' },
-                    ]}
-                  />
-                </Field>
-              </>
-            ) : (
-              <>
-                <Field label="Active Strand / Program">
-                  <TouchableOpacity
-                    style={[s.dropdown, form.strand && s.dropdownActive]}
-                    onPress={() => setCourseDropdownOpen(open => !open)}
-                  >
-                    <Text style={[s.dropdownLabel, !form.strand && { color: C.muted }]}>
-                      {form.strand || 'Select active strand/program'}
-                    </Text>
-                    <Text style={s.dropdownArrow}>{courseDropdownOpen ? '▲' : '▼'}</Text>
-                  </TouchableOpacity>
-                  {courseDropdownOpen && (
-                    <View style={s.dropdownPanel}>
-                      <TextInput
-                        style={[s.input, s.courseSearchInput]}
-                        value={courseSearch}
-                        onChangeText={setCourseSearch}
-                        placeholder="Search active SHS programs..."
-                        placeholderTextColor={C.muted}
-                      />
-                      {loadingCourses ? (
-                        <View style={s.dropdownLoading}><ActivityIndicator color={C.blue} /></View>
-                      ) : (
-                        <ScrollView style={s.dropdownScroll} keyboardShouldPersistTaps="handled">
-                          {courses.map(course => (
-                            <TouchableOpacity
-                              key={course.id}
-                              style={[s.courseOption, form.strand === course.name && s.courseOptionActive]}
-                              onPress={() => {
-                                set('strand', course.name);
-                                setCourseDropdownOpen(false);
-                              }}
-                            >
-                              <Text style={s.courseOptionText}>{course.name}</Text>
-                            </TouchableOpacity>
-                          ))}
-                          {courses.length === 0 && (
-                            <Text style={s.dropdownEmpty}>No active SHS programs found.</Text>
-                          )}
-                        </ScrollView>
-                      )}
-                    </View>
-                  )}
-                </Field>
-                <Field label="Grade Level">
-                  <ChipGroup
-                    value={form.year_level}
-                    onSelect={v => set('year_level', v)}
-                    options={[
-                      { key: '11', label: 'Grade 11' },
-                      { key: '12', label: 'Grade 12' },
-                    ]}
-                  />
-                </Field>
-              </>
-            )}
+              <Field label="Section Name *">
+                <TextInput
+                  style={s.input}
+                  value={form.name}
+                  onChangeText={v => set('name', v)}
+                  placeholder="e.g. BSIT 3A"
+                  placeholderTextColor={C.muted}
+                />
+              </Field>
 
-            <Field label="School Year *">
-              <TextInput
-                style={s.input}
-                value={form.school_year}
-                onChangeText={v => set('school_year', v)}
-                placeholder="e.g. 2024-2025"
-                placeholderTextColor={C.muted}
-              />
-            </Field>
+              <Field label="Program Type">
+                <ChipGroup
+                  value={form.program_type}
+                  onSelect={v => {
+                    setForm(prev => ({ ...prev, program_type: v, course: '', strand: '', year_level: '' }));
+                    setCourseSearch('');
+                    setCourseDropdownOpen(false);
+                  }}
+                  options={[
+                    { key: 'college', label: '🎓 College' },
+                    { key: 'shs', label: '🏫 SHS' },
+                  ]}
+                />
+              </Field>
 
-            <Field label="Semester">
-              <ChipGroup
-                value={form.semester}
-                onSelect={v => set('semester', v)}
-                options={[
-                  { key: '1st', label: '1st' },
-                  { key: '2nd', label: '2nd' },
-                  { key: 'summer', label: 'Summer' },
-                ]}
-              />
-            </Field>
+              {form.program_type === 'college' ? (
+                <>
+                  <Field label="Active Course">
+                    <TouchableOpacity
+                      style={[s.dropdown, form.course && s.dropdownActive]}
+                      onPress={() => setCourseDropdownOpen(open => !open)}
+                    >
+                      <Text style={[s.dropdownLabel, !form.course && { color: C.muted }]}>
+                        {form.course || 'Select active course'}
+                      </Text>
+                      <Text style={s.dropdownArrow}>{courseDropdownOpen ? '▲' : '▼'}</Text>
+                    </TouchableOpacity>
+                    {courseDropdownOpen && (
+                      <View style={s.dropdownPanel}>
+                        <TextInput
+                          style={[s.input, s.courseSearchInput]}
+                          value={courseSearch}
+                          onChangeText={setCourseSearch}
+                          placeholder="Search active courses..."
+                          placeholderTextColor={C.muted}
+                        />
+                        {loadingCourses ? (
+                          <View style={s.dropdownLoading}><ActivityIndicator color={C.blue} /></View>
+                        ) : (
+                          <ScrollView style={s.dropdownScroll} keyboardShouldPersistTaps="handled">
+                            {courses.map(course => (
+                              <TouchableOpacity
+                                key={course.id}
+                                style={[s.courseOption, form.course === course.name && s.courseOptionActive]}
+                                onPress={() => { set('course', course.name); setCourseDropdownOpen(false); }}
+                              >
+                                <Text style={s.courseOptionText}>{course.name}</Text>
+                              </TouchableOpacity>
+                            ))}
+                            {courses.length === 0 && (
+                              <Text style={s.dropdownEmpty}>No active college courses found.</Text>
+                            )}
+                          </ScrollView>
+                        )}
+                      </View>
+                    )}
+                  </Field>
+                  <Field label="Year Level">
+                    <ChipGroup
+                      value={form.year_level}
+                      onSelect={v => set('year_level', v)}
+                      options={[
+                        { key: '1', label: '1st' },
+                        { key: '2', label: '2nd' },
+                        { key: '3', label: '3rd' },
+                        { key: '4', label: '4th' },
+                      ]}
+                    />
+                  </Field>
+                </>
+              ) : (
+                <>
+                  <Field label="Active Strand / Program">
+                    <TouchableOpacity
+                      style={[s.dropdown, form.strand && s.dropdownActive]}
+                      onPress={() => setCourseDropdownOpen(open => !open)}
+                    >
+                      <Text style={[s.dropdownLabel, !form.strand && { color: C.muted }]}>
+                        {form.strand || 'Select active strand/program'}
+                      </Text>
+                      <Text style={s.dropdownArrow}>{courseDropdownOpen ? '▲' : '▼'}</Text>
+                    </TouchableOpacity>
+                    {courseDropdownOpen && (
+                      <View style={s.dropdownPanel}>
+                        <TextInput
+                          style={[s.input, s.courseSearchInput]}
+                          value={courseSearch}
+                          onChangeText={setCourseSearch}
+                          placeholder="Search active SHS programs..."
+                          placeholderTextColor={C.muted}
+                        />
+                        {loadingCourses ? (
+                          <View style={s.dropdownLoading}><ActivityIndicator color={C.blue} /></View>
+                        ) : (
+                          <ScrollView style={s.dropdownScroll} keyboardShouldPersistTaps="handled">
+                            {courses.map(course => (
+                              <TouchableOpacity
+                                key={course.id}
+                                style={[s.courseOption, form.strand === course.name && s.courseOptionActive]}
+                                onPress={() => { set('strand', course.name); setCourseDropdownOpen(false); }}
+                              >
+                                <Text style={s.courseOptionText}>{course.name}</Text>
+                              </TouchableOpacity>
+                            ))}
+                            {courses.length === 0 && (
+                              <Text style={s.dropdownEmpty}>No active SHS programs found.</Text>
+                            )}
+                          </ScrollView>
+                        )}
+                      </View>
+                    )}
+                  </Field>
+                  <Field label="Grade Level">
+                    <ChipGroup
+                      value={form.year_level}
+                      onSelect={v => set('year_level', v)}
+                      options={[
+                        { key: '11', label: 'Grade 11' },
+                        { key: '12', label: 'Grade 12' },
+                      ]}
+                    />
+                  </Field>
+                </>
+              )}
+            </View>
 
-            <Field label="Maximum Students">
-              <TextInput
-                style={s.input}
-                value={form.max_students}
-                onChangeText={v => set('max_students', v.replace(/[^0-9]/g, ''))}
-                placeholder="40"
-                placeholderTextColor={C.muted}
-                keyboardType="numeric"
-              />
-            </Field>
+            {/* ── SCHEDULE CARD ── */}
+            <View style={s.sectionCard}>
+              <Text style={s.sectionCardTitle}>📅 Schedule & Capacity</Text>
 
-            <Field label="Status">
-              <ChipGroup
-                value={form.is_active ? 'active' : 'inactive'}
-                onSelect={v => set('is_active', v === 'active')}
-                options={[
-                  { key: 'active', label: 'Active' },
-                  { key: 'inactive', label: 'Inactive' },
-                ]}
-              />
-            </Field>
+              <Field label="School Year *">
+                <TextInput
+                  style={s.input}
+                  value={form.school_year}
+                  onChangeText={v => set('school_year', v)}
+                  placeholder="e.g. 2024-2025"
+                  placeholderTextColor={C.muted}
+                />
+              </Field>
 
+              <Field label="Semester">
+                <ChipGroup
+                  value={form.semester}
+                  onSelect={v => set('semester', v)}
+                  options={[
+                    { key: '1st', label: '1st' },
+                    { key: '2nd', label: '2nd' },
+                    { key: 'summer', label: 'Summer' },
+                  ]}
+                />
+              </Field>
+
+              <View style={s.twoCol}>
+                <View style={{ flex: 1 }}>
+                  <Field label="Max Students">
+                    <TextInput
+                      style={s.input}
+                      value={form.max_students}
+                      onChangeText={v => set('max_students', v.replace(/[^0-9]/g, ''))}
+                      placeholder="40"
+                      placeholderTextColor={C.muted}
+                      keyboardType="numeric"
+                    />
+                  </Field>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Field label="Status">
+                    <ChipGroup
+                      value={form.is_active ? 'active' : 'inactive'}
+                      onSelect={v => set('is_active', v === 'active')}
+                      options={[
+                        { key: 'active', label: '✅ Active' },
+                        { key: 'inactive', label: '⏸ Inactive' },
+                      ]}
+                    />
+                  </Field>
+                </View>
+              </View>
+            </View>
+
+            {/* ── SAVE BUTTON (top-level) ── */}
+            <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
+              {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveBtnText}>{editing ? '💾 Update Section' : '✅ Create Section'}</Text>}
+            </TouchableOpacity>
+
+            {/* ── ASSIGNED SUBJECTS (edit only) ── */}
             {editing && (
-              <View style={s.subjectManager}>
-                <View style={s.subjectManagerHeader}>
-                  <View>
-                    <Text style={s.managerTitle}>Assigned Subjects</Text>
-                    <Text style={s.managerSub}>{assignedSubjects.length} subjects in this section</Text>
-                  </View>
+              <View style={s.managerCard}>
+                <View style={s.managerCardHeader}>
+                  <Text style={s.managerTitle}>📚 Assigned Subjects</Text>
+                  <Text style={s.managerSub}>{assignedSubjects.length} subjects</Text>
                 </View>
 
                 {assignedSubjects.length === 0 ? (
@@ -665,22 +713,25 @@ export default function Sections() {
                       <Text style={s.assignedTitle}>{item.subject?.code} · {item.subject?.name}</Text>
                       <Text style={s.assignedMeta}>
                         {[item.day, item.time_start && item.time_end ? `${item.time_start}-${item.time_end}` : null, item.room]
-                          .filter(Boolean)
-                          .join(' · ') || 'No schedule set'}
+                          .filter(Boolean).join(' · ') || 'No schedule set'}
                       </Text>
-                      {item.teacher?.name ? <Text style={s.assignedMeta}>{item.teacher.name}</Text> : null}
+                      {item.teacher?.name ? <Text style={s.assignedMeta}>👤 {item.teacher.name}</Text> : null}
                     </View>
                     <TouchableOpacity style={s.smallBtn} onPress={() => fillAssignment(item)}>
                       <Text style={s.smallBtnText}>Edit</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={s.removeBtn} onPress={() => handleRemoveSubject(item)}>
-                      <Text style={s.removeBtnText}>Remove</Text>
+                      <Text style={s.removeBtnText}>✕</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
 
                 <View style={s.assignBox}>
-                  <Text style={s.assignTitle}>{assignment.subject_id && assignedSubjects.some(item => String(item.subject_id) === assignment.subject_id) ? 'Update Schedule' : 'Add Subject'}</Text>
+                  <Text style={s.assignTitle}>
+                    {assignment.subject_id && assignedSubjects.some(item => String(item.subject_id) === assignment.subject_id)
+                      ? '✏️ Update Schedule'
+                      : '➕ Add Subject'}
+                  </Text>
                   <Field label="Subject">
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.subjectChoices}>
                       {assignedSubjects
@@ -706,16 +757,37 @@ export default function Sections() {
                       )}
                     </ScrollView>
                   </Field>
-                  <Field label="Days">
-                    <TextInput style={s.input} value={assignment.day} onChangeText={v => setSchedule('day', v)} placeholder="e.g. MWF" placeholderTextColor={C.muted} />
-                  </Field>
+                  <View style={s.twoCol}>
+                    <View style={{ flex: 1 }}>
+                      <Field label="Days">
+                        <TextInput style={s.input} value={assignment.day} onChangeText={v => setSchedule('day', v)} placeholder="e.g. MWF" placeholderTextColor={C.muted} />
+                      </Field>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Field label="Room">
+                        <TextInput style={s.input} value={assignment.room} onChangeText={v => setSchedule('room', v)} placeholder="e.g. Room 101" placeholderTextColor={C.muted} />
+                      </Field>
+                    </View>
+                  </View>
+                  <View style={s.twoCol}>
+                    <View style={{ flex: 1 }}>
+                      <Field label="Start">
+                        <TextInput style={s.input} value={assignment.time_start} onChangeText={v => setSchedule('time_start', v)} placeholder="08:00" placeholderTextColor={C.muted} />
+                      </Field>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Field label="End">
+                        <TextInput style={s.input} value={assignment.time_end} onChangeText={v => setSchedule('time_end', v)} placeholder="09:00" placeholderTextColor={C.muted} />
+                      </Field>
+                    </View>
+                  </View>
                   <Field label="Teacher">
                     <TouchableOpacity
                       style={[s.dropdown, assignment.teacher_id && s.dropdownActive]}
                       onPress={() => setTeacherDropdownOpen(open => !open)}
                     >
                       <Text style={[s.dropdownLabel, !selectedTeacher && { color: C.muted }]}>
-                        {selectedTeacher?.name || 'Select teacher'}
+                        {selectedTeacher?.name || 'Select teacher (optional)'}
                       </Text>
                       <Text style={s.dropdownArrow}>{teacherDropdownOpen ? '▲' : '▼'}</Text>
                     </TouchableOpacity>
@@ -731,10 +803,7 @@ export default function Sections() {
                         <ScrollView style={s.dropdownScroll} keyboardShouldPersistTaps="handled">
                           <TouchableOpacity
                             style={[s.courseOption, !assignment.teacher_id && s.courseOptionActive]}
-                            onPress={() => {
-                              setSchedule('teacher_id', '');
-                              setTeacherDropdownOpen(false);
-                            }}
+                            onPress={() => { setSchedule('teacher_id', ''); setTeacherDropdownOpen(false); }}
                           >
                             <Text style={s.courseOptionText}>No teacher assigned</Text>
                           </TouchableOpacity>
@@ -742,10 +811,7 @@ export default function Sections() {
                             <TouchableOpacity
                               key={teacher.id}
                               style={[s.courseOption, String(teacher.id) === String(assignment.teacher_id) && s.courseOptionActive]}
-                              onPress={() => {
-                                setSchedule('teacher_id', String(teacher.id));
-                                setTeacherDropdownOpen(false);
-                              }}
+                              onPress={() => { setSchedule('teacher_id', String(teacher.id)); setTeacherDropdownOpen(false); }}
                             >
                               <Text style={s.courseOptionText}>{teacher.name}</Text>
                               {!!teacher.email && <Text style={s.optionSubText}>{teacher.email}</Text>}
@@ -760,37 +826,21 @@ export default function Sections() {
                       </View>
                     )}
                   </Field>
-                  <View style={s.twoCol}>
-                    <View style={{ flex: 1 }}>
-                      <Field label="Start">
-                        <TextInput style={s.input} value={assignment.time_start} onChangeText={v => setSchedule('time_start', v)} placeholder="08:00" placeholderTextColor={C.muted} />
-                      </Field>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Field label="End">
-                        <TextInput style={s.input} value={assignment.time_end} onChangeText={v => setSchedule('time_end', v)} placeholder="09:00" placeholderTextColor={C.muted} />
-                      </Field>
-                    </View>
-                  </View>
-                  <Field label="Room">
-                    <TextInput style={s.input} value={assignment.room} onChangeText={v => setSchedule('room', v)} placeholder="e.g. Room 101" placeholderTextColor={C.muted} />
-                  </Field>
                   <TouchableOpacity style={[s.assignBtn, assigning && { opacity: 0.6 }]} onPress={handleAssignSubject} disabled={assigning}>
-                    {assigning ? <ActivityIndicator color="#fff" /> : <Text style={s.assignBtnText}>Save Subject Schedule</Text>}
+                    {assigning ? <ActivityIndicator color="#fff" /> : <Text style={s.assignBtnText}>💾 Save Subject Schedule</Text>}
                   </TouchableOpacity>
                 </View>
               </View>
             )}
 
+            {/* ── ENROLLED STUDENTS (edit only) ── */}
             {editing && (
-              <View style={s.subjectManager}>
-                <View style={s.subjectManagerHeader}>
-                  <View>
-                    <Text style={s.managerTitle}>Enrolled Students</Text>
-                    <Text style={s.managerSub}>
-                      {enrolledStudents.length}/{editing.max_students ?? form.max_students} students in this section
-                    </Text>
-                  </View>
+              <View style={s.managerCard}>
+                <View style={s.managerCardHeader}>
+                  <Text style={s.managerTitle}>👥 Enrolled Students</Text>
+                  <Text style={s.managerSub}>
+                    {enrolledStudents.length}/{editing.max_students ?? form.max_students} students
+                  </Text>
                 </View>
 
                 {enrolledStudents.length === 0 ? (
@@ -800,17 +850,21 @@ export default function Sections() {
                     <View style={{ flex: 1 }}>
                       <Text style={s.assignedTitle}>{student.name}</Text>
                       {!!student.email && <Text style={s.assignedMeta}>{student.email}</Text>}
-                      {!!student.pivot?.status && <Text style={s.assignedMeta}>{student.pivot.status}</Text>}
+                      {!!student.pivot?.status && (
+                        <Text style={[s.statusBadge, student.pivot.status === 'enrolled' && s.statusBadgeActive]}>
+                          {student.pivot.status}
+                        </Text>
+                      )}
                     </View>
                     <TouchableOpacity style={s.removeBtn} onPress={() => handleRemoveStudent(student)}>
-                      <Text style={s.removeBtnText}>Remove</Text>
+                      <Text style={s.removeBtnText}>✕</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
 
                 <View style={s.assignBox}>
-                  <Text style={s.assignTitle}>Add Student</Text>
-                  <Field label="Find Student">
+                  <Text style={s.assignTitle}>➕ Add Student</Text>
+                  <Field label="Search Student">
                     <TextInput
                       style={s.input}
                       value={studentSearch}
@@ -830,12 +884,11 @@ export default function Sections() {
                           <Text style={s.studentName}>{student.name}</Text>
                           <Text style={s.studentMeta}>
                             {[student.student_id, student.email, student.grade_level ? `Level ${student.grade_level}` : null]
-                              .filter(Boolean)
-                              .join(' · ')}
+                              .filter(Boolean).join(' · ')}
                           </Text>
                         </View>
                         <Text style={[s.selectMark, String(student.user_id) === String(selectedStudentId) && s.selectMarkActive]}>
-                          {String(student.user_id) === String(selectedStudentId) ? 'Selected' : 'Select'}
+                          {String(student.user_id) === String(selectedStudentId) ? '✓ Selected' : 'Select'}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -852,15 +905,11 @@ export default function Sections() {
                     onPress={handleEnrollStudent}
                     disabled={enrollingStudent}
                   >
-                    {enrollingStudent ? <ActivityIndicator color="#fff" /> : <Text style={s.assignBtnText}>Enroll Student</Text>}
+                    {enrollingStudent ? <ActivityIndicator color="#fff" /> : <Text style={s.assignBtnText}>✅ Enroll Student</Text>}
                   </TouchableOpacity>
                 </View>
               </View>
             )}
-
-            <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveBtnText}>{editing ? 'Update Section' : 'Create Section'}</Text>}
-            </TouchableOpacity>
 
             <View style={{ height: 40 }} />
           </ScrollView>
@@ -877,6 +926,8 @@ const s = StyleSheet.create({
   headerTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   title: { color: '#fff', fontSize: 22, fontWeight: '700' },
   subtitle: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 },
+  // Search + Create row
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   addBtn: { backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   list: { padding: 12, paddingBottom: 24 },
@@ -897,14 +948,25 @@ const s = StyleSheet.create({
   emptyIcon: { fontSize: 48, marginBottom: 10 },
   emptyTitle: { color: C.text, fontSize: 16, fontWeight: '700' },
   emptySub: { color: C.muted, fontSize: 13, marginTop: 4 },
-  modal: { flex: 1, backgroundColor: C.card },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingTop: 52, borderBottomWidth: 1, borderBottomColor: C.border },
-  modalTitle: { color: C.text, fontSize: 18, fontWeight: '700' },
-  closeText: { color: C.muted, fontSize: 18, padding: 4 },
-  modalBody: { padding: 16 },
+  // Modal
+  modal: { flex: 1, backgroundColor: C.bg },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingTop: 52, paddingBottom: 14, backgroundColor: C.blue },
+  modalHeaderLeft: { flex: 1 },
+  modalTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  modalSubtitle: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 },
+  closeBtn: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 18, padding: 8 },
+  closeText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  modalBody: { padding: 14 },
+  // Section cards inside modal
+  sectionCard: { backgroundColor: C.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 12, elevation: 1 },
+  sectionCardTitle: { fontSize: 14, fontWeight: '800', color: C.text, marginBottom: 14 },
+  managerCard: { backgroundColor: C.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 12, elevation: 1 },
+  managerCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  managerTitle: { color: C.text, fontSize: 14, fontWeight: '800' },
+  managerSub: { color: C.muted, fontSize: 12 },
   field: { marginBottom: 14 },
   fieldLabel: { color: C.sub, fontSize: 13, fontWeight: '700', marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 12, color: C.text, backgroundColor: C.bg, fontSize: 14 },
+  input: { borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 12, color: C.text, backgroundColor: '#fff', fontSize: 14 },
   dropdown: { borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12, backgroundColor: '#fff', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   dropdownActive: { borderColor: C.blue },
   dropdownLabel: { color: C.text, fontSize: 14, flex: 1 },
@@ -919,19 +981,17 @@ const s = StyleSheet.create({
   courseOptionText: { color: C.text, fontSize: 13 },
   optionSubText: { color: C.muted, fontSize: 11, marginTop: 2 },
   helperText: { color: C.muted, fontSize: 12, lineHeight: 18 },
-  subjectManager: { borderTopWidth: 1, borderTopColor: C.border, marginTop: 6, paddingTop: 16 },
-  subjectManagerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  managerTitle: { color: C.text, fontSize: 15, fontWeight: '800' },
-  managerSub: { color: C.muted, fontSize: 12, marginTop: 2 },
-  assignedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderWidth: 1, borderColor: C.border, borderRadius: 12, marginBottom: 8, backgroundColor: '#fff' },
+  assignedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderWidth: 1, borderColor: C.border, borderRadius: 12, marginBottom: 8, backgroundColor: '#F8FAFD' },
   assignedTitle: { color: C.text, fontSize: 13, fontWeight: '700' },
   assignedMeta: { color: C.muted, fontSize: 11, marginTop: 2 },
+  statusBadge: { marginTop: 4, alignSelf: 'flex-start', backgroundColor: C.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, color: C.muted, overflow: 'hidden' },
+  statusBadgeActive: { backgroundColor: '#E1F5EE', color: C.green },
   smallBtn: { backgroundColor: C.blueLight, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
   smallBtnText: { color: C.blue, fontSize: 11, fontWeight: '800' },
   removeBtn: { backgroundColor: '#FCEBEB', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
-  removeBtnText: { color: '#E24B4A', fontSize: 11, fontWeight: '800' },
-  assignBox: { backgroundColor: '#F8FAFD', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E5E9F2', marginTop: 12 },
-  assignTitle: { color: C.text, fontSize: 14, fontWeight: '800', marginBottom: 10 },
+  removeBtnText: { color: '#E24B4A', fontSize: 13, fontWeight: '800' },
+  assignBox: { backgroundColor: '#F0F4FA', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E0E7F0', marginTop: 12 },
+  assignTitle: { color: C.text, fontSize: 13, fontWeight: '800', marginBottom: 12 },
   subjectChoices: { gap: 8, paddingBottom: 2 },
   subjectChoice: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border },
   subjectChoiceActive: { backgroundColor: C.blueLight, borderColor: C.blue },
@@ -945,13 +1005,13 @@ const s = StyleSheet.create({
   studentMeta: { color: C.muted, fontSize: 11, marginTop: 2 },
   selectMark: { color: C.muted, fontSize: 11, fontWeight: '800' },
   selectMarkActive: { color: C.blue },
-  assignBtn: { backgroundColor: C.green, borderRadius: 10, padding: 13, alignItems: 'center' },
+  assignBtn: { backgroundColor: C.green, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 4 },
   assignBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border },
   chipActive: { backgroundColor: C.blueLight, borderColor: C.blue },
   chipText: { color: C.sub, fontSize: 12, fontWeight: '600' },
   chipTextActive: { color: C.blue, fontWeight: '800' },
-  saveBtn: { backgroundColor: C.blue, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 16 },
+  saveBtn: { backgroundColor: C.blue, borderRadius: 12, padding: 16, alignItems: 'center', marginBottom: 12 },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
 });
