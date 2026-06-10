@@ -15,6 +15,8 @@ use App\Http\Controllers\Api\SubjectSectionController;
 use App\Http\Controllers\Api\TeacherChatController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AdminStudentController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\ParentController;
 
 // ── Public routes (no login required) ────────────────────────────
 Route::post('/login',            [AuthController::class, 'login']);
@@ -45,7 +47,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/students/{student}/attendance', [AttendanceController::class, 'byStudent']);
     Route::get('/students/{student}/fees',       [FeeController::class, 'byStudent']);
     Route::get('/dashboard/student',             [StudentController::class, 'dashboard']);
+    Route::get('/dashboard/parent',              [ParentController::class, 'dashboard']);
     Route::get('/my-subjects', [SubjectSectionController::class, 'mySubjects']);
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
 
     Route::post('/courses',        [CourseController::class, 'store']);
     Route::put('/courses/{id}',    [CourseController::class, 'update']);
@@ -93,6 +99,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/marketplace/payment-options', [MarketplaceController::class, 'paymentOptions']);
     Route::post('/marketplace/orders/{order}/mark-paid', [MarketplaceController::class, 'markOrderPaid']);
     Route::post('/marketplace/orders/{order}/cancel', [MarketplaceController::class, 'cancelOrder']);
+    Route::get('/marketplace/orders/{order}/receipt', [MarketplaceController::class, 'receipt']);
     Route::get('/marketplace',                 [MarketplaceController::class, 'index']);
     Route::post('/marketplace',                [MarketplaceController::class, 'store']);
     Route::get('/marketplace/{item}',          [MarketplaceController::class, 'show']);
@@ -114,6 +121,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/registrar/students',                   [AdminStudentController::class, 'index']);
     Route::put('/registrar/students/{student}',         [AdminStudentController::class, 'update']);
     Route::post('/registrar/students/{student}/reset-password', [AdminStudentController::class, 'resetPassword']);
+    Route::post('/registrar/students/{student}/subjects/{subject}/drop', [AdminStudentController::class, 'dropSubject']);
+    Route::post('/registrar/students/{student}/subjects/{subject}/restore', [AdminStudentController::class, 'restoreSubject']);
 
     // Admin
     Route::get('/admin/dashboard',      [AdminUserController::class, 'dashboard']);

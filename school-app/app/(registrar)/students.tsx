@@ -37,7 +37,7 @@ export default function RegistrarStudents() {
 
   const fetchStudents = useCallback(async () => {
     try {
-      const res = await api.get('/students');
+      const res = await api.get('/registrar/students');
       setStudents(res.data || []);
     } catch (e) {
       console.log('Students fetch error:', e.message);
@@ -118,6 +118,44 @@ export default function RegistrarStudents() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const updateSelectedStudent = (student) => {
+    setSelected(student);
+    setStudents(current => current.map(item => item.id === student.id ? student : item));
+  };
+
+  const changeSubjectStatus = async (subject, action) => {
+    if (!selected || !subject?.id) return;
+
+    const verb = action === 'drop' ? 'Drop' : 'Restore';
+    Alert.alert(
+      `${verb} subject`,
+      action === 'drop'
+        ? `Drop ${subject.code || subject.name} for this student?`
+        : `Restore ${subject.code || subject.name} to this student's study load?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: verb,
+          style: action === 'drop' ? 'destructive' : 'default',
+          onPress: async () => {
+            setSaving(true);
+            try {
+              const res = await api.post(
+                `/registrar/students/${selected.id}/subjects/${subject.id}/${action}`,
+                { section_id: subject.section_id ?? null }
+              );
+              updateSelectedStudent(res.data.student);
+            } catch (e) {
+              Alert.alert('Could not update subject', e.response?.data?.message || 'Please try again.');
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -281,7 +319,7 @@ export default function RegistrarStudents() {
               <View style={s.infoPanel}>
                 <Text style={s.infoTitle}>Subjects</Text>
                 {selected?.subjects?.length ? selected.subjects.map(subject => (
-                  <View key={`${subject.source}-${subject.id}`} style={s.subjectRow}>
+                  <View key={`${subject.source}-${subject.section_id ?? 'direct'}-${subject.id}`} style={s.subjectRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={s.subjectName}>{subject.code ? `${subject.code} · ` : ''}{subject.name}</Text>
                       <Text style={s.subjectMeta}>
@@ -290,8 +328,26 @@ export default function RegistrarStudents() {
                         {subject.time_start || subject.time_end ? `${subject.time_start || ''}-${subject.time_end || ''} ` : ''}
                         {subject.room || ''}
                       </Text>
+                      {subject.status === 'dropped' && (
+                        <Text style={s.droppedMeta}>
+                          Dropped{subject.drop_reason ? `: ${subject.drop_reason}` : ''}
+                        </Text>
+                      )}
                     </View>
-                    <Text style={s.subjectUnits}>{Number(subject.units_lec || 0) + Number(subject.units_lab || 0)}u</Text>
+                    <View style={s.subjectActions}>
+                      <Text style={[s.subjectUnits, subject.status === 'dropped' && s.subjectDropped]}>
+                        {Number(subject.units_lec || 0) + Number(subject.units_lab || 0)}u
+                      </Text>
+                      {subject.status === 'dropped' ? (
+                        <TouchableOpacity style={s.restoreSubjectBtn} onPress={() => changeSubjectStatus(subject, 'restore')} disabled={saving}>
+                          <Text style={s.restoreSubjectText}>Restore</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity style={s.dropSubjectBtn} onPress={() => changeSubjectStatus(subject, 'drop')} disabled={saving}>
+                          <Text style={s.dropSubjectText}>Drop</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 )) : (
                   <Text style={s.emptyInline}>No subjects found for this student.</Text>
@@ -412,7 +468,14 @@ const s = StyleSheet.create({
   subjectRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderColor: '#E2E8F0' },
   subjectName: { color: '#111827', fontSize: 13, fontWeight: '900' },
   subjectMeta: { color: '#64748B', fontSize: 11, marginTop: 3 },
+  droppedMeta: { color: '#B91C1C', fontSize: 11, fontWeight: '800', marginTop: 4 },
+  subjectActions: { alignItems: 'flex-end', gap: 6 },
   subjectUnits: { color: '#334155', fontSize: 12, fontWeight: '900', backgroundColor: '#E2E8F0', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
+  subjectDropped: { color: '#B91C1C', backgroundColor: '#FEE2E2' },
+  dropSubjectBtn: { backgroundColor: '#FEE2E2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+  dropSubjectText: { color: '#B91C1C', fontSize: 11, fontWeight: '900' },
+  restoreSubjectBtn: { backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+  restoreSubjectText: { color: '#166534', fontSize: 11, fontWeight: '900' },
   emptyInline: { color: '#64748B', fontSize: 12, paddingVertical: 8 },
   // keep some legacy styles used above
   studentCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\SchoolNotification;
+use App\Models\Student;
 use App\Models\TeacherMessage;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -57,6 +59,15 @@ class TeacherChatController extends Controller
             'sender_id' => $user->id,
             'receiver_id' => $contact->id,
             'message' => $data['message'],
+        ]);
+
+        SchoolNotification::create([
+            'user_id' => $contact->id,
+            'type' => 'new_message',
+            'title' => 'New message',
+            'body' => "{$user->name}: {$data['message']}",
+            'channels' => ['in_app'],
+            'data' => ['sender_id' => $user->id],
         ]);
 
         return response()->json($message->load('sender:id,name'), 201);
@@ -169,20 +180,41 @@ class TeacherChatController extends Controller
             )
             ->first();
 
-        $profile = DB::table('students')
+        $profile = Student::where('user_id', $contact->id)->first();
+
+        $subjects = DB::table('section_students')
+            ->join('section_subjects', 'section_students.section_id', '=', 'section_subjects.section_id')
+            ->join('subjects', 'subjects.id', '=', 'section_subjects.subject_id')
+            ->where('section_subjects.teacher_id', $user->id)
+            ->where('section_students.user_id', $contact->id)
+            ->where('section_students.status', 'enrolled')
+            ->orderBy('subjects.code')
+            ->get(['subjects.id', 'subjects.code', 'subjects.name'])
+            ->map(fn ($subject) => [
+                'id' => $subject->id,
+                'code' => $subject->code,
+                'name' => $subject->name,
+            ])
+            ->values();
+
+        $profileFallback = DB::table('students')
             ->where('user_id', $contact->id)
             ->select('grade_level', 'section', 'school_year')
             ->first();
 
         $year = $section?->year_level
             ? 'Year ' . $section->year_level
-            : ($profile?->grade_level ? 'Grade ' . $profile->grade_level : null);
+            : ($profileFallback?->grade_level ? 'Grade ' . $profileFallback->grade_level : null);
 
         return [
-            'section' => $section?->name ?? $profile?->section,
+            'full_name' => $contact->name,
+            'student_id' => $profile?->student_id,
+            'course' => $section?->course,
+            'section' => $section?->name ?? $profileFallback?->section,
             'year' => $year,
             'program' => $section?->course ?? $section?->strand,
-            'school_year' => $section?->school_year ?? $profile?->school_year,
+            'school_year' => $section?->school_year ?? $profileFallback?->school_year,
+            'subjects' => $subjects,
         ];
     }
 

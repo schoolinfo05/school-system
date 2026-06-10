@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\EnrollmentApplication;
 use App\Models\Section;
 use App\Models\Student;
+use App\Models\StudentSubject;
 use App\Models\Subject;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -21,7 +23,7 @@ class AdminStudentController extends Controller
         $status = $request->query('status');
 
         $students = Student::query()
-            ->with('user:id,name,email,role,created_at')
+            ->with(['user:id,name,email,role,created_at', 'parent:id,name,email,role'])
             ->when(in_array($status, ['active', 'inactive', 'graduated'], true), fn ($query) => $query->where('status', $status))
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($inner) use ($search) {
@@ -75,11 +77,27 @@ class AdminStudentController extends Controller
             'prev_school_address' => ['nullable', 'string', 'max:255'],
             'student_type' => ['nullable', 'in:new_student,old_student,transferee,returnee'],
             'academic_status' => ['nullable', 'in:Regular,Irregular'],
+            'parent_email' => ['nullable', 'email', 'exists:users,email'],
         ]);
+
+        $parentId = $student->parent_user_id;
+        if (array_key_exists('parent_email', $data)) {
+            $parentId = null;
+        }
+
+        if (!empty($data['parent_email'])) {
+            $parent = User::where('email', $data['parent_email'])->first();
+            if (!$parent || ($parent->role !== 'parent' && !$parent->hasRole('parent'))) {
+                return response()->json(['message' => 'Parent email must belong to a parent account.'], 422);
+            }
+            $parentId = $parent->id;
+        }
 
         $student->update(collect($data)->only([
             'student_id', 'first_name', 'last_name', 'email', 'phone', 'birthdate',
             'gender', 'address', 'grade_level', 'section', 'school_year', 'status',
+        ])->merge([
+            'parent_user_id' => $parentId,
         ])->all());
 
         $application = EnrollmentApplication::query()
@@ -103,7 +121,7 @@ class AdminStudentController extends Controller
             $student->user->syncRoles(['student']);
         }
 
-        return response()->json($this->studentPayload($student->load('user:id,name,email,role,created_at')));
+        return response()->json($this->studentPayload($student->load(['user:id,name,email,role,created_at', 'parent:id,name,email,role'])));
     }
 
     public function resetPassword(Request $request, Student $student)
@@ -123,6 +141,60 @@ class AdminStudentController extends Controller
         ]);
 
         return response()->json(['message' => 'Student password updated.']);
+    }
+
+    public function dropSubject(Request $request, Student $student, Subject $subject)
+    {
+        $this->authorizeStudentManager($request);
+
+        $data = $request->validate([
+            'section_id'   => ['nullable', 'integer', 'exists:sections,id'],
+            'drop_reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        StudentSubject::query()->updateOrCreate(
+            [
+                'user_id'    => $student->user_id,
+                'subject_id' => $subject->id,
+                'section_id' => $data['section_id'] ?? null,
+            ],
+            [
+                'status'      => 'dropped',
+                'drop_reason' => $data['drop_reason'] ?? null,
+                'dropped_at'  => now(),
+                'dropped_by'  => $request->user()->id,
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Subject dropped for this student.',
+            'student' => $this->studentPayload($student->load(['user:id,name,email,role,created_at', 'parent:id,name,email,role'])),
+        ]);
+    }
+
+    public function restoreSubject(Request $request, Student $student, Subject $subject)
+    {
+        $this->authorizeStudentManager($request);
+
+        $data = $request->validate([
+            'section_id' => ['nullable', 'integer', 'exists:sections,id'],
+        ]);
+
+        StudentSubject::query()
+            ->where('user_id', $student->user_id)
+            ->where('subject_id', $subject->id)
+            ->where('section_id', $data['section_id'] ?? null)
+            ->update([
+                'status'      => 'enrolled',
+                'drop_reason' => null,
+                'dropped_at'  => null,
+                'dropped_by'  => null,
+            ]);
+
+        return response()->json([
+            'message' => 'Subject restored for this student.',
+            'student' => $this->studentPayload($student->load(['user:id,name,email,role,created_at', 'parent:id,name,email,role'])),
+        ]);
     }
 
     public function destroy(Request $request, Student $student)
@@ -169,6 +241,11 @@ class AdminStudentController extends Controller
             ->first();
 
         $payload = $student->toArray();
+        $payload['parent'] = $student->parent ? [
+            'id' => $student->parent->id,
+            'name' => $student->parent->name,
+            'email' => $student->parent->email,
+        ] : null;
         $payload['enrollment'] = $application ? [
             'id'                  => $application->id,
             'father_name'         => $application->father_name,
@@ -192,6 +269,11 @@ class AdminStudentController extends Controller
 
     private function subjectsForStudent(Student $student, ?EnrollmentApplication $application): array
     {
+        $overrides = StudentSubject::query()
+            ->where('user_id', $student->user_id)
+            ->get()
+            ->keyBy(fn (StudentSubject $record) => $this->subjectOverrideKey($record->section_id, $record->subject_id));
+
         $sectionSubjects = Section::query()
             ->whereHas('students', function ($query) use ($student) {
                 $query->where('users.id', $student->user_id)
@@ -199,19 +281,27 @@ class AdminStudentController extends Controller
             })
             ->with(['sectionSubjects.subject', 'sectionSubjects.teacher:id,name'])
             ->get()
-            ->flatMap(fn (Section $section) => $section->sectionSubjects->map(fn ($sectionSubject) => [
-                'id'         => $sectionSubject->subject?->id,
-                'code'       => $sectionSubject->subject?->code,
-                'name'       => $sectionSubject->subject?->name,
-                'units_lec'  => $sectionSubject->subject?->units_lec,
-                'units_lab'  => $sectionSubject->subject?->units_lab,
-                'teacher'    => $sectionSubject->teacher?->name,
-                'day'        => $sectionSubject->day,
-                'time_start' => $sectionSubject->time_start,
-                'time_end'   => $sectionSubject->time_end,
-                'room'       => $sectionSubject->room,
-                'source'     => 'section',
-            ]));
+            ->flatMap(fn (Section $section) => $section->sectionSubjects->map(function ($sectionSubject) use ($section, $overrides) {
+                $override = $overrides->get($this->subjectOverrideKey($section->id, $sectionSubject->subject?->id));
+
+                return [
+                    'id'          => $sectionSubject->subject?->id,
+                    'section_id'  => $section->id,
+                    'code'        => $sectionSubject->subject?->code,
+                    'name'        => $sectionSubject->subject?->name,
+                    'units_lec'   => $sectionSubject->subject?->units_lec,
+                    'units_lab'   => $sectionSubject->subject?->units_lab,
+                    'teacher'     => $sectionSubject->teacher?->name,
+                    'day'         => $sectionSubject->day,
+                    'time_start'  => $sectionSubject->time_start,
+                    'time_end'    => $sectionSubject->time_end,
+                    'room'        => $sectionSubject->room,
+                    'source'      => 'section',
+                    'status'      => $override?->status ?? 'enrolled',
+                    'drop_reason' => $override?->drop_reason,
+                    'dropped_at'  => $override?->dropped_at,
+                ];
+            }));
 
         $sectionSubjectIds = $sectionSubjects->pluck('id')->filter()->unique()->all();
         $directSubjectIds = collect($application?->subject_ids ?? [])
@@ -223,24 +313,37 @@ class AdminStudentController extends Controller
         $directSubjects = Subject::query()
             ->whereIn('id', $directSubjectIds)
             ->get()
-            ->map(fn (Subject $subject) => [
-                'id'         => $subject->id,
-                'code'       => $subject->code,
-                'name'       => $subject->name,
-                'units_lec'  => $subject->units_lec,
-                'units_lab'  => $subject->units_lab,
-                'teacher'    => null,
-                'day'        => null,
-                'time_start' => null,
-                'time_end'   => null,
-                'room'       => null,
-                'source'     => 'enrollment',
-            ]);
+            ->map(function (Subject $subject) use ($overrides) {
+                $override = $overrides->get($this->subjectOverrideKey(null, $subject->id));
+
+                return [
+                    'id'          => $subject->id,
+                    'section_id'  => null,
+                    'code'        => $subject->code,
+                    'name'        => $subject->name,
+                    'units_lec'   => $subject->units_lec,
+                    'units_lab'   => $subject->units_lab,
+                    'teacher'     => null,
+                    'day'         => null,
+                    'time_start'  => null,
+                    'time_end'    => null,
+                    'room'        => null,
+                    'source'      => 'enrollment',
+                    'status'      => $override?->status ?? 'enrolled',
+                    'drop_reason' => $override?->drop_reason,
+                    'dropped_at'  => $override?->dropped_at,
+                ];
+            });
 
         return $sectionSubjects
             ->concat($directSubjects)
             ->filter(fn ($subject) => $subject['id'])
             ->values()
             ->all();
+    }
+
+    private function subjectOverrideKey(?int $sectionId, ?int $subjectId): string
+    {
+        return ($sectionId ?? 'direct') . ':' . ($subjectId ?? 'none');
     }
 }

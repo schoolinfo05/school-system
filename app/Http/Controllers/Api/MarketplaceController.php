@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\MarketplaceItem;
 use App\Models\MarketplaceMessage;
 use App\Models\MarketplaceOrder;
+use App\Models\SchoolNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -432,7 +433,52 @@ class MarketplaceController extends Controller
             'message'     => "Your payment for {$order->item?->title} has been verified.",
         ]);
 
+        $this->notifyUser(
+            $order->buyer_id,
+            'payment_verified',
+            'Payment verified',
+            "Your payment for {$order->item?->title} has been verified.",
+            ['order_id' => $order->id]
+        );
+
         return response()->json($order->load(['item', 'buyer', 'seller']));
+    }
+
+    public function receipt(Request $request, MarketplaceOrder $order)
+    {
+        if (
+            $order->buyer_id !== $request->user()->id
+            && $order->seller_id !== $request->user()->id
+            && !$request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])
+        ) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $order->load(['item.seller', 'buyer', 'seller']);
+
+        return response()->json([
+            'receipt_no' => 'MKT-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
+            'issued_at' => now(),
+            'status' => $order->status,
+            'payment_method' => strtoupper((string) $order->payment_method),
+            'paymongo_payment_id' => $order->paymongo_payment_id,
+            'buyer' => [
+                'name' => $order->buyer?->name,
+                'email' => $order->buyer?->email,
+            ],
+            'seller' => [
+                'name' => $order->seller?->name ?? $order->item?->seller?->name,
+                'email' => $order->seller?->email ?? $order->item?->seller?->email,
+            ],
+            'items' => [[
+                'title' => $order->item?->title,
+                'quantity' => $order->quantity,
+                'unit_price' => (float) $order->unit_price,
+                'total' => (float) $order->total_amount,
+            ]],
+            'subtotal' => (float) $order->total_amount,
+            'total' => (float) $order->total_amount,
+        ]);
     }
 
     // POST /api/marketplace/orders/{order}/cancel — buyer cancels checkout/reservation
@@ -510,11 +556,25 @@ class MarketplaceController extends Controller
                 'paymongo_payment_id'  => $eventAttributes['payment_intent_id'] ?? $eventData['id'] ?? $order->paymongo_payment_id,
                 'paid_at'              => now(),
             ]);
+            $this->notifyUser(
+                $order->buyer_id,
+                'payment_verified',
+                'Payment received',
+                "Your payment for {$order->item?->title} has been received.",
+                ['order_id' => $order->id]
+            );
         } elseif (in_array($eventType, ['payment.failed', 'checkout_session.payment.failed'], true)) {
             $order->update([
                 'paymongo_status' => 'failed',
                 'notes'           => $eventAttributes['failed_message'] ?? 'PayMongo payment failed.',
             ]);
+            $this->notifyUser(
+                $order->buyer_id,
+                'payment_failed',
+                'Payment failed',
+                $eventAttributes['failed_message'] ?? 'Your marketplace payment failed.',
+                ['order_id' => $order->id]
+            );
         }
 
         return response()->json(['received' => true]);
@@ -538,6 +598,22 @@ class MarketplaceController extends Controller
         ]);
 
         return response()->json($message->load('sender'), 201);
+    }
+
+    private function notifyUser(?int $userId, string $type, string $title, ?string $body = null, array $data = []): void
+    {
+        if (!$userId) {
+            return;
+        }
+
+        SchoolNotification::create([
+            'user_id' => $userId,
+            'type' => $type,
+            'title' => $title,
+            'body' => $body,
+            'channels' => ['in_app'],
+            'data' => $data,
+        ]);
     }
 
     public function getMessages(Request $request, MarketplaceItem $item)

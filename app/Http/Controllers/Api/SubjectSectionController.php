@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\EnrollmentApplication;
+use App\Models\Fee;
 use App\Models\Student;
+use App\Models\StudentSubject;
 use App\Models\Subject;
 use App\Models\Section;
 use App\Models\SectionSubject;
@@ -429,6 +431,10 @@ class SubjectSectionController extends Controller
     public function mySubjects(Request $request)
     {
         $user = $request->user();
+        $overrides = StudentSubject::query()
+            ->where('user_id', $user->id)
+            ->get()
+            ->keyBy(fn (StudentSubject $record) => $this->subjectOverrideKey($record->section_id, $record->subject_id));
 
         $sections = Section::whereHas('students', fn($q) =>
                         $q->where('user_id', $user->id)->where('status', 'enrolled')
@@ -439,7 +445,9 @@ class SubjectSectionController extends Controller
                     ->get();
 
         $subjects = $sections->flatMap(fn($section) =>
-            $section->sectionSubjects->map(fn($ss) => [
+            $section->sectionSubjects
+            ->filter(fn($ss) => ($overrides->get($this->subjectOverrideKey($section->id, $ss->subject->id))?->status ?? 'enrolled') !== 'dropped')
+            ->map(fn($ss) => [
                 'section_id'   => $section->id,
                 'section_name' => $section->name,
                 'subject_id'   => $ss->subject->id,
@@ -466,6 +474,7 @@ class SubjectSectionController extends Controller
             ->map(fn($id) => (int) $id)
             ->filter()
             ->diff($sectionSubjectIds)
+            ->filter(fn($id) => ($overrides->get($this->subjectOverrideKey(null, $id))?->status ?? 'enrolled') !== 'dropped')
             ->values()
             ->all();
 
@@ -491,9 +500,20 @@ class SubjectSectionController extends Controller
             $subjects = $subjects->concat($directSubjects);
         }
 
+        $student = Student::where('user_id', $user->id)->first();
+        $fees = $student
+            ? Fee::where('student_id', $student->id)->orderBy('due_date')->get()
+            : collect();
+
         return response()->json([
             'sections' => $sections->map(fn($s) => ['id' => $s->id, 'name' => $s->name]),
             'subjects' => $subjects->values(),
+            'fees' => $fees->values(),
+            'fee_summary' => [
+                'total' => (float) $fees->sum('amount'),
+                'paid' => (float) $fees->sum('paid_amount'),
+                'balance' => (float) $fees->sum(fn (Fee $fee) => max(0, $fee->amount - $fee->paid_amount)),
+            ],
         ]);
     }
 
@@ -534,5 +554,10 @@ class SubjectSectionController extends Controller
         if (!$user || (!in_array($user->role, ['registrar', 'admin']) && !$user->hasAnyRole(['registrar', 'admin']))) {
             abort(403, 'Unauthorized.');
         }
+    }
+
+    private function subjectOverrideKey(?int $sectionId, ?int $subjectId): string
+    {
+        return ($sectionId ?? 'direct') . ':' . ($subjectId ?? 'none');
     }
 }

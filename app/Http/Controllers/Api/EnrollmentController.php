@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\EnrollmentApplication;
 use App\Models\Course;
+use App\Models\SchoolNotification;
 use App\Models\Student;
+use App\Models\Subject;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -60,7 +62,7 @@ class EnrollmentController extends Controller
 
             // Classification
             'student_type'    => 'nullable|in:new_student,old_student,transferee,returnee',
-            'academic_status' => 'nullable|in:Regular,Irregular',
+            'academic_status' => 'required|in:Regular,Irregular',
             'shiftee_from'    => 'nullable|string|max:100',
             'shiftee_to'      => 'nullable|string|max:100',
             'id_no'           => 'nullable|string|max:50',
@@ -74,7 +76,9 @@ class EnrollmentController extends Controller
             'year_level'   => 'required_if:program_type,college|nullable|in:1,2,3,4',
 
             // Subjects
-            'subject_ids'   => 'required|array|min:1',
+            'subject_ids'   => $request->academic_status === 'Regular'
+                ? 'nullable|array'
+                : 'required|array|min:1',
             'subject_ids.*' => 'integer|exists:subjects,id',
 
             // Enrollment period
@@ -142,11 +146,19 @@ class EnrollmentController extends Controller
             $hashedPassword = Hash::make($request->password);
         }
 
+        $subjectIds = $this->subjectIdsForApplication($request);
+        if ($request->academic_status === 'Regular' && empty($subjectIds)) {
+            return response()->json([
+                'message' => 'No regular subjects are available for this program and semester.',
+            ], 422);
+        }
+
         $application = EnrollmentApplication::create([
-            ...$request->except('password', 'password_confirmation', 'gender', 'course'),
+            ...$request->except('password', 'password_confirmation', 'gender', 'course', 'subject_ids'),
             'course'   => $request->filled('course_id')
                 ? Course::find($request->course_id)?->name
                 : $request->course,
+            'subject_ids' => $subjectIds,
             'password' => $hashedPassword,
             'gender'   => $gender,
             'status'   => 'pending',
@@ -331,6 +343,15 @@ class EnrollmentController extends Controller
                     'status'      => 'active',
                 ]
             );
+
+            SchoolNotification::create([
+                'user_id' => $user->id,
+                'type' => 'enrollment_approved',
+                'title' => 'Enrollment approved',
+                'body' => 'Your enrollment application has been approved. You can now sign in.',
+                'channels' => ['in_app'],
+                'data' => ['enrollment_application_id' => $app->id],
+            ]);
         });
 
         return response()->json([
@@ -356,6 +377,17 @@ class EnrollmentController extends Controller
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
         ]);
+
+        if ($app->user_id) {
+            SchoolNotification::create([
+                'user_id' => $app->user_id,
+                'type' => 'enrollment_rejected',
+                'title' => 'Enrollment rejected',
+                'body' => $request->remarks,
+                'channels' => ['in_app'],
+                'data' => ['enrollment_application_id' => $app->id],
+            ]);
+        }
 
         return response()->json(['message' => 'Application rejected.']);
     }
@@ -406,7 +438,14 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($request) {
+        $subjectIds = $this->subjectIdsForApplication($request);
+        if ($request->academic_status === 'Regular' && empty($subjectIds)) {
+            return response()->json([
+                'message' => 'No regular subjects are available for this program and semester.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($request, $subjectIds) {
             // Create user account
             $user = User::create([
                 'name'     => trim("{$request->first_name} {$request->last_name}"),
@@ -454,7 +493,7 @@ class EnrollmentController extends Controller
                 'strand'          => $request->strand,
                 'school_year'     => $request->school_year,
                 'semester'        => $request->semester,
-                'subject_ids'     => $request->subject_ids ?? [],
+                'subject_ids'     => $subjectIds,
                 // Pre-approved — no pending review needed
                 'status'      => 'approved',
                 'user_id'     => $user->id,
@@ -507,6 +546,48 @@ class EnrollmentController extends Controller
         $year   = date('y'); // 2-digit year, e.g. 25 for 2025
         $seq    = str_pad($appId, 8, '0', STR_PAD_LEFT); // 8-digit zero-padded
         return "{$prefix}-{$year}-{$seq}";
+    }
+
+    private function subjectIdsForApplication(Request $request): array
+    {
+        if ($request->academic_status !== 'Regular') {
+            return collect($request->subject_ids ?? [])
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        }
+
+        $courseName = $request->filled('course_id')
+            ? Course::find($request->course_id)?->name
+            : $request->course;
+
+        return Subject::query()
+            ->where('program_type', $request->program_type)
+            ->where('is_active', true)
+            ->when($request->semester, fn ($query) => $query->where('semester', strtolower($request->semester)))
+            ->when($request->program_type === 'college', function ($query) use ($request, $courseName) {
+                $query->where('year_level', $request->year_level)
+                    ->where(function ($courseQuery) use ($courseName) {
+                        $courseQuery->where('course', $courseName)
+                            ->orWhereNull('course')
+                            ->orWhere('course', '');
+                    });
+            })
+            ->when($request->program_type === 'shs', function ($query) use ($request) {
+                $query->where('year_level', $request->grade_level)
+                    ->where(function ($strandQuery) use ($request) {
+                        $strandQuery->where('strand', $request->strand)
+                            ->orWhereNull('strand')
+                            ->orWhere('strand', '');
+                    });
+            })
+            ->orderBy('code')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
     }
 
     private function authorizeRegistrar(Request $request)

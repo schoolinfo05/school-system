@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\SchoolClass;
 use App\Models\SectionSubject;
 use App\Models\Student;
+use App\Models\StudentSubject;
 use App\Models\Grade;
 use App\Models\Attendance;
 use Illuminate\Http\Request;
@@ -64,9 +65,7 @@ class TeacherController extends Controller
     {
         $sectionSubject = $this->teacherSectionSubject($request, $class);
         $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
-        $userIds = $sectionSubject->section->students()
-            ->wherePivot('status', 'enrolled')
-            ->pluck('users.id');
+        $userIds = $this->enrolledUserIdsForSectionSubject($sectionSubject);
 
         $students = Student::whereIn('user_id', $userIds)->orderBy('last_name')->get();
 
@@ -156,9 +155,7 @@ class TeacherController extends Controller
     {
         $sectionSubject = $this->teacherSectionSubject($request, $class);
         $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
-        $userIds = $sectionSubject->section->students()
-            ->wherePivot('status', 'enrolled')
-            ->pluck('users.id');
+        $userIds = $this->enrolledUserIdsForSectionSubject($sectionSubject);
 
         $students = Student::whereIn('user_id', $userIds)->orderBy('last_name')->get();
 
@@ -222,8 +219,23 @@ class TeacherController extends Controller
                     ? "{$sectionSubject->time_start}-{$sectionSubject->time_end}"
                     : null,
             ]))) ?: 'No schedule',
-            'students_count' => $section?->students?->filter(fn($student) => $student->pivot?->status === 'enrolled')->count() ?? 0,
+            'students_count' => $this->enrolledUserIdsForSectionSubject($sectionSubject)->count(),
         ];
+    }
+
+    private function enrolledUserIdsForSectionSubject(SectionSubject $sectionSubject)
+    {
+        $userIds = $sectionSubject->section->students()
+            ->wherePivot('status', 'enrolled')
+            ->pluck('users.id');
+
+        $droppedUserIds = StudentSubject::query()
+            ->where('section_id', $sectionSubject->section_id)
+            ->where('subject_id', $sectionSubject->subject_id)
+            ->where('status', 'dropped')
+            ->pluck('user_id');
+
+        return $userIds->diff($droppedUserIds)->values();
     }
 
     private function schoolClassForSectionSubject(SectionSubject $sectionSubject): SchoolClass

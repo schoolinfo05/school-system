@@ -181,7 +181,7 @@ export default function EnrollmentScreen() {
     const loadSubjects = async () => {
       setLoadingSubjects(true);
       try {
-        const params = { program_type: form.program_type };
+        const params = { program_type: form.program_type, semester: form.semester.toLowerCase() };
 
         if (form.program_type === 'college') {
           if (!form.course_id) { setSubjects([]); return; }
@@ -219,16 +219,29 @@ export default function EnrollmentScreen() {
 
     loadSubjects();
     loadCourses();
-  }, [form.program_type, form.course_id, form.course_program, form.strand, form.year_level, courseSearch]);
+  }, [form.program_type, form.course_id, form.course_program, form.strand, form.year_level, form.semester, courseSearch]);
+
+  useEffect(() => {
+    if (form.academic_status === 'Regular') {
+      setForm(prev => ({ ...prev, subject_ids: subjects.map(subject => subject.id) }));
+    }
+  }, [form.academic_status, subjects]);
+
+  useEffect(() => {
+    if (form.academic_status === 'Irregular') {
+      setForm(prev => ({ ...prev, subject_ids: [] }));
+    }
+  }, [form.academic_status]);
 
   const toggleSubject = useCallback((id) => {
+    if (form.academic_status === 'Regular') return;
     setForm(prev => ({
       ...prev,
       subject_ids: prev.subject_ids.includes(id)
         ? prev.subject_ids.filter(sid => sid !== id)
         : [...prev.subject_ids, id],
     }));
-  }, []);
+  }, [form.academic_status]);
 
   const handleSubmit = async () => {
     if (!form.email.trim())                           return Alert.alert('Required', 'Email is required.');
@@ -236,10 +249,12 @@ export default function EnrollmentScreen() {
     if (!existingStudent && form.password !== form.password_confirmation) return Alert.alert('Error', 'Passwords do not match.');
     if (!form.surname.trim() || !form.first_name.trim()) return Alert.alert('Required', 'Full name is required.');
     if (!form.student_type)                           return Alert.alert('Required', 'Please select a student type.');
+    if (!form.academic_status)                        return Alert.alert('Required', 'Please select Regular or Irregular.');
     if (form.student_type === 'old_student' && !form.id_no.trim()) return Alert.alert('Required', 'Enter your student ID number for old-student enrollment.');
     if (form.program_type === 'college' && !form.course_id) return Alert.alert('Required', 'Please select a college course from the list.');
     if (form.program_type === 'shs' && !form.strand)  return Alert.alert('Required', 'Please select a strand.');
-    if (!form.subject_ids.length)                     return Alert.alert('Required', 'Please select at least one subject.');
+    if (form.academic_status === 'Irregular' && !form.subject_ids.length) return Alert.alert('Required', 'Please select at least one subject.');
+    if (form.academic_status === 'Regular' && !subjects.length) return Alert.alert('Required', 'No regular subjects are available for this program and semester.');
 
     const payload = {
       email: form.email,
@@ -273,7 +288,7 @@ export default function EnrollmentScreen() {
       mother_occupation: form.mother_occupation,
       subject_ids: form.subject_ids,
       school_year: form.school_year,
-      semester: form.semester,
+      semester: form.semester.toLowerCase(),
       id_no: form.id_no,
     };
 
@@ -613,7 +628,9 @@ export default function EnrollmentScreen() {
         <View style={s.card}>
           <Text style={s.sectionTitle}>📚 Subjects to Enroll</Text>
           <Text style={s.sectionSubtitle}>
-            Select subjects for {form.semester} Semester, A.Y. {form.school_year}
+            {form.academic_status === 'Regular'
+              ? `Regular load for ${form.semester} Semester, A.Y. ${form.school_year}`
+              : `Select subjects for ${form.semester} Semester, A.Y. ${form.school_year}`}
           </Text>
 
           <View style={s.tableHeader}>
@@ -637,6 +654,7 @@ export default function EnrollmentScreen() {
                     key={subject.id}
                     style={[s.tableRow, active && s.tableRowActive]}
                     onPress={() => toggleSubject(subject.id)}
+                    disabled={form.academic_status === 'Regular'}
                   >
                     <View style={[s.checkBox, { marginRight: 6 }, active && s.checkBoxActive]}>
                       {active && <Text style={s.checkMark}>✓</Text>}

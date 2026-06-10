@@ -2,7 +2,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  Text, TextInput, TouchableOpacity, StyleSheet,
   Alert, ActivityIndicator, KeyboardAvoidingView,
   ScrollView, Platform,
 } from 'react-native';
@@ -48,7 +48,7 @@ export default function ForgotPassword() {
       >
         <Text style={styles.logo}>🔐</Text>
         <Text style={styles.title}>Reset password</Text>
-        <Text style={styles.sub}>Enter your email and we'll send a one-time code to reset your password.</Text>
+        <Text style={styles.sub}>Enter your email and we&apos;ll send a one-time code to reset your password.</Text>
 
         <TextInput
           style={styles.input}
