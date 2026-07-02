@@ -3,14 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rules;
+use Spatie\Permission\Models\Role;
 
 class AuthController extends Controller
 {
@@ -27,8 +30,26 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
+        [$role, $position] = $this->normalizedRoleAndPosition($user);
+
+        if ($user->role !== $role || $user->position !== $position) {
+            $user->forceFill([
+                'role' => $role,
+                'position' => $position,
+            ])->save();
+        }
+
         $token = $user->createToken('school-app')->plainTextToken;
-        $role  = $user->getRoleNames()->first() ?? 'student';
+
+        Role::findOrCreate($role, 'web');
+        $user->syncRoles([$role]);
+
+        ActivityLog::record($request, 'login', "{$user->name} logged in.", [
+            'user' => $user,
+            'subject_type' => User::class,
+            'subject_id' => $user->id,
+            'meta' => ['role' => $role, 'position' => $position],
+        ]);
 
         return response()->json([
             'token' => $token,
@@ -38,6 +59,8 @@ class AuthController extends Controller
                 'name'  => $user->name,
                 'email' => $user->email,
                 'role'  => $role,
+                'position' => $position,
+                'profile_photo_url' => $user->profile_photo_url,
             ],
         ]);
     }
@@ -125,6 +148,14 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        $user = $request->user();
+
+        ActivityLog::record($request, 'logout', "{$user?->name} logged out.", [
+            'user' => $user,
+            'subject_type' => User::class,
+            'subject_id' => $user?->id,
+        ]);
+
         $request->user()->currentAccessToken()->delete();
         return response()->json(['message' => 'Logged out']);
     }
@@ -135,5 +166,50 @@ class AuthController extends Controller
             'user'  => $request->user(),
             'roles' => $request->user()->getRoleNames(),
         ]);
+    }
+
+    public function updateProfilePhoto(Request $request)
+    {
+        $request->validate([
+            'profile_photo' => ['required', 'image', 'max:4096'],
+        ]);
+
+        $user = $request->user();
+
+        if ($user->profile_photo_path) {
+            Storage::disk('public')->delete($user->profile_photo_path);
+        }
+
+        $path = $request->file('profile_photo')->store('profile-photos', 'public');
+
+        $user->forceFill([
+            'profile_photo_path' => $path,
+        ])->save();
+
+        ActivityLog::record($request, 'profile_photo_updated', "{$user->name} updated their profile photo.", [
+            'user' => $user,
+            'subject_type' => User::class,
+            'subject_id' => $user->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Profile photo updated.',
+            'user' => $user->fresh(),
+        ]);
+    }
+
+    private function normalizedRoleAndPosition(User $user): array
+    {
+        $role = $user->role ?: ($user->getRoleNames()->first() ?? User::ROLE_STUDENT);
+        $position = $user->position;
+
+        return match ($role) {
+            User::ROLE_TEACHER => [User::ROLE_FACULTY, $position],
+            User::ROLE_HEAD_TEACHER => [User::ROLE_FACULTY, User::POSITION_HEAD_TEACHER],
+            User::ROLE_DEAN => [User::ROLE_FACULTY, User::POSITION_DEAN],
+            User::POSITION_LIBRARIAN => [User::ROLE_STAFF, User::POSITION_LIBRARIAN],
+            User::POSITION_PROPERTY_CUSTODIAN => [User::ROLE_STAFF, User::POSITION_PROPERTY_CUSTODIAN],
+            default => [$role, $position],
+        };
     }
 }

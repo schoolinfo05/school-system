@@ -1,77 +1,47 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Students — School System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100 font-sans">
+@extends('layouts.portal', ['title' => 'Students'])
 
-<nav class="bg-white shadow px-6 py-4 flex items-center justify-between">
-    <span class="text-lg font-semibold text-gray-800">🏫 School System</span>
-    <div class="flex gap-6 text-sm">
-        <a href="{{ route('admin.dashboard') }}" class="text-gray-600 hover:text-blue-600">Dashboard</a>
-        <a href="{{ route('admin.students.index') }}" class="text-blue-600 font-medium">Students</a>
-    </div>
-</nav>
-
-<div class="max-w-6xl mx-auto px-6 py-8">
-    <h1 class="text-2xl font-semibold text-gray-800 mb-6">Students</h1>
-
-    <form method="GET" class="flex gap-3 mb-6">
-        <input type="text" name="search" value="{{ request('search') }}"
-            placeholder="Search by name or student ID..."
-            class="flex-1 border border-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-        <select name="grade_level" class="border border-gray-200 rounded-lg px-4 py-2 text-sm">
-            <option value="">All grades</option>
-            @foreach(range(7, 12) as $g)
-                <option value="{{ $g }}" {{ request('grade_level') == $g ? 'selected' : '' }}>Grade {{ $g }}</option>
-            @endforeach
-        </select>
-        <button class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-blue-700">Search</button>
-    </form>
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-gray-400 text-xs uppercase">
-                <tr>
-                    <th class="px-5 py-3 text-left">Student ID</th>
-                    <th class="px-5 py-3 text-left">Name</th>
-                    <th class="px-5 py-3 text-left">Grade & Section</th>
-                    <th class="px-5 py-3 text-left">School year</th>
-                    <th class="px-5 py-3 text-left">Status</th>
-                    <th class="px-5 py-3"></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-                @forelse($students as $s)
-                <tr class="hover:bg-gray-50">
-                    <td class="px-5 py-3 text-gray-400 font-mono text-xs">{{ $s->student_id }}</td>
-                    <td class="px-5 py-3 font-medium text-gray-800">{{ $s->first_name }} {{ $s->last_name }}</td>
-                    <td class="px-5 py-3 text-gray-500">Grade {{ $s->grade_level }} – {{ $s->section }}</td>
-                    <td class="px-5 py-3 text-gray-500">{{ $s->school_year }}</td>
-                    <td class="px-5 py-3">
-                        <span class="px-2 py-0.5 rounded-full text-xs font-medium
-                            {{ $s->status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500' }}">
-                            {{ ucfirst($s->status) }}
-                        </span>
-                    </td>
-                    <td class="px-5 py-3">
-                        <a href="{{ route('admin.students.show', $s) }}" class="text-blue-600 hover:underline text-xs">View →</a>
-                    </td>
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="6" class="px-5 py-10 text-center text-gray-400">No students found.</td>
-                </tr>
-                @endforelse
-            </tbody>
-        </table>
-        <div class="px-5 py-3 border-t border-gray-100 text-sm text-gray-500">
-            {{ $students->links() }}
-        </div>
+@section('content')
+<div class="flex items-end justify-between gap-4 mb-6">
+    <div>
+        <h1 class="text-2xl font-black text-slate-900">Students</h1>
+        <p class="text-sm text-slate-500 mt-1">Browse student records, academics, attendance, and fees.</p>
     </div>
 </div>
-</body>
-</html>
+
+<form method="GET" class="bg-white rounded-xl border border-slate-200 p-4 mb-5 grid grid-cols-1 md:grid-cols-[1fr_180px_auto] gap-3">
+    <input name="search" value="{{ request('search') }}" placeholder="Search name or student ID" class="rounded-lg border-slate-300 text-sm">
+    <input name="grade_level" value="{{ request('grade_level') }}" placeholder="Grade / year" class="rounded-lg border-slate-300 text-sm">
+    <button class="rounded-lg bg-blue-700 text-white px-5 py-2 text-sm font-bold">Filter</button>
+</form>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+                <th class="text-left px-5 py-3">Student</th>
+                <th class="text-left px-5 py-3">Program</th>
+                <th class="text-left px-5 py-3">School year</th>
+                <th class="text-left px-5 py-3">Status</th>
+                <th class="px-5 py-3"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            @forelse($students as $student)
+                <tr>
+                    <td class="px-5 py-4">
+                        <p class="font-bold text-slate-800">{{ $student->first_name }} {{ $student->last_name }}</p>
+                        <p class="text-xs text-slate-500">{{ $student->student_id }} · {{ $student->email }}</p>
+                    </td>
+                    <td class="px-5 py-4 text-slate-600">{{ $student->grade_level }} · {{ $student->section ?: 'TBA' }}</td>
+                    <td class="px-5 py-4 text-slate-600">{{ $student->school_year }}</td>
+                    <td class="px-5 py-4"><span class="rounded-full px-2 py-1 text-xs font-bold {{ $student->status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">{{ ucfirst($student->status) }}</span></td>
+                    <td class="px-5 py-4 text-right"><a href="{{ route('admin.students.show', $student) }}" class="text-blue-700 font-bold hover:underline">Open</a></td>
+                </tr>
+            @empty
+                <tr><td colspan="5" class="px-5 py-10 text-center text-slate-500">No students found.</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+    <div class="px-5 py-4 border-t border-slate-100">{{ $students->links() }}</div>
+</div>
+@endsection

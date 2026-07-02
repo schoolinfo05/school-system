@@ -182,8 +182,8 @@ class SubjectSectionController extends Controller
         $this->authorizeRegistrar($request);
 
         $teachers = User::query()
-            ->where('role', 'teacher')
-            ->orWhereHas('roles', fn($roleQuery) => $roleQuery->where('name', 'teacher'))
+            ->whereIn('role', User::FACULTY_ROLES)
+            ->orWhereHas('roles', fn($roleQuery) => $roleQuery->whereIn('name', User::FACULTY_ROLES))
             ->orderBy('name')
             ->get(['id', 'name', 'email']);
 

@@ -21,7 +21,7 @@ baseURL: 'http://192.168.16.215:8000/api'
 
 2nd: Expo app
 
-cd C:\xampp\htdocs\school-system\school-app
+cd C:\xampp\htdocs\school-systems\school-app
 npm install
 npm install babel-preset-expo --save-dev
 npx expo start --clear

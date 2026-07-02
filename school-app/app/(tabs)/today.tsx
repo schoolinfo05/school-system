@@ -41,8 +41,12 @@ export default function Today() {
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(role => {
-      if (role === 'teacher') {
+      if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
         router.replace('/(teacher)/classes');
+      } else if (role === 'parent') {
+        router.replace('/(parent)/dashboard');
+      } else if (['staff', 'librarian', 'property_custodian'].includes(role)) {
+        router.replace('/(staff)/dashboard');
       } else {
         fetchDashboard();
       }

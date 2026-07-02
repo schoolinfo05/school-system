@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\EnrollmentApplication;
 use App\Models\Section;
 use App\Models\Student;
+use App\Models\StudentReward;
 use App\Models\StudentSubject;
 use App\Models\Subject;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use Spatie\Permission\Models\Role;
 
 class AdminStudentController extends Controller
 {
@@ -118,6 +120,7 @@ class AdminStudentController extends Controller
                 'email' => $data['email'],
                 'role'  => 'student',
             ]);
+            Role::findOrCreate('student', 'web');
             $student->user->syncRoles(['student']);
         }
 
@@ -246,6 +249,7 @@ class AdminStudentController extends Controller
             'name' => $student->parent->name,
             'email' => $student->parent->email,
         ] : null;
+        $payload['reward_summary'] = $this->rewardSummary($student);
         $payload['enrollment'] = $application ? [
             'id'                  => $application->id,
             'father_name'         => $application->father_name,
@@ -345,5 +349,18 @@ class AdminStudentController extends Controller
     private function subjectOverrideKey(?int $sectionId, ?int $subjectId): string
     {
         return ($sectionId ?? 'direct') . ':' . ($subjectId ?? 'none');
+    }
+
+    private function rewardSummary(Student $student): array
+    {
+        $points = (int) StudentReward::where('student_id', $student->id)->sum('points');
+        $level = intdiv($points, 100) + 1;
+
+        return [
+            'points' => $points,
+            'level' => $level,
+            'points_to_next_level' => max(0, ($level * 100) - $points),
+            'rewards_count' => StudentReward::where('student_id', $student->id)->count(),
+        ];
     }
 }

@@ -24,15 +24,24 @@ export default function Login() {
 
       await AsyncStorage.setItem('token', token);
       await AsyncStorage.setItem('role', role);
+      if (res.data.user?.position) {
+        await AsyncStorage.setItem('position', res.data.user.position);
+      } else {
+        await AsyncStorage.removeItem('position');
+      }
       await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
       setToken(token);
 
       if (role === 'admin') {
         router.replace('/(admin)/dashboard');
-      } else if (role === 'teacher') {
+      } else if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
         router.replace('/(teacher)/classes');
       } else if (role === 'registrar') {
         router.replace('/(registrar)/enrollments');
+      } else if (role === 'parent') {
+        router.replace('/(parent)/dashboard');
+      } else if (['staff', 'librarian', 'property_custodian'].includes(role)) {
+        router.replace('/(staff)/dashboard');
       } else {
         router.replace('/(tabs)/today');
       }

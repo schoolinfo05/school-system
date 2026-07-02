@@ -22,11 +22,22 @@ const HEADER_TOP = Platform.OS === 'android'
 const roleLabels = {
   admin: 'Admin',
   registrar: 'Registrar',
-  teacher: 'Teacher',
+  faculty: 'Faculty',
+  teacher: 'Faculty',
+  parent: 'Parent',
+  staff: 'Staff',
+  student: 'Student',
+};
+
+const positionLabels = {
+  head_teacher: 'Head Teacher',
+  dean: 'Dean',
+  librarian: 'Librarian',
+  property_custodian: 'Custodian',
 };
 
 const EMPTY_DASHBOARD = {
-  counts: { admins: 0, registrars: 0, teachers: 0, students: 0 },
+  counts: { admins: 0, registrars: 0, faculty: 0, head_teachers: 0, deans: 0, parents: 0, staff: 0, librarians: 0, property_custodians: 0, students: 0 },
   recent_users: [],
 };
 
@@ -55,7 +66,9 @@ export default function AdminDashboard() {
   const stats = [
     ['Admins', counts.admins ?? 0, '#EEF2FF', '#4338CA'],
     ['Registrars', counts.registrars ?? 0, '#E0F2FE', '#0369A1'],
-    ['Teachers', counts.teachers ?? 0, '#DCFCE7', '#15803D'],
+    ['Faculty', counts.faculty ?? 0, '#DCFCE7', '#15803D'],
+    ['Staff', counts.staff ?? 0, '#E2E8F0', '#334155'],
+    ['Parents', counts.parents ?? 0, '#FFE4E6', '#BE123C'],
     ['Students', counts.students ?? 0, '#FEF3C7', '#B45309'],
   ];
 
@@ -80,7 +93,8 @@ export default function AdminDashboard() {
         stats={[
           { label: 'Admins', value: counts.admins ?? 0, accent: theme.primary },
           { label: 'Registrars', value: counts.registrars ?? 0, accent: theme.green },
-          { label: 'Teachers', value: counts.teachers ?? 0, accent: theme.purple },
+          { label: 'Faculty', value: counts.faculty ?? 0, accent: theme.purple },
+          { label: 'Staff', value: counts.staff ?? 0, accent: theme.orange },
           { label: 'Students', value: counts.students ?? 0, accent: theme.orange },
         ]}
       />
@@ -117,7 +131,7 @@ export default function AdminDashboard() {
         {(data.recent_users || []).length === 0 ? (
           <View style={s.empty}>
             <Text style={s.emptyTitle}>No staff accounts yet</Text>
-            <Text style={s.emptySub}>Create admin, registrar, or teacher accounts from Users.</Text>
+            <Text style={s.emptySub}>Create admin, registrar, faculty, parent, or staff accounts from Users.</Text>
           </View>
         ) : (
           data.recent_users.map(user => (
@@ -130,7 +144,7 @@ export default function AdminDashboard() {
                 <Text style={s.userMeta}>{user.email}</Text>
               </View>
               <View style={s.roleBadge}>
-                <Text style={s.roleText}>{roleLabels[user.role] || user.role}</Text>
+                <Text style={s.roleText}>{positionLabels[user.position] || roleLabels[user.role] || user.role}</Text>
               </View>
             </View>
           ))

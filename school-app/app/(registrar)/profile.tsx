@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -53,18 +53,27 @@ export default function RegistrarProfile() {
     load();
   }, []);
 
+  const logout = async () => {
+    await api.post('/logout').catch(() => {});
+    await AsyncStorage.multiRemove(['token', 'role', 'position', 'user']);
+    removeToken();
+    router.replace('/login');
+  };
+
   const handleLogout = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to log out?')) {
+        logout();
+      }
+      return;
+    }
+
     Alert.alert('Logout', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Logout',
         style: 'destructive',
-        onPress: async () => {
-          await api.post('/logout').catch(() => {});
-          await AsyncStorage.multiRemove(['token', 'role', 'user']);
-          removeToken();
-          router.replace('/login');
-        },
+        onPress: logout,
       },
     ]);
   };

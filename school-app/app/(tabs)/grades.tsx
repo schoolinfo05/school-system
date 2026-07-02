@@ -31,7 +31,7 @@ export default function Grades() {
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(role => {
-      if (role === 'teacher') {
+      if (role === 'faculty' || role === 'teacher') {
         router.replace('/(teacher)/grades');
         return;
       }

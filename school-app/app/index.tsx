@@ -17,10 +17,14 @@ export default function Index() {
         setToken(token);
         if (role === 'admin') {
           setRoute('/(admin)/dashboard');
-        } else if (role === 'teacher') {
+        } else if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
           setRoute('/(teacher)/classes');
         } else if (role === 'registrar') {
           setRoute('/(registrar)/enrollments');
+        } else if (role === 'parent') {
+          setRoute('/(parent)/dashboard');
+        } else if (['staff', 'librarian', 'property_custodian'].includes(role)) {
+          setRoute('/(staff)/dashboard');
         } else {
           setRoute('/(tabs)/today');
         }

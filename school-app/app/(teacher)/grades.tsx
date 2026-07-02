@@ -113,7 +113,7 @@ export default function TeacherGrades() {
             </View>
             <View style={{ flex:1 }}>
               <Text style={styles.studentName}>{s.first_name} {s.last_name}</Text>
-              <Text style={styles.studentId}>{s.student_id}</Text>
+              <Text style={styles.studentId}>{s.student_id} · {s.reward_points ?? 0} pts</Text>
             </View>
             <TextInput
               style={styles.scoreInput}

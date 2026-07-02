@@ -18,7 +18,9 @@ class DashboardController extends Controller
             'active_students' => Student::where('status', 'active')->count(),
             'total_fees_due'  => Fee::where('status', '!=', 'paid')->sum('amount'),
             'total_collected' => Fee::where('status', 'paid')->sum('paid_amount'),
-            'total_teachers'  => User::role('teacher')->count(),
+            'total_teachers'  => User::whereIn('role', User::FACULTY_ROLES)
+                ->orWhereHas('roles', fn ($query) => $query->whereIn('name', User::FACULTY_ROLES))
+                ->count(),
         ];
 
         $recentStudents = Student::latest()->take(5)->get();

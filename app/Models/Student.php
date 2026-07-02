@@ -17,4 +17,5 @@ class Student extends Model
     public function grades() { return $this->hasMany(Grade::class); }
     public function attendances() { return $this->hasMany(Attendance::class); }
     public function fees() { return $this->hasMany(Fee::class); }
+    public function rewards() { return $this->hasMany(StudentReward::class); }
 }

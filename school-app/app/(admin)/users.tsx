@@ -25,18 +25,34 @@ const HEADER_TOP = Platform.OS === 'android'
 const ROLES = [
   { value: 'admin', label: 'Admin', bg: '#EEF2FF', color: '#4338CA' },
   { value: 'registrar', label: 'Registrar', bg: '#E0F2FE', color: '#0369A1' },
-  { value: 'teacher', label: 'Teacher', bg: '#DCFCE7', color: '#15803D' },
+  { value: 'faculty', label: 'Faculty', bg: '#DCFCE7', color: '#15803D' },
+  { value: 'parent', label: 'Parent', bg: '#FFE4E6', color: '#BE123C' },
+  { value: 'staff', label: 'Staff', bg: '#E2E8F0', color: '#334155' },
+  { value: 'student', label: 'Student', bg: '#FEF3C7', color: '#92400E' },
 ];
 
-const emptyForm = { name: '', email: '', password: '', role: 'teacher' };
+const POSITION_OPTIONS = {
+  faculty: [
+    { value: 'head_teacher', label: 'Head Teacher', bg: '#F3E8FF', color: '#7C3AED' },
+    { value: 'dean', label: 'Dean', bg: '#FEF3C7', color: '#92400E' },
+  ],
+  staff: [
+    { value: 'librarian', label: 'Librarian', bg: '#CCFBF1', color: '#0F766E' },
+    { value: 'property_custodian', label: 'Custodian', bg: '#FEE2E2', color: '#B91C1C' },
+  ],
+};
+
+const emptyForm = { name: '', email: '', password: '', role: 'faculty', position: '' };
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState(ROLES);
+  const [positions, setPositions] = useState(POSITION_OPTIONS);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [roleFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -48,7 +64,23 @@ export default function AdminUsers() {
       if (search.trim()) params.search = search.trim();
 
       const res = await api.get('/admin/users', { params });
-      setUsers(res.data || []);
+      const payload = res.data || [];
+      setUsers(Array.isArray(payload) ? payload : (payload.users || []));
+      if (!Array.isArray(payload) && payload.roles?.length) {
+        setRoles(payload.roles.map(option => ({
+          ...option,
+          ...(ROLES.find(role => role.value === option.value) || { bg: '#E2E8F0', color: '#334155' }),
+        })));
+      }
+      if (!Array.isArray(payload) && payload.positions) {
+        setPositions(Object.entries(payload.positions).reduce((acc, [role, options]) => {
+          acc[role] = options.map(option => ({
+            ...option,
+            ...(POSITION_OPTIONS[role]?.find(position => position.value === option.value) || { bg: '#F8FAFC', color: '#475569' }),
+          }));
+          return acc;
+        }, {}));
+      }
     } catch (e) {
       console.log('Admin users error:', e.message);
       Alert.alert('Could not load users', e.response?.data?.message || 'Please try again.');
@@ -61,11 +93,11 @@ export default function AdminUsers() {
   useEffect(() => { load(); }, [load]);
 
   const totals = useMemo(() => {
-    return ROLES.reduce((acc, role) => {
-      acc[role.value] = users.filter(user => user.role === role.value).length;
+    return roles.reduce((acc, role) => {
+      acc[role.value] = users.filter(user => normalizedRole(user.role) === role.value).length;
       return acc;
     }, {});
-  }, [users]);
+  }, [users, roles]);
 
   const openCreate = () => {
     setEditing(null);
@@ -79,12 +111,17 @@ export default function AdminUsers() {
       name: user.name || '',
       email: user.email || '',
       password: '',
-      role: user.role || 'teacher',
+      role: normalizedRole(user.role || 'faculty'),
+      position: user.position || legacyPositionFromRole(user.role) || '',
     });
     setModalOpen(true);
   };
 
-  const setField = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  const setField = (key, value) => setForm(current => ({
+    ...current,
+    [key]: value,
+    ...(key === 'role' ? { position: '' } : {}),
+  }));
 
   const saveUser = async () => {
     if (!form.name.trim() || !form.email.trim() || (!editing && !form.password.trim())) {
@@ -98,6 +135,7 @@ export default function AdminUsers() {
         name: form.name.trim(),
         email: form.email.trim(),
         role: form.role,
+        position: form.position || null,
       };
       if (form.password.trim()) payload.password = form.password.trim();
 
@@ -142,12 +180,13 @@ export default function AdminUsers() {
       <View style={s.header}>
         <HeaderGradient
           title="Manage staff accounts"
-          subtitle="Quickly review and update admin, registrar, and teacher profiles."
+          subtitle="Quickly review and update school user profiles."
           initials="AD"
           stats={[
             { label: 'Admins', value: totals.admin || 0, accent: '#4338CA' },
             { label: 'Registrars', value: totals.registrar || 0, accent: '#0369A1' },
-            { label: 'Teachers', value: totals.teacher || 0, accent: '#15803D' },
+            { label: 'Faculty', value: totals.faculty || 0, accent: '#15803D' },
+            { label: 'Staff', value: totals.staff || 0, accent: '#334155' },
           ]}
         />
 
@@ -185,7 +224,9 @@ export default function AdminUsers() {
               <Text style={s.emptySub}>Try another filter or add a new staff account.</Text>
             </View>
           ) : users.map(user => {
-            const role = ROLES.find(item => item.value === user.role) || ROLES[2];
+            const normalized = normalizedRole(user.role);
+            const role = roles.find(item => item.value === normalized) || roles[0];
+            const position = positionMeta(normalized, user.position || legacyPositionFromRole(user.role), positions);
             return (
               <View key={user.id} style={s.userCard}>
                 <View style={s.userTop}>
@@ -201,6 +242,11 @@ export default function AdminUsers() {
                     <Text style={[s.roleText, { color: role.color }]}>{role.label}</Text>
                   </View>
                 </View>
+                {!!position && (
+                  <View style={[s.positionBadge, { backgroundColor: position.bg }]}>
+                    <Text style={[s.positionText, { color: position.color }]}>{position.label}</Text>
+                  </View>
+                )}
                 <View style={s.cardActions}>
                   <TouchableOpacity style={s.editBtn} onPress={() => openEdit(user)}>
                     <Text style={s.editText}>Edit</Text>
@@ -224,7 +270,7 @@ export default function AdminUsers() {
             <View style={s.modalHeader}>
               <View>
                 <Text style={s.modalTitle}>{editing ? 'Edit user' : 'New user'}</Text>
-                <Text style={s.modalSub}>{editing ? 'Update account details and role.' : 'Create an admin, registrar, or teacher.'}</Text>
+                <Text style={s.modalSub}>{editing ? 'Update account details and role.' : 'Create a school user account.'}</Text>
               </View>
               <TouchableOpacity style={s.closeBtn} onPress={() => setModalOpen(false)}>
                 <Text style={s.closeText}>X</Text>
@@ -264,7 +310,7 @@ export default function AdminUsers() {
 
               <Text style={s.label}>Role</Text>
               <View style={s.rolePicker}>
-                {ROLES.map(role => (
+                {roles.map(role => (
                   <TouchableOpacity
                     key={role.value}
                     style={[
@@ -283,6 +329,45 @@ export default function AdminUsers() {
                 ))}
               </View>
 
+              {!!positions[form.role]?.length && (
+                <>
+                  <Text style={s.label}>Position</Text>
+                  <View style={s.rolePicker}>
+                    <TouchableOpacity
+                      style={[
+                        s.roleOption,
+                        !form.position && {
+                          backgroundColor: defaultPositionStyle(form.role).bg,
+                          borderColor: defaultPositionStyle(form.role).color,
+                        },
+                      ]}
+                      onPress={() => setField('position', '')}
+                    >
+                      <Text style={[s.roleOptionText, !form.position && { color: defaultPositionStyle(form.role).color }]}>
+                        {defaultPositionLabel(form.role)}
+                      </Text>
+                    </TouchableOpacity>
+                    {positions[form.role].map(position => (
+                      <TouchableOpacity
+                        key={position.value}
+                        style={[
+                          s.roleOption,
+                          form.position === position.value && { backgroundColor: position.bg, borderColor: position.color },
+                        ]}
+                        onPress={() => setField('position', position.value)}
+                      >
+                        <Text style={[
+                          s.roleOptionText,
+                          form.position === position.value && { color: position.color },
+                        ]}>
+                          {position.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+
               <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.7 }]} onPress={saveUser} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveText}>{editing ? 'Save changes' : 'Create user'}</Text>}
               </TouchableOpacity>
@@ -297,6 +382,35 @@ export default function AdminUsers() {
 function initials(name) {
   if (!name) return 'US';
   return name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase();
+}
+
+function normalizedRole(role) {
+  if (['teacher', 'head_teacher', 'dean'].includes(role)) return 'faculty';
+  if (['librarian', 'property_custodian'].includes(role)) return 'staff';
+  return role;
+}
+
+function legacyPositionFromRole(role) {
+  if (['head_teacher', 'dean', 'librarian', 'property_custodian'].includes(role)) return role;
+  return '';
+}
+
+function positionMeta(role, position, positions) {
+  if (!position && role === 'faculty') {
+    return { label: 'Teacher / Instructor', bg: '#ECFDF5', color: '#047857' };
+  }
+  if (!position) return null;
+  return positions[role]?.find(item => item.value === position) || null;
+}
+
+function defaultPositionLabel(role) {
+  return role === 'faculty' ? 'Teacher / Instructor' : 'None';
+}
+
+function defaultPositionStyle(role) {
+  return role === 'faculty'
+    ? { bg: '#ECFDF5', color: '#047857' }
+    : { bg: '#F8FAFC', color: '#334155' };
 }
 
 function flattenErrors(errors) {
@@ -324,6 +438,8 @@ const s = StyleSheet.create({
   userDate: { color: '#94A3B8', fontSize: 11, marginTop: 4 },
   roleBadge: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, alignSelf: 'flex-start' },
   roleText: { fontSize: 11, fontWeight: '900' },
+  positionBadge: { marginTop: 12, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, alignSelf: 'flex-start' },
+  positionText: { fontSize: 11, fontWeight: '900' },
   cardActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
   editBtn: { flex: 1, backgroundColor: '#EEF2FF', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
   editText: { color: '#3730A3', fontWeight: '800', fontSize: 13 },
@@ -342,8 +458,8 @@ const s = StyleSheet.create({
   form: { padding: 18, paddingBottom: 30 },
   label: { color: '#334155', fontSize: 12, fontWeight: '900', marginBottom: 7, marginTop: 12 },
   input: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 14, paddingHorizontal: 14, minHeight: 46, color: '#111827', fontSize: 14, backgroundColor: '#fff' },
-  rolePicker: { flexDirection: 'row', gap: 8 },
-  roleOption: { flex: 1, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  rolePicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  roleOption: { minWidth: '30%', flexGrow: 1, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 14, paddingVertical: 12, paddingHorizontal: 8, alignItems: 'center' },
   roleOptionText: { color: '#475569', fontSize: 12, fontWeight: '900' },
   saveBtn: { marginTop: 22, backgroundColor: '#0F172A', borderRadius: 14, padding: 15, alignItems: 'center' },
   saveText: { color: '#fff', fontWeight: '900', fontSize: 14 },

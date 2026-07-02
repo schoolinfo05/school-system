@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\SchoolNotification;
 use App\Models\Student;
 use App\Models\TeacherMessage;
@@ -70,6 +71,15 @@ class TeacherChatController extends Controller
             'data' => ['sender_id' => $user->id],
         ]);
 
+        ActivityLog::record($request, 'teacher_chat_message_sent', "{$user->name} sent a teacher chat message to {$contact->name}.", [
+            'subject_type' => TeacherMessage::class,
+            'subject_id' => $message->id,
+            'meta' => [
+                'sender_id' => $user->id,
+                'receiver_id' => $contact->id,
+            ],
+        ]);
+
         return response()->json($message->load('sender:id,name'), 201);
     }
 
@@ -104,11 +114,11 @@ class TeacherChatController extends Controller
             return false;
         }
 
-        if ($this->hasRole($user, 'student') && !$this->hasRole($contact, 'teacher')) {
+        if ($this->hasRole($user, 'student') && !$this->hasAnyRole($contact, User::FACULTY_ROLES)) {
             return false;
         }
 
-        if ($this->hasRole($user, 'teacher') && !$this->hasRole($contact, 'student')) {
+        if ($this->hasAnyRole($user, User::FACULTY_ROLES) && !$this->hasRole($contact, 'student')) {
             return false;
         }
 
@@ -130,7 +140,7 @@ class TeacherChatController extends Controller
 
     private function contactIdsFor(User $user): array
     {
-        if ($this->hasRole($user, 'teacher')) {
+        if ($this->hasAnyRole($user, User::FACULTY_ROLES)) {
             return DB::table('section_students')
                 ->join('section_subjects', 'section_students.section_id', '=', 'section_subjects.section_id')
                 ->where('section_subjects.teacher_id', $user->id)
@@ -160,7 +170,7 @@ class TeacherChatController extends Controller
 
     private function studentInfoFor(User $user, User $contact): ?array
     {
-        if (!$this->hasRole($user, 'teacher') || !$this->hasRole($contact, 'student')) {
+        if (!$this->hasAnyRole($user, User::FACULTY_ROLES) || !$this->hasRole($contact, 'student')) {
             return null;
         }
 
@@ -221,5 +231,10 @@ class TeacherChatController extends Controller
     private function hasRole(User $user, string $role): bool
     {
         return $user->role === $role || $user->hasRole($role);
+    }
+
+    private function hasAnyRole(User $user, array $roles): bool
+    {
+        return in_array($user->role, $roles, true) || $user->hasAnyRole($roles);
     }
 }

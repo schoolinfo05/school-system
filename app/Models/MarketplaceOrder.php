@@ -12,7 +12,10 @@ class MarketplaceOrder extends Model
         'seller_id',
         'quantity',
         'unit_price',
+        'original_amount',
         'total_amount',
+        'points_redeemed',
+        'points_discount',
         'payment_method',
         'gcash_reference',
         'paymongo_checkout_id',
@@ -27,7 +30,10 @@ class MarketplaceOrder extends Model
     protected $casts = [
         'quantity' => 'integer',
         'unit_price' => 'decimal:2',
+        'original_amount' => 'decimal:2',
         'total_amount' => 'decimal:2',
+        'points_redeemed' => 'integer',
+        'points_discount' => 'decimal:2',
         'paid_at' => 'datetime',
     ];
 

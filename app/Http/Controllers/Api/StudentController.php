@@ -7,6 +7,7 @@ use App\Models\Student;
 use App\Models\Grade;
 use App\Models\Attendance;
 use App\Models\Fee;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 
 class StudentController extends Controller
@@ -51,7 +52,7 @@ class StudentController extends Controller
         return response()->json(['message' => 'Student deleted']);
     }
 
-    public function dashboard(Request $request)
+    public function dashboard(Request $request, PointsService $points)
     {
         $user = $request->user();
         $student = Student::where('user_id', $user->id)->first();
@@ -59,6 +60,8 @@ class StudentController extends Controller
         if (!$student) {
             return response()->json(['message' => 'Student not found'], 404);
         }
+
+        $student->setAttribute('profile_photo_url', $user->profile_photo_url);
 
         $grades = Grade::where('student_id', $student->id)
             ->with('schoolClass')
@@ -78,9 +81,11 @@ class StudentController extends Controller
 
         return response()->json([
             'student'        => $student,
+            'user'           => $user,
             'grades'         => $grades,
             'attendance_pct' => $attendancePct,
             'pending_fees'   => $fees,
+            'reward_summary' => $points->summaryFor($student, $student->school_year),
         ]);
     }
 }

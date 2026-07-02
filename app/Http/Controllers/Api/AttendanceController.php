@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\Student;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 
 class AttendanceController extends Controller
@@ -14,7 +15,7 @@ class AttendanceController extends Controller
         return response()->json(Attendance::with(['student', 'schoolClass'])->get());
     }
 
-    public function store(Request $request)
+    public function store(Request $request, PointsService $points)
     {
         $request->validate([
             'student_id'      => 'required|exists:students,id',
@@ -32,6 +33,20 @@ class AttendanceController extends Controller
             ['status' => $request->status, 'remarks' => $request->remarks]
         );
 
+        $student = Student::find($request->student_id);
+        if ($student) {
+            $points->awardDailyAttendancePoints(
+                $student,
+                $request->status,
+                "attendance-daily:{$student->id}:{$request->school_class_id}:{$request->date}",
+                $request->user(),
+                null,
+                null,
+                ['attendance_id' => $attendance->id, 'school_class_id' => $request->school_class_id, 'date' => $request->date]
+            );
+            $points->syncMonthlyPerfectAttendance($student, $request->date, $request->user());
+        }
+
         return response()->json($attendance, 201);
     }
 
@@ -40,9 +55,21 @@ class AttendanceController extends Controller
         return response()->json($attendance->load(['student', 'schoolClass']));
     }
 
-    public function update(Request $request, Attendance $attendance)
+    public function update(Request $request, Attendance $attendance, PointsService $points)
     {
         $attendance->update($request->all());
+        if ($attendance->student) {
+            $points->awardDailyAttendancePoints(
+                $attendance->student,
+                $attendance->status,
+                "attendance-daily:{$attendance->student_id}:{$attendance->school_class_id}:{$attendance->date}",
+                $request->user(),
+                null,
+                null,
+                ['attendance_id' => $attendance->id, 'school_class_id' => $attendance->school_class_id, 'date' => $attendance->date]
+            );
+            $points->syncMonthlyPerfectAttendance($attendance->student, $attendance->date, $request->user());
+        }
         return response()->json($attendance);
     }
 

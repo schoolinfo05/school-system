@@ -28,7 +28,7 @@ export default function Study() {
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(role => {
-      if (role !== 'teacher') setAllowed(true);
+      if (!['faculty', 'teacher'].includes(role)) setAllowed(true);
     });
   }, []);
 

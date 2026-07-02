@@ -112,6 +112,12 @@ export default function Classes() {
                   <Text style={[styles.actionText, { color: theme.primary }]}>📅 Attendance</Text>
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={[styles.assignmentBtn, { backgroundColor: theme.success + '20' }]}
+                onPress={() => router.push('/(teacher)/assignments')}
+              >
+                <Text style={[styles.actionText, { color: theme.success }]}>Assignments and quizzes</Text>
+              </TouchableOpacity>
             </View>
           </View>
         ))
@@ -201,6 +207,7 @@ const styles = StyleSheet.create({
   classMeta:       { fontSize: Font.xs, color: Colors.textSub, marginTop: 4, marginBottom: 12 },
   classActions:    { flexDirection: 'row', gap: 8 },
   actionBtn:       { flex: 1, borderRadius: Radius.sm, paddingVertical: 8, alignItems: 'center' },
+  assignmentBtn:   { borderRadius: Radius.sm, paddingVertical: 9, alignItems: 'center', marginTop: 8 },
   actionText:      { fontSize: Font.xs, fontWeight: '600' },
 
   card:            {

@@ -28,7 +28,7 @@ export default function TeacherProfile() {
       { text:'Cancel', style:'cancel' },
       { text:'Logout', style:'destructive', onPress: async () => {
         await api.post('/logout').catch(() => {});
-        await AsyncStorage.multiRemove(['token', 'role', 'user']);
+        await AsyncStorage.multiRemove(['token', 'role', 'position', 'user']);
         removeToken();
         router.replace('/login');
       }}

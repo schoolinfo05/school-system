@@ -7,11 +7,12 @@ use App\Models\Attendance;
 use App\Models\Fee;
 use App\Models\Grade;
 use App\Models\Student;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 
 class ParentController extends Controller
 {
-    public function dashboard(Request $request)
+    public function dashboard(Request $request, PointsService $points)
     {
         if (!$request->user()->hasRole('parent') && $request->user()->role !== 'parent') {
             return response()->json(['message' => 'Unauthorized'], 403);
@@ -21,7 +22,7 @@ class ParentController extends Controller
             ->where('parent_user_id', $request->user()->id)
             ->orderBy('last_name')
             ->get()
-            ->map(function (Student $student) {
+            ->map(function (Student $student) use ($points) {
                 $grades = Grade::where('student_id', $student->id)
                     ->with('schoolClass')
                     ->get()
@@ -43,6 +44,7 @@ class ParentController extends Controller
                         'paid' => (float) $fees->sum('paid_amount'),
                         'balance' => (float) $fees->sum(fn (Fee $fee) => max(0, $fee->amount - $fee->paid_amount)),
                     ],
+                    'reward_summary' => $points->summaryFor($student, $student->school_year),
                 ];
             });
 
@@ -50,4 +52,5 @@ class ParentController extends Controller
             'children' => $children,
         ]);
     }
+
 }

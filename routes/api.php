@@ -17,6 +17,10 @@ use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AdminStudentController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ParentController;
+use App\Http\Controllers\Api\RewardController;
+use App\Http\Controllers\Api\AssignmentController;
+use App\Http\Controllers\Api\PropertyCustodianController;
+use App\Http\Controllers\Api\ActivityLogController;
 
 // ── Public routes (no login required) ────────────────────────────
 Route::post('/login',            [AuthController::class, 'login']);
@@ -36,6 +40,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me',      [AuthController::class, 'me']);
+    Route::post('/me/profile-photo', [AuthController::class, 'updateProfilePhoto']);
 
     // Students
     Route::apiResource('students', StudentController::class);
@@ -52,6 +57,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
+    Route::get('/rewards/me', [RewardController::class, 'mine']);
+    Route::post('/students/{student}/rewards', [RewardController::class, 'award']);
+    Route::get('/assignments', [AssignmentController::class, 'studentIndex']);
+    Route::get('/assignments/{assignment}', [AssignmentController::class, 'show']);
+    Route::post('/assignments/{assignment}/submit', [AssignmentController::class, 'submit']);
 
     Route::post('/courses',        [CourseController::class, 'store']);
     Route::put('/courses/{id}',    [CourseController::class, 'update']);
@@ -85,6 +95,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/teacher/class/{class}/attendance', [TeacherController::class, 'saveAttendance']);
     Route::get('/teacher/class/{class}/attendance',  [TeacherController::class, 'getAttendance']);
     Route::get('/teacher/class/{class}/performance', [TeacherController::class, 'classPerformance']);
+    Route::get('/teacher/assignments', [AssignmentController::class, 'teacherIndex']);
+    Route::post('/teacher/assignments', [AssignmentController::class, 'store']);
+    Route::put('/teacher/assignments/{assignment}', [AssignmentController::class, 'update']);
+    Route::delete('/teacher/assignments/{assignment}', [AssignmentController::class, 'destroy']);
+    Route::post('/teacher/assignments/{assignment}/submissions/{submission}/grade', [AssignmentController::class, 'grade']);
 
     // Teacher-student chat
     Route::get('/teacher-chat/contacts',              [TeacherChatController::class, 'contacts']);
@@ -124,8 +139,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/registrar/students/{student}/subjects/{subject}/drop', [AdminStudentController::class, 'dropSubject']);
     Route::post('/registrar/students/{student}/subjects/{subject}/restore', [AdminStudentController::class, 'restoreSubject']);
 
+    // Property custodian
+    Route::get('/property-custodian/dashboard', [PropertyCustodianController::class, 'dashboard']);
+    Route::post('/property-custodian/assets', [PropertyCustodianController::class, 'store']);
+    Route::put('/property-custodian/assets/{asset}', [PropertyCustodianController::class, 'update']);
+    Route::delete('/property-custodian/assets/{asset}', [PropertyCustodianController::class, 'destroy']);
+
     // Admin
     Route::get('/admin/dashboard',      [AdminUserController::class, 'dashboard']);
+    Route::get('/admin/activity-logs',  [ActivityLogController::class, 'index']);
     Route::get('/admin/users',          [AdminUserController::class, 'index']);
     Route::post('/admin/users',         [AdminUserController::class, 'store']);
     Route::put('/admin/users/{user}',   [AdminUserController::class, 'update']);

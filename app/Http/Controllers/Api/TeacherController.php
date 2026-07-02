@@ -7,8 +7,10 @@ use App\Models\SchoolClass;
 use App\Models\SectionSubject;
 use App\Models\Student;
 use App\Models\StudentSubject;
+use App\Models\StudentReward;
 use App\Models\Grade;
 use App\Models\Attendance;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 
 class TeacherController extends Controller
@@ -67,7 +69,13 @@ class TeacherController extends Controller
         $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
         $userIds = $this->enrolledUserIdsForSectionSubject($sectionSubject);
 
-        $students = Student::whereIn('user_id', $userIds)->orderBy('last_name')->get();
+        $students = Student::whereIn('user_id', $userIds)
+            ->orderBy('last_name')
+            ->get()
+            ->map(function (Student $student) {
+                $student->reward_points = (int) StudentReward::where('student_id', $student->id)->sum('points');
+                return $student;
+            });
 
         $grades = Grade::where('school_class_id', $schoolClass->id)
             ->get()
@@ -80,7 +88,7 @@ class TeacherController extends Controller
         ]);
     }
 
-    public function saveGrades(Request $request, $class)
+    public function saveGrades(Request $request, $class, PointsService $points)
     {
         $sectionSubject = $this->teacherSectionSubject($request, $class);
         $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
@@ -94,7 +102,7 @@ class TeacherController extends Controller
 
         foreach ($request->grades as $g) {
             $remarks = $this->getRemark($g['score']);
-            Grade::updateOrCreate(
+            $grade = Grade::updateOrCreate(
                 [
                     'student_id'      => $g['student_id'],
                     'school_class_id' => $schoolClass->id,
@@ -103,12 +111,25 @@ class TeacherController extends Controller
                 ],
                 ['score' => $g['score'], 'remarks' => $remarks]
             );
+
+            $student = Student::find($g['student_id']);
+            if ($student) {
+                $points->awardGradePoints(
+                    $student,
+                    (float) $g['score'],
+                    "grade:{$student->id}:{$schoolClass->id}:{$g['quarter']}:{$schoolClass->school_year}",
+                    $request->user(),
+                    $schoolClass->school_year,
+                    $sectionSubject->section?->semester,
+                    ['grade_id' => $grade->id, 'school_class_id' => $schoolClass->id, 'quarter' => $g['quarter']]
+                );
+            }
         }
 
         return response()->json(['message' => 'Grades saved successfully!']);
     }
 
-    public function saveAttendance(Request $request, $class)
+    public function saveAttendance(Request $request, $class, PointsService $points)
     {
         $sectionSubject = $this->teacherSectionSubject($request, $class);
         $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
@@ -121,7 +142,7 @@ class TeacherController extends Controller
         ]);
 
         foreach ($request->attendance as $a) {
-            Attendance::updateOrCreate(
+            $attendance = Attendance::updateOrCreate(
                 [
                     'student_id'      => $a['student_id'],
                     'school_class_id' => $schoolClass->id,
@@ -129,6 +150,26 @@ class TeacherController extends Controller
                 ],
                 ['status' => $a['status']]
             );
+
+            $student = Student::find($a['student_id']);
+            if ($student) {
+                $points->awardDailyAttendancePoints(
+                    $student,
+                    $a['status'],
+                    "attendance-daily:{$student->id}:{$schoolClass->id}:{$request->date}",
+                    $request->user(),
+                    $schoolClass->school_year,
+                    $sectionSubject->section?->semester,
+                    ['attendance_id' => $attendance->id, 'school_class_id' => $schoolClass->id, 'date' => $request->date]
+                );
+                $points->syncMonthlyPerfectAttendance(
+                    $student,
+                    $request->date,
+                    $request->user(),
+                    $schoolClass->school_year,
+                    $sectionSubject->section?->semester
+                );
+            }
         }
 
         return response()->json(['message' => 'Attendance saved!']);

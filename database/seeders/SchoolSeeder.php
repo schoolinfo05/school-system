@@ -15,9 +15,9 @@ class SchoolSeeder extends Seeder
     public function run(): void
     {
         // Create roles
-        $roles = ['admin', 'registrar', 'teacher', 'student', 'parent'];
+        $roles = User::ROLES;
         foreach ($roles as $role) {
-            Role::firstOrCreate(['name' => $role]);
+            Role::findOrCreate($role, 'web');
         }
 
         // Admin
@@ -34,12 +34,12 @@ class SchoolSeeder extends Seeder
         );
         $registrar->assignRole('registrar');
 
-        // Teacher
+        // Faculty
         $teacher = User::firstOrCreate(
             ['email' => 'teacher@school.com'],
-            ['name' => 'Mr. Santos', 'password' => Hash::make('password'), 'role' => 'teacher']
+            ['name' => 'Mr. Santos', 'password' => Hash::make('password'), 'role' => 'faculty']
         );
-        $teacher->assignRole('teacher');
+        $teacher->assignRole('faculty');
 
         // Student user
         $studentUser = User::firstOrCreate(

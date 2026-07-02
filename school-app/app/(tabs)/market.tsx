@@ -5,10 +5,12 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   TouchableOpacity, TextInput, RefreshControl, Alert, Modal,
-  Platform, StatusBar, Image, Dimensions,
+  Platform, StatusBar, Image, useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import HeaderGradient from '../components/ui/HeaderGradient';
 import SearchBar from '../components/ui/SearchBar';
 import api from '../../src/api';
@@ -31,8 +33,6 @@ const C = {
   sub:         '#6B7280',
   muted:       '#B0B7C3',
 };
-
-const SCREEN_W = Dimensions.get('window').width;
 
 const HEADER_TOP = Platform.OS === 'android'
   ? (StatusBar.currentHeight ?? 24) + 10
@@ -70,6 +70,99 @@ const STATUS_MAP = {
 };
 
 // ── Component ───────────────────────────────────────────────────
+const money = value => Number(value ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const escapeHtml = value => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#039;');
+
+function buildMarketplaceReceiptHtml(receipt) {
+  const item = receipt.items?.[0] ?? {};
+  const issuedAt = receipt.issued_at ? new Date(receipt.issued_at).toLocaleString('en-PH') : new Date().toLocaleString('en-PH');
+  const paidAt = receipt.paid_at ? new Date(receipt.paid_at).toLocaleString('en-PH') : issuedAt;
+  const paymentId = receipt.paymongo_payment_id
+    ? `<tr><td>Payment ID</td><td>${escapeHtml(receipt.paymongo_payment_id)}</td></tr>`
+    : '';
+  const discount = Number(receipt.points_discount ?? 0) > 0
+    ? `<tr><td>Points Discount</td><td>-PHP ${money(receipt.points_discount)}</td></tr>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; color: #172033; padding: 28px; max-width: 640px; margin: 0 auto; }
+    .top { text-align: center; border-bottom: 2px solid #172033; padding-bottom: 14px; margin-bottom: 18px; }
+    .school { font-size: 18px; font-weight: 800; text-transform: uppercase; }
+    .sub { color: #64748b; font-size: 12px; margin-top: 4px; }
+    .title { font-size: 15px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-top: 14px; }
+    .receipt-no { color: #64748b; font-size: 12px; margin-top: 3px; }
+    .section { margin-top: 18px; }
+    .label { color: #64748b; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 7px; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { border-bottom: 1px solid #e5e7eb; padding: 9px 0; font-size: 13px; vertical-align: top; }
+    td:last-child, th:last-child { text-align: right; font-weight: 700; }
+    th { color: #475569; text-align: left; font-size: 12px; text-transform: uppercase; }
+    .total td { border-bottom: 0; font-size: 17px; font-weight: 900; padding-top: 13px; }
+    .paid { text-align: center; margin: 24px 0 10px; }
+    .paid span { display: inline-block; border: 3px solid #15803d; color: #15803d; border-radius: 8px; padding: 8px 28px; font-size: 24px; font-weight: 900; letter-spacing: 4px; transform: rotate(-6deg); }
+    .footer { text-align: center; color: #94a3b8; font-size: 11px; line-height: 1.5; margin-top: 22px; border-top: 1px dashed #cbd5e1; padding-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="school">St. Cecilia's College - Cebu, Inc.</div>
+    <div class="sub">School Marketplace</div>
+    <div class="title">Official Receipt</div>
+    <div class="receipt-no">${escapeHtml(receipt.receipt_no)} - Issued ${escapeHtml(issuedAt)}</div>
+  </div>
+  <div class="section">
+    <div class="label">Buyer</div>
+    <table>
+      <tr><td>Name</td><td>${escapeHtml(receipt.buyer?.name || 'Student')}</td></tr>
+      <tr><td>Email</td><td>${escapeHtml(receipt.buyer?.email || '')}</td></tr>
+    </table>
+  </div>
+  <div class="section">
+    <div class="label">Seller</div>
+    <table>
+      <tr><td>Name</td><td>${escapeHtml(receipt.seller?.name || 'School Marketplace')}</td></tr>
+      <tr><td>Email</td><td>${escapeHtml(receipt.seller?.email || '')}</td></tr>
+    </table>
+  </div>
+  <div class="section">
+    <div class="label">Item</div>
+    <table>
+      <tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr>
+      <tr>
+        <td>${escapeHtml(item.title || 'Marketplace item')}</td>
+        <td>${escapeHtml(item.quantity || 1)}</td>
+        <td>PHP ${money(item.unit_price)}</td>
+        <td>PHP ${money(item.total)}</td>
+      </tr>
+    </table>
+  </div>
+  <div class="section">
+    <div class="label">Payment</div>
+    <table>
+      <tr><td>Method</td><td>${escapeHtml(receipt.payment_method || '')}</td></tr>
+      <tr><td>Paid At</td><td>${escapeHtml(paidAt)}</td></tr>
+      ${paymentId}
+      <tr><td>Subtotal</td><td>PHP ${money(receipt.subtotal)}</td></tr>
+      ${discount}
+      <tr class="total"><td>Total Paid</td><td>PHP ${money(receipt.total)}</td></tr>
+    </table>
+  </div>
+  <div class="paid"><span>PAID</span></div>
+  <div class="footer">This receipt was generated from the SchoolBuds marketplace records.</div>
+</body>
+</html>`;
+}
+
 const SCHOOL_MANAGEMENT_ROLES = ['admin', 'registrar', 'school_management'];
 const DEFAULT_PAYMENT_OPTIONS = {
   qrph: {
@@ -83,6 +176,9 @@ const DEFAULT_PAYMENT_OPTIONS = {
 
 export default function Market() {
   const { theme } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const isWideWeb = Platform.OS === 'web' && windowWidth >= 900;
+  const galleryWidth = isWideWeb ? Math.min(windowWidth, 760) : windowWidth;
   const [role, setRole]             = useState(null);
   const [viewMode, setViewMode]     = useState('browse');
   const [items, setItems]           = useState([]);
@@ -102,10 +198,13 @@ export default function Market() {
   const [cancelOrder, setCancelOrder] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancellingId, setCancellingId] = useState(null);
+  const [receiptLoadingId, setReceiptLoadingId] = useState(null);
   const [verifyingId, setVerifyingId] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('gcash');
   const [paymentReference, setPaymentReference] = useState('');
   const [checkoutQuantity, setCheckoutQuantity] = useState('1');
+  const [pointsBalance, setPointsBalance] = useState(0);
+  const [pointsToRedeem, setPointsToRedeem] = useState('');
   const [qrphImage, setQrphImage] = useState(null);
 
   // ── Item detail modal ────────────────────────────────────────
@@ -473,12 +572,25 @@ export default function Market() {
     );
   };
 
-  const openCheckout = (item) => {
+  const checkoutQuantityNum = parseInt(checkoutQuantity, 10) || 1;
+  const checkoutSubtotal = (checkoutItem?.price ?? 0) * checkoutQuantityNum;
+  const maxRedeemPoints = Math.max(0, Math.min(100, Math.floor((checkoutSubtotal * 0.4) / 0.5), pointsBalance));
+  const redeemPoints = parseInt(pointsToRedeem, 10) || 0;
+
+  const openCheckout = async (item) => {
     const defaultMethod = item.accepts_qrph && paymentOptions?.qrph ? 'qrph' : item.accepts_gcash ? 'gcash' : 'cash';
     setCheckoutItem(item);
     setPaymentMethod(defaultMethod);
     setPaymentReference('');
     setCheckoutQuantity('1');
+    setPointsToRedeem('');
+    setPointsBalance(0);
+
+    if (role === 'student') {
+      api.get('/rewards/me')
+        .then(res => setPointsBalance(Number(res.data?.summary?.points || 0)))
+        .catch(() => setPointsBalance(0));
+    }
   };
 
   const handleBuy = async () => {
@@ -496,6 +608,14 @@ export default function Market() {
       Alert.alert('Reference required', 'Enter the payment reference number after sending payment.');
       return;
     }
+    if (redeemPoints > 0 && redeemPoints < 50) {
+      Alert.alert('Minimum redemption', 'Redeem at least 50 points or leave it at 0.');
+      return;
+    }
+    if (redeemPoints > maxRedeemPoints) {
+      Alert.alert('Too many points', `You can redeem up to ${maxRedeemPoints} points for this checkout.`);
+      return;
+    }
 
     setBuyingId(checkoutItem.id);
     try {
@@ -503,6 +623,7 @@ export default function Market() {
         payment_method:   paymentMethod,
         quantity,
         gcash_reference: ['gcash', 'qrph'].includes(paymentMethod) ? paymentReference.trim() : null,
+        points_to_redeem: redeemPoints,
       });
       const updated = res.data.item;
       const order   = res.data.order;
@@ -514,6 +635,7 @@ export default function Market() {
       setOrders(prev => [order, ...prev]);
       setCheckoutItem(null);
       setPaymentReference('');
+      setPointsToRedeem('');
       Alert.alert(
         ['gcash', 'qrph'].includes(paymentMethod) ? 'Pending verification' : 'Checkout started',
         ['gcash', 'qrph'].includes(paymentMethod)
@@ -572,6 +694,31 @@ export default function Market() {
   };
 
   // ── Open item detail ────────────────────────────────────────
+  const handlePrintReceipt = async (order) => {
+    setReceiptLoadingId(order.id);
+    try {
+      const res = await api.get(`/marketplace/orders/${order.id}/receipt`);
+      const receipt = res.data;
+      const html = buildMarketplaceReceiptHtml(receipt);
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Receipt ${receipt.receipt_no}`,
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        await Print.printAsync({ uri });
+      }
+    } catch (e) {
+      Alert.alert('Receipt unavailable', e.response?.data?.message ?? e.message ?? 'Could not generate the receipt.');
+    } finally {
+      setReceiptLoadingId(null);
+    }
+  };
+
   const openItemDetail = (item) => {
     setViewItem(item);
     setGalleryIndex(0);
@@ -582,11 +729,11 @@ export default function Market() {
     const isGcash     = order.payment_method === 'gcash';
     const isQrph      = order.payment_method === 'qrph';
     const isCancelled = order.status === 'cancelled';
-    const isCompleted = order.status === 'completed';
-    const canCancel   = !isCancelled && !isCompleted;
+    const isPaid      = order.status === 'paid' || order.status === 'completed' || !!order.paid_at || order.paymongo_status === 'paid';
+    const canCancel   = ['reserved', 'pending_verification'].includes(order.status);
 
     return (
-      <View key={order.id} style={s.orderCard}>
+      <View key={order.id} style={[s.orderCard, isWideWeb && s.orderCardWeb]}>
         <View style={s.orderTop}>
           <TouchableOpacity style={s.orderIcon} onPress={() => item.id && openItemDetail(item)} activeOpacity={0.8}>
             {item.image_urls?.[0] ? (
@@ -601,11 +748,11 @@ export default function Market() {
           </View>
           <View style={[
             s.orderStatus,
-            isCancelled ? s.orderStatusCancelled : isGcash ? s.orderStatusPaid : s.orderStatusReserved,
+            isCancelled ? s.orderStatusCancelled : isPaid ? s.orderStatusPaid : s.orderStatusReserved,
           ]}>
             <Text style={[
               s.orderStatusText,
-              isCancelled ? s.orderStatusCancelledText : isGcash ? s.orderStatusPaidText : s.orderStatusReservedText,
+              isCancelled ? s.orderStatusCancelledText : isPaid ? s.orderStatusPaidText : s.orderStatusReservedText,
             ]}>
               {isCancelled ? 'CANCELLED' : order.status === 'paid' ? 'PAID' : ['gcash', 'qrph'].includes(order.payment_method) ? 'PENDING' : 'CHECKOUT'}
             </Text>
@@ -652,6 +799,19 @@ export default function Market() {
             <Text style={s.orderCancelText}>Cancel checkout</Text>
           </TouchableOpacity>
         )}
+
+        {isPaid && (
+          <TouchableOpacity
+            style={[s.receiptBtn, receiptLoadingId === order.id && { opacity: 0.6 }]}
+            onPress={() => handlePrintReceipt(order)}
+            disabled={receiptLoadingId === order.id}
+          >
+            {receiptLoadingId === order.id
+              ? <ActivityIndicator color={C.green} />
+              : <Text style={s.receiptBtnText}>Print / Download Receipt</Text>
+            }
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -665,7 +825,7 @@ export default function Market() {
     const canVerify  = ['pending_verification', 'reserved'].includes(status) && ['gcash', 'qrph'].includes(order.payment_method);
 
     return (
-      <View key={order.id} style={s.orderCard}>
+      <View key={order.id} style={[s.orderCard, isWideWeb && s.orderCardWeb]}>
         <View style={s.orderTop}>
           <TouchableOpacity style={s.orderIcon} onPress={() => item.id && openItemDetail(item)} activeOpacity={0.8}>
             {item.image_urls?.[0] ? (
@@ -753,7 +913,7 @@ export default function Market() {
     const firstImage    = item.image_urls?.[0] ?? null;
 
     return (
-      <View key={i} style={[s.itemCard, isUnavailable && !isMine && s.itemCardDimmed]}>
+      <View key={i} style={[s.itemCard, isWideWeb ? s.itemCardWeb : s.itemCardMobile, isUnavailable && !isMine && s.itemCardDimmed]}>
 
         {/* Tappable image area → opens detail modal */}
         <TouchableOpacity
@@ -909,7 +1069,8 @@ export default function Market() {
           onSubmitEditing={fetchItems}
         />
       </HeaderGradient>
-      <View style={s.toggleRow}>
+      <View style={[s.contentShell, isWideWeb && s.contentShellWeb]}>
+        <View style={s.toggleRow}>
           <TouchableOpacity
             style={[s.toggleBtn, viewMode === 'browse' && s.toggleBtnActive]}
             onPress={() => setViewMode('browse')}
@@ -949,6 +1110,7 @@ export default function Market() {
             </TouchableOpacity>
           )}
         </View>
+      </View>
 
       {/* ── Category tabs ── */}
       {viewMode === 'browse' && (
@@ -956,7 +1118,7 @@ export default function Market() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={s.catScroll}
+            contentContainerStyle={[s.catScroll, isWideWeb && s.catScrollWeb]}
           >
             {CATEGORIES.map(cat => {
               const active = category === cat.key;
@@ -980,7 +1142,7 @@ export default function Market() {
 
       {/* ── My Listings summary bar ── */}
       {viewMode === 'mine' && !loading && myItems.length > 0 && (
-        <View style={s.summaryBar}>
+        <View style={[s.summaryBar, isWideWeb && s.summaryBarWeb]}>
           <Text style={s.summaryItem}>
             <Text style={s.summaryCount}>
               {myItems.filter(i => i.status === 'available').length}
@@ -1011,7 +1173,7 @@ export default function Market() {
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={s.grid}
+          contentContainerStyle={[s.grid, isWideWeb && s.gridWeb]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1082,7 +1244,7 @@ export default function Market() {
                   showsHorizontalScrollIndicator={false}
                   style={s.detailGallery}
                   onScroll={e => {
-                    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+                    const idx = Math.round(e.nativeEvent.contentOffset.x / galleryWidth);
                     setGalleryIndex(idx);
                   }}
                   scrollEventThrottle={16}
@@ -1091,7 +1253,7 @@ export default function Market() {
                     <Image
                       key={i}
                       source={{ uri: url }}
-                      style={[s.detailGalleryImg, { width: SCREEN_W }]}
+                      style={[s.detailGalleryImg, { width: galleryWidth }]}
                       resizeMode="cover"
                     />
                   ))}
@@ -1754,6 +1916,15 @@ const s = StyleSheet.create({
   },
   sellBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
+  contentShell: {
+    backgroundColor: C.blue,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+  },
+  contentShellWeb: {
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
   toggleRow: {
     flexDirection: 'row',
     backgroundColor: 'rgba(0,0,0,0.18)',
@@ -1761,6 +1932,8 @@ const s = StyleSheet.create({
     padding: 3,
     marginBottom: 12,
     gap: 3,
+    width: '100%',
+    maxWidth: 1180,
   },
   toggleBtn:           { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
   toggleBtnActive:     { backgroundColor: '#fff' },
@@ -1787,6 +1960,7 @@ const s = StyleSheet.create({
     borderBottomColor: C.border,
   },
   catScroll:      { paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
+  catScrollWeb:   { width: '100%', maxWidth: 1180, alignSelf: 'center', paddingHorizontal: 24 },
   catTab:         {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 14, paddingVertical: 7,
@@ -1808,6 +1982,15 @@ const s = StyleSheet.create({
     paddingVertical: 10,
     gap: 8,
   },
+  summaryBarWeb: {
+    width: '100%',
+    maxWidth: 1180,
+    alignSelf: 'center',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderLeftColor: C.border,
+    borderRightColor: C.border,
+  },
   summaryItem:    { fontSize: 13, color: C.sub },
   summaryCount:   { fontWeight: '700', color: C.text },
   summaryDivider: { color: C.muted, fontSize: 16 },
@@ -1818,6 +2001,16 @@ const s = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 10,
     paddingBottom: 24,
+    justifyContent: 'center',
+  },
+  gridWeb: {
+    width: '100%',
+    maxWidth: 1040,
+    alignSelf: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    gap: 14,
   },
   itemCard: {
     width: '47.5%',
@@ -1832,6 +2025,8 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+  itemCardMobile: { width: '47.5%' },
+  itemCardWeb: { width: 224, borderRadius: 12 },
   orderCard: {
     width: '100%',
     backgroundColor: C.card,
@@ -1845,6 +2040,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+  orderCardWeb: { width: 565 },
   orderTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   orderIcon: {
     width: 44,
@@ -1886,6 +2082,16 @@ const s = StyleSheet.create({
     borderColor: '#F4C7C7',
   },
   orderCancelText: { color: C.danger, fontWeight: '800', fontSize: 12 },
+  receiptBtn: {
+    marginTop: 12,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: C.greenLight,
+    borderWidth: 1,
+    borderColor: '#BCEBD8',
+  },
+  receiptBtnText: { color: C.green, fontWeight: '800', fontSize: 12 },
   verifyBtn: {
     marginTop: 12,
     borderRadius: 10,
@@ -1898,7 +2104,7 @@ const s = StyleSheet.create({
   itemCardDimmed: { opacity: 0.72 },
   itemImg: {
     backgroundColor: '#F0F4FF',
-    height: 120,
+    height: 108,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -1924,9 +2130,9 @@ const s = StyleSheet.create({
   },
   photoCountText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 
-  itemBody:      { padding: 10 },
-  itemTitle:     { fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 4, lineHeight: 18 },
-  itemPrice:     { fontSize: 17, fontWeight: '800', color: C.blue, marginBottom: 8 },
+  itemBody:      { padding: 9 },
+  itemTitle:     { fontSize: 12, fontWeight: '700', color: C.text, marginBottom: 4, lineHeight: 17 },
+  itemPrice:     { fontSize: 16, fontWeight: '800', color: C.blue, marginBottom: 7 },
   itemPriceSold: { textDecorationLine: 'line-through', color: C.muted, fontSize: 14, fontWeight: '500' },
   textDimmed:    { color: C.muted },
 

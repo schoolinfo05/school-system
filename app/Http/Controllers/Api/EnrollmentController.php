@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Spatie\Permission\Models\Role;
 
 class EnrollmentController extends Controller
 {
@@ -311,6 +312,7 @@ class EnrollmentController extends Controller
                     'password' => $app->password, // already hashed
                     'role'     => 'student',
                 ]);
+                Role::findOrCreate('student', 'web');
                 $user->assignRole('student');
             }
 
@@ -453,6 +455,7 @@ class EnrollmentController extends Controller
                 'password' => Hash::make($request->password),
                 'role'     => 'student',
             ]);
+            Role::findOrCreate('student', 'web');
             $user->assignRole('student');
 
             $courseName = $request->filled('course_id')

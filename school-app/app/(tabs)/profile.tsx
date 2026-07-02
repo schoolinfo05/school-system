@@ -3,10 +3,11 @@
 
 import { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet,
+  View, Text, ScrollView, StyleSheet, Image,
   TouchableOpacity, Alert, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
 import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
@@ -17,18 +18,27 @@ export default function Profile() {
   const { theme, themeName, setThemeName, themes } = useTheme();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(role => {
-      if (role === 'teacher') {
+      if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
         router.replace('/(teacher)/profile');
+        return;
+      }
+      if (role === 'parent') {
+        router.replace('/(parent)/profile');
+        return;
+      }
+      if (['staff', 'librarian', 'property_custodian'].includes(role)) {
+        router.replace('/(staff)/profile');
         return;
       }
       api.get('/dashboard/student')
         .then(res => setData(res.data))
         .finally(() => setLoading(false));
     });
-  }, []);
+  }, [router]);
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to log out?', [
@@ -37,12 +47,69 @@ export default function Profile() {
         text: 'Logout', style: 'destructive',
         onPress: async () => {
           await api.post('/logout').catch(() => {});
-          await AsyncStorage.multiRemove(['token', 'role', 'user']);
+          await AsyncStorage.multiRemove(['token', 'role', 'position', 'user']);
           removeToken();
           router.replace('/login');
         },
       },
     ]);
+  };
+
+  const handleChangePhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Allow photo access to update your profile picture.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const image = result.assets[0];
+    const payload = new FormData();
+    payload.append('profile_photo', {
+      uri: image.uri,
+      name: image.fileName || 'profile-photo.jpg',
+      type: image.mimeType || 'image/jpeg',
+    });
+
+    setUploadingPhoto(true);
+    try {
+      const res = await api.post('/me/profile-photo', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const user = res.data?.user;
+      const profilePhotoUrl = user?.profile_photo_url;
+
+      setData(prev => ({
+        ...prev,
+        user,
+        student: {
+          ...prev?.student,
+          profile_photo_url: profilePhotoUrl,
+        },
+      }));
+
+      const stored = await AsyncStorage.getItem('user');
+      const parsed = stored ? JSON.parse(stored) : {};
+      await AsyncStorage.setItem('user', JSON.stringify({
+        ...parsed,
+        ...user,
+        profile_photo_url: profilePhotoUrl,
+      }));
+
+      Alert.alert('Updated', 'Your profile photo has been updated.');
+    } catch (e) {
+      Alert.alert('Upload failed', e.response?.data?.message || 'Could not update your profile photo.');
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   if (loading) return (
@@ -52,6 +119,7 @@ export default function Profile() {
   );
 
   const s        = data?.student;
+  const profilePhotoUrl = s?.profile_photo_url || data?.user?.profile_photo_url;
   const initials = s ? `${s.first_name[0]}${s.last_name[0]}`.toUpperCase() : '??';
   const allGrades = data?.grades ? Object.values(data.grades).flat() : [];
   const gwa = allGrades.length > 0
@@ -70,9 +138,24 @@ export default function Profile() {
 
       {/* ── Hero ── */}
       <View style={[styles.hero, { backgroundColor: theme.primary }]}>
-        <View style={styles.avatar}>
-          <Text style={styles.initials}>{initials}</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.avatar}
+          onPress={handleChangePhoto}
+          activeOpacity={0.8}
+          disabled={uploadingPhoto}
+        >
+          {profilePhotoUrl ? (
+            <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.initials}>{initials}</Text>
+          )}
+          <View style={styles.avatarEditBadge}>
+            {uploadingPhoto
+              ? <ActivityIndicator size="small" color={theme.primary} />
+              : <Text style={styles.avatarEditText}>+</Text>
+            }
+          </View>
+        </TouchableOpacity>
         <Text style={styles.name}>{s?.first_name} {s?.last_name}</Text>
         <Text style={styles.studentId}>{s?.student_id}</Text>
         <View style={styles.heroStats}>
@@ -177,6 +260,21 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: 'rgba(255,255,255,0.4)',
   },
+  avatarImage:    { width: '100%', height: '100%', borderRadius: 40 },
+  avatarEditBadge:{
+    position: 'absolute',
+    right: -3,
+    bottom: -3,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.8)',
+  },
+  avatarEditText: { color: Colors.purple, fontSize: 20, fontWeight: '900', lineHeight: 22 },
   initials:       { color: '#fff', fontSize: Font.xxl, fontWeight: '700' },
   name:           { color: '#fff', fontSize: Font.lg, fontWeight: '700' },
   studentId:      { color: 'rgba(255,255,255,0.7)', fontSize: Font.xs, marginTop: 4, marginBottom: 20 },

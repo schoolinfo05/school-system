@@ -1,6 +1,9 @@
-import type { ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useRouter, useSegments } from 'expo-router';
+import { Image, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../../src/theme-context';
 
 type StatItem = {
@@ -21,8 +24,43 @@ const HEADER_TOP = Platform.OS === 'android'
   ? (StatusBar.currentHeight ?? 24) + 18
   : 56;
 
-export default function HeaderGradient({ title, subtitle, initials, stats, children }: Props) {
+export default function HeaderGradient({ title, subtitle, stats, children }: Props) {
   const { theme } = useTheme();
+  const router = useRouter();
+  const segments = useSegments();
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [profileRoute, setProfileRoute] = useState(routeForSegments(segments));
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      AsyncStorage.multiGet(['user', 'role', 'position'])
+        .then(entries => {
+          if (!active) return;
+          const values = Object.fromEntries(entries);
+          const user = values.user ? JSON.parse(values.user) : null;
+          const resolvedUser = {
+            ...user,
+            role: user?.role || values.role,
+            position: user?.position || values.position,
+          };
+
+          setProfilePhotoUrl(user?.profile_photo_url || null);
+          setProfileRoute(routeForUser(resolvedUser, segments));
+        })
+        .catch(() => {
+          if (active) {
+            setProfilePhotoUrl(null);
+            setProfileRoute(routeForSegments(segments));
+          }
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [segments])
+  );
 
   return (
     <LinearGradient colors={[theme.primary, theme.primary]} style={styles.container}>
@@ -32,9 +70,19 @@ export default function HeaderGradient({ title, subtitle, initials, stats, child
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.avatar}
+          onPress={() => router.push(profileRoute)}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+        >
+          {profilePhotoUrl ? (
+            <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
+          ) : (
+            <Ionicons name="person-circle" size={42} color="#FFFFFF" />
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.statsRow}>
@@ -49,6 +97,35 @@ export default function HeaderGradient({ title, subtitle, initials, stats, child
       {children ? <View style={styles.children}>{children}</View> : null}
     </LinearGradient>
   );
+}
+
+function routeForUser(user, segments = []) {
+  const role = user?.role;
+  const position = user?.position;
+
+  if (role === 'admin') return '/(admin)/profile';
+  if (role === 'registrar') return '/(registrar)/profile';
+  if (role === 'parent') return '/(parent)/profile';
+  if (role === 'staff' || ['librarian', 'property_custodian'].includes(position) || ['librarian', 'property_custodian'].includes(role)) {
+    return '/(staff)/profile';
+  }
+  if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role) || ['head_teacher', 'dean'].includes(position)) {
+    return '/(teacher)/profile';
+  }
+
+  return routeForSegments(segments);
+}
+
+function routeForSegments(segments = []) {
+  const group = segments?.[0];
+
+  if (group === '(admin)') return '/(admin)/profile';
+  if (group === '(registrar)') return '/(registrar)/profile';
+  if (group === '(staff)') return '/(staff)/profile';
+  if (group === '(teacher)') return '/(teacher)/profile';
+  if (group === '(parent)') return '/(parent)/profile';
+
+  return '/(tabs)/profile';
 }
 
 const styles = StyleSheet.create({
@@ -91,11 +168,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '900',
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 30,
   },
   statsRow: {
     marginTop: 20,

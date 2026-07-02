@@ -10,6 +10,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(teacher)" />
         <Stack.Screen name="(admin)" />
+        <Stack.Screen name="(parent)" />
+        <Stack.Screen name="(staff)" />
 
         {/* Enrollment screens — public, no login required */}
         <Stack.Screen name="enrollment" />

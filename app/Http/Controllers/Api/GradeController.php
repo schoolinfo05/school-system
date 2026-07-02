@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Grade;
 use App\Models\Student;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 
 class GradeController extends Controller
@@ -14,7 +15,7 @@ class GradeController extends Controller
         return response()->json(Grade::with(['student', 'schoolClass'])->get());
     }
 
-    public function store(Request $request)
+    public function store(Request $request, PointsService $points)
     {
         $request->validate([
             'student_id'      => 'required|exists:students,id',
@@ -37,6 +38,21 @@ class GradeController extends Controller
             ]
         );
 
+        if ($request->score !== null) {
+            $student = Student::find($request->student_id);
+            if ($student) {
+                $points->awardGradePoints(
+                    $student,
+                    (float) $request->score,
+                    "grade:{$student->id}:{$request->school_class_id}:{$request->quarter}:{$request->school_year}",
+                    $request->user(),
+                    $request->school_year,
+                    null,
+                    ['grade_id' => $grade->id, 'school_class_id' => $request->school_class_id, 'quarter' => $request->quarter]
+                );
+            }
+        }
+
         return response()->json($grade, 201);
     }
 
@@ -45,9 +61,20 @@ class GradeController extends Controller
         return response()->json($grade->load(['student', 'schoolClass']));
     }
 
-    public function update(Request $request, Grade $grade)
+    public function update(Request $request, Grade $grade, PointsService $points)
     {
         $grade->update($request->all());
+        if ($grade->score !== null && $grade->student) {
+            $points->awardGradePoints(
+                $grade->student,
+                (float) $grade->score,
+                "grade:{$grade->student_id}:{$grade->school_class_id}:{$grade->quarter}:{$grade->school_year}",
+                $request->user(),
+                $grade->school_year,
+                null,
+                ['grade_id' => $grade->id, 'school_class_id' => $grade->school_class_id, 'quarter' => $grade->quarter]
+            );
+        }
         return response()->json($grade);
     }
 

@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\MarketplaceItem;
 use App\Models\MarketplaceMessage;
 use App\Models\MarketplaceOrder;
 use App\Models\SchoolNotification;
+use App\Models\Student;
+use App\Models\StudentReward;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -17,7 +21,10 @@ class MarketplaceController extends Controller
     public function index(Request $request)
     {
         $items = MarketplaceItem::with('seller')
-            ->where('status', 'available')
+            ->when(
+                !$request->boolean('include_all') || !$this->canManageMarketplace($request),
+                fn ($query) => $query->where('status', 'available')
+            )
             ->when($request->category, fn($q) =>
                 $q->where('category', $request->category)
             )
@@ -34,9 +41,9 @@ class MarketplaceController extends Controller
     // POST /api/marketplace — create listing
     public function store(Request $request)
     {
-        if (!$request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
+        if (!$this->canManageMarketplace($request)) {
             return response()->json([
-                'message' => 'Only school management can post marketplace items.',
+                'message' => 'Only school management and property custodians can post marketplace items.',
             ], 403);
         }
 
@@ -114,6 +121,7 @@ class MarketplaceController extends Controller
             'payment_method'  => 'required|in:cash,gcash,qrph',
             'gcash_reference' => 'required_if:payment_method,gcash|required_if:payment_method,qrph|nullable|string|max:100',
             'quantity'        => 'nullable|integer|min:1',
+            'points_to_redeem' => 'nullable|integer|min:0',
         ]);
 
         if ($item->user_id === $request->user()->id) {
@@ -142,6 +150,10 @@ class MarketplaceController extends Controller
             return response()->json(['message' => 'This seller does not accept QRPH for this item.'], 422);
         }
 
+        $subtotal = (float) $item->price * $quantity;
+        $redemption = $this->redemptionFor($request, $subtotal);
+        $total = max(0, $subtotal - $redemption['discount']);
+
         $newStock = max(0, $item->stock - $quantity);
         $item->update([
             'stock'  => $newStock,
@@ -167,10 +179,25 @@ class MarketplaceController extends Controller
             'seller_id'           => $item->user_id,
             'quantity'            => $quantity,
             'unit_price'          => $item->price,
-            'total_amount'        => $item->price * $quantity,
+            'original_amount'     => $subtotal,
+            'total_amount'        => $total,
+            'points_redeemed'     => $redemption['points'],
+            'points_discount'     => $redemption['discount'],
             'payment_method'      => $request->payment_method,
             'gcash_reference'     => in_array($request->payment_method, ['gcash', 'qrph'], true) ? $request->gcash_reference : null,
             'status'              => in_array($request->payment_method, ['gcash', 'qrph'], true) ? 'pending_verification' : 'reserved',
+        ]);
+        $this->recordRedemption($order, $redemption);
+
+        ActivityLog::record($request, 'marketplace_checkout_started', "{$request->user()->name} started marketplace checkout #{$order->id}.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'item_id' => $item->id,
+                'quantity' => $quantity,
+                'total_amount' => (float) $total,
+                'payment_method' => $request->payment_method,
+            ],
         ]);
 
         return response()->json([
@@ -184,6 +211,7 @@ class MarketplaceController extends Controller
     {
         $request->validate([
             'quantity' => 'required|integer|min:1',
+            'points_to_redeem' => 'nullable|integer|min:0',
         ]);
 
         if ($item->user_id === $request->user()->id) {
@@ -208,6 +236,10 @@ class MarketplaceController extends Controller
             return response()->json(['message' => 'PayMongo is not configured. Add PAYMONGO_SECRET_KEY to your .env file.'], 503);
         }
 
+        $subtotal = (float) $item->price * $quantity;
+        $redemption = $this->redemptionFor($request, $subtotal);
+        $total = max(0, $subtotal - $redemption['discount']);
+
         $newStock = max(0, $item->stock - $quantity);
         $item->update([
             'stock'  => $newStock,
@@ -220,10 +252,26 @@ class MarketplaceController extends Controller
             'seller_id'           => $item->user_id,
             'quantity'            => $quantity,
             'unit_price'          => $item->price,
-            'total_amount'        => $item->price * $quantity,
+            'original_amount'     => $subtotal,
+            'total_amount'        => $total,
+            'points_redeemed'     => $redemption['points'],
+            'points_discount'     => $redemption['discount'],
             'payment_method'      => 'gcash',
             'status'              => 'reserved',
             'paymongo_status'     => 'pending',
+        ]);
+        $this->recordRedemption($order, $redemption);
+
+        ActivityLog::record($request, 'marketplace_checkout_started', "{$request->user()->name} started PayMongo checkout #{$order->id}.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'item_id' => $item->id,
+                'quantity' => $quantity,
+                'total_amount' => (float) $total,
+                'payment_method' => 'gcash',
+                'provider' => 'paymongo',
+            ],
         ]);
 
         $response = Http::withBasicAuth($secretKey, '')
@@ -235,9 +283,9 @@ class MarketplaceController extends Controller
                         'reference_number'     => "MKT-{$order->id}",
                         'line_items'           => [[
                             'currency' => 'PHP',
-                            'amount'   => (int) round($item->price * 100),
-                            'name'     => $item->title,
-                            'quantity' => $quantity,
+                            'amount'   => (int) round($total * 100),
+                            'name'     => $redemption['points'] > 0 ? "{$item->title} after points discount" : $item->title,
+                            'quantity' => 1,
                         ]],
                         'payment_method_types' => ['gcash'],
                         'send_email_receipt'   => false,
@@ -264,6 +312,7 @@ class MarketplaceController extends Controller
                 'paymongo_status' => 'checkout_failed',
                 'notes'           => $response->json('errors.0.detail') ?? 'PayMongo checkout session could not be created.',
             ]);
+            $this->refundRedemption($order, 'PayMongo checkout failed.');
 
             return response()->json(['message' => $order->notes], 422);
         }
@@ -383,13 +432,14 @@ class MarketplaceController extends Controller
     // GET /api/marketplace/sales — school management sees marketplace checkouts
     public function sales(Request $request)
     {
-        if (!$request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
+        if (!$this->canManageMarketplace($request)) {
             return response()->json([
-                'message' => 'Only school management can view marketplace sales.',
+                'message' => 'Only school management and property custodians can view marketplace sales.',
             ], 403);
         }
 
         $orders = MarketplaceOrder::with(['item', 'buyer', 'seller'])
+            ->when($this->isPropertyCustodian($request), fn ($query) => $query->where('seller_id', $request->user()->id))
             ->latest()
             ->get();
 
@@ -413,8 +463,8 @@ class MarketplaceController extends Controller
     // POST /api/marketplace/orders/{order}/mark-paid — management verifies manual payment
     public function markOrderPaid(Request $request, MarketplaceOrder $order)
     {
-        if (!$request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
-            return response()->json(['message' => 'Only school management can verify payments.'], 403);
+        if (!$request->user()->hasAnyRole(['admin', 'registrar', 'school_management']) && $order->seller_id !== $request->user()->id) {
+            return response()->json(['message' => 'Only school management or the item seller can verify payments.'], 403);
         }
 
         if ($order->status === 'cancelled') {
@@ -441,6 +491,17 @@ class MarketplaceController extends Controller
             ['order_id' => $order->id]
         );
 
+        ActivityLog::record($request, 'marketplace_payment_verified', "{$request->user()->name} marked marketplace order #{$order->id} as paid.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'buyer_id' => $order->buyer_id,
+                'seller_id' => $order->seller_id,
+                'total_amount' => (float) $order->total_amount,
+                'payment_method' => $order->payment_method,
+            ],
+        ]);
+
         return response()->json($order->load(['item', 'buyer', 'seller']));
     }
 
@@ -454,11 +515,16 @@ class MarketplaceController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
+        if (!in_array($order->status, ['paid', 'completed'], true) && !$order->paid_at && $order->paymongo_status !== 'paid') {
+            return response()->json(['message' => 'Receipts are only available for paid orders.'], 422);
+        }
+
         $order->load(['item.seller', 'buyer', 'seller']);
 
         return response()->json([
             'receipt_no' => 'MKT-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
             'issued_at' => now(),
+            'paid_at' => $order->paid_at,
             'status' => $order->status,
             'payment_method' => strtoupper((string) $order->payment_method),
             'paymongo_payment_id' => $order->paymongo_payment_id,
@@ -474,9 +540,11 @@ class MarketplaceController extends Controller
                 'title' => $order->item?->title,
                 'quantity' => $order->quantity,
                 'unit_price' => (float) $order->unit_price,
-                'total' => (float) $order->total_amount,
+                'total' => (float) ($order->original_amount ?: ($order->unit_price * $order->quantity)),
             ]],
-            'subtotal' => (float) $order->total_amount,
+            'subtotal' => (float) ($order->original_amount ?: $order->total_amount),
+            'points_redeemed' => (int) $order->points_redeemed,
+            'points_discount' => (float) $order->points_discount,
             'total' => (float) $order->total_amount,
         ]);
     }
@@ -492,8 +560,8 @@ class MarketplaceController extends Controller
             return response()->json(['message' => 'This checkout is already cancelled.'], 422);
         }
 
-        if ($order->status === 'completed') {
-            return response()->json(['message' => 'Completed orders cannot be cancelled.'], 422);
+        if (in_array($order->status, ['paid', 'completed'], true) || $order->paid_at || $order->paymongo_status === 'paid') {
+            return response()->json(['message' => 'Paid orders cannot be cancelled.'], 422);
         }
 
         $request->validate([
@@ -512,12 +580,23 @@ class MarketplaceController extends Controller
             'status' => 'cancelled',
             'notes'  => $request->reason,
         ]);
+        $this->refundRedemption($order, $request->reason);
 
         MarketplaceMessage::create([
             'item_id'     => $order->marketplace_item_id,
             'sender_id'   => $request->user()->id,
             'receiver_id' => $order->seller_id,
             'message'     => "I cancelled my checkout for {$order->item?->title}. Reason: {$request->reason}",
+        ]);
+
+        ActivityLog::record($request, 'marketplace_order_cancelled', "{$request->user()->name} cancelled marketplace order #{$order->id}.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'reason' => $request->reason,
+                'seller_id' => $order->seller_id,
+                'total_amount' => (float) $order->total_amount,
+            ],
         ]);
 
         return response()->json($order->load(['item.seller', 'seller']));
@@ -597,6 +676,16 @@ class MarketplaceController extends Controller
             'message'     => $request->message,
         ]);
 
+        ActivityLog::record($request, 'marketplace_message_sent', "{$request->user()->name} sent a marketplace message about {$item->title}.", [
+            'subject_type' => MarketplaceMessage::class,
+            'subject_id' => $message->id,
+            'meta' => [
+                'item_id' => $item->id,
+                'sender_id' => $request->user()->id,
+                'receiver_id' => $receiverId,
+            ],
+        ]);
+
         return response()->json($message->load('sender'), 201);
     }
 
@@ -614,6 +703,117 @@ class MarketplaceController extends Controller
             'channels' => ['in_app'],
             'data' => $data,
         ]);
+    }
+
+    private function redemptionFor(Request $request, float $subtotal): array
+    {
+        $requested = (int) $request->input('points_to_redeem', 0);
+        if ($requested <= 0) {
+            return ['student' => null, 'points' => 0, 'discount' => 0.0, 'balance' => 0, 'max_points' => 0];
+        }
+
+        $student = Student::where('user_id', $request->user()->id)->first();
+        if (!$student) {
+            abort(response()->json(['message' => 'Only student accounts with a profile can redeem points.'], 422));
+        }
+
+        $balance = (int) StudentReward::where('student_id', $student->id)->sum('points');
+        $maxByValue = (int) floor(($subtotal * 0.40) / 0.5);
+        $maxPoints = max(0, min(100, $maxByValue, $balance));
+
+        if ($requested < 50) {
+            abort(response()->json(['message' => 'Minimum redemption is 50 points.'], 422));
+        }
+
+        if ($requested > $maxPoints) {
+            abort(response()->json([
+                'message' => "You can redeem up to {$maxPoints} points for this checkout.",
+                'max_points' => $maxPoints,
+                'balance' => $balance,
+            ], 422));
+        }
+
+        return [
+            'student' => $student,
+            'points' => $requested,
+            'discount' => round($requested * 0.5, 2),
+            'balance' => $balance,
+            'max_points' => $maxPoints,
+        ];
+    }
+
+    private function recordRedemption(MarketplaceOrder $order, array $redemption): void
+    {
+        if (($redemption['points'] ?? 0) <= 0 || !$redemption['student']) {
+            return;
+        }
+
+        StudentReward::updateOrCreate(
+            [
+                'student_id' => $redemption['student']->id,
+                'source_key' => "marketplace-redemption:{$order->id}",
+            ],
+            [
+                'awarded_by_id' => null,
+                'source' => 'redemptions',
+                'category' => 'redemption',
+                'title' => 'Marketplace points redeemed',
+                'description' => "Redeemed {$redemption['points']} points for marketplace order #{$order->id}.",
+                'points' => -1 * (int) $redemption['points'],
+                'school_year' => $redemption['student']->school_year,
+                'semester' => null,
+                'meta' => [
+                    'order_id' => $order->id,
+                    'discount' => $redemption['discount'],
+                ],
+            ]
+        );
+
+        $this->notifyUser(
+            $order->buyer_id,
+            'points_redeemed',
+            'Points redeemed',
+            "You redeemed {$redemption['points']} points for a PHP " . number_format((float) $redemption['discount'], 2) . ' discount.',
+            ['order_id' => $order->id, 'points' => $redemption['points']]
+        );
+    }
+
+    private function refundRedemption(MarketplaceOrder $order, string $reason): void
+    {
+        if ((int) $order->points_redeemed <= 0) {
+            return;
+        }
+
+        $student = Student::where('user_id', $order->buyer_id)->first();
+        if (!$student) {
+            return;
+        }
+
+        StudentReward::firstOrCreate(
+            [
+                'student_id' => $student->id,
+                'source_key' => "marketplace-redemption-refund:{$order->id}",
+            ],
+            [
+                'awarded_by_id' => null,
+                'source' => 'redemption_refunds',
+                'category' => 'redemption',
+                'title' => 'Marketplace points refunded',
+                'description' => "Refunded {$order->points_redeemed} points from cancelled marketplace order #{$order->id}.",
+                'points' => (int) $order->points_redeemed,
+                'school_year' => $student->school_year,
+                'semester' => null,
+                'meta' => ['order_id' => $order->id, 'reason' => $reason],
+            ]
+        );
+
+        $this->notifyUser(
+            $order->buyer_id,
+            'points_refunded',
+            'Points refunded',
+            "{$order->points_redeemed} marketplace points were returned to your account.",
+            ['order_id' => $order->id, 'points' => (int) $order->points_redeemed]
+        );
     }
 
     public function getMessages(Request $request, MarketplaceItem $item)
@@ -656,5 +856,20 @@ class MarketplaceController extends Controller
             ])->values();
 
         return response()->json($chats);
+    }
+
+    private function canManageMarketplace(Request $request): bool
+    {
+        return $request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])
+            || $this->isPropertyCustodian($request);
+    }
+
+    private function isPropertyCustodian(Request $request): bool
+    {
+        $user = $request->user();
+
+        return $user
+            && $user->role === User::ROLE_STAFF
+            && $user->position === User::POSITION_PROPERTY_CUSTODIAN;
     }
 }
