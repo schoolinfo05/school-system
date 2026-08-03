@@ -24,6 +24,7 @@ const EMPTY_FORM = {
   points_possible: '100',
   due_at: '',
   questions_text: '',
+  module_text: '',
 };
 
 export default function TeacherAssignments() {
@@ -35,6 +36,7 @@ export default function TeacherAssignments() {
   const [refreshing, setRefreshing] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [generatingQuiz, setGeneratingQuiz] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [gradeDrafts, setGradeDrafts] = useState({});
 
@@ -86,6 +88,38 @@ export default function TeacherAssignments() {
       Alert.alert('Could not create', e.response?.data?.message || 'Please check the details.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const generateQuiz = async () => {
+    if (!form.module_text.trim() && !form.instructions.trim()) {
+      Alert.alert('Module text required', 'Paste module or handout text before generating a quiz.');
+      return;
+    }
+
+    setGeneratingQuiz(true);
+    try {
+      const res = await api.post('/teacher/assignments/generate-quiz', {
+        module_text: form.module_text.trim() || form.instructions.trim(),
+        question_count: 10,
+      });
+      const questions = res.data?.questions ?? [];
+      if (!questions.length) {
+        Alert.alert('No questions generated', 'Try adding more module content.');
+        return;
+      }
+      setForm(current => ({
+        ...current,
+        type: 'quiz',
+        questions_text: questions.map(item => (
+          `${item.question} | ${(item.choices ?? []).join(', ')} | ${item.answer ?? ''}`
+        )).join('\n'),
+      }));
+      Alert.alert('Draft ready', 'Review or edit the generated questions before publishing.');
+    } catch (e) {
+      Alert.alert('Generation failed', e.response?.data?.message || 'Could not generate quiz questions.');
+    } finally {
+      setGeneratingQuiz(false);
     }
   };
 
@@ -215,14 +249,27 @@ export default function TeacherAssignments() {
               <Field label="Due date (YYYY-MM-DD HH:mm)" value={form.due_at} onChangeText={value => setForm(current => ({ ...current, due_at: value }))} theme={theme} />
 
               {form.type === 'quiz' && (
-                <Field
-                  label="Quiz questions"
-                  value={form.questions_text}
-                  onChangeText={value => setForm(current => ({ ...current, questions_text: value }))}
-                  theme={theme}
-                  multiline
-                  placeholder="One per line: Question | choice A, choice B | correct answer"
-                />
+                <>
+                  <Field
+                    label="Module text for AI quiz"
+                    value={form.module_text}
+                    onChangeText={value => setForm(current => ({ ...current, module_text: value }))}
+                    theme={theme}
+                    multiline
+                    placeholder="Paste module, handout, or lesson notes here"
+                  />
+                  <TouchableOpacity style={[s.aiBtn, { borderColor: theme.primary }]} onPress={generateQuiz} disabled={generatingQuiz}>
+                    {generatingQuiz ? <ActivityIndicator color={theme.primary} /> : <Text style={[s.aiText, { color: theme.primary }]}>Generate AI quiz draft</Text>}
+                  </TouchableOpacity>
+                  <Field
+                    label="Quiz questions"
+                    value={form.questions_text}
+                    onChangeText={value => setForm(current => ({ ...current, questions_text: value }))}
+                    theme={theme}
+                    multiline
+                    placeholder="One per line: Question | choice A, choice B | correct answer"
+                  />
+                </>
               )}
 
               <View style={s.modalActions}>
@@ -335,6 +382,8 @@ const s = StyleSheet.create({
   choiceWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   choice: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   choiceText: { fontSize: 12, fontWeight: '800' },
+  aiBtn: { borderWidth: 1, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  aiText: { fontSize: 13, fontWeight: '900' },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
   secondaryBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
   secondaryText: { fontWeight: '900' },

@@ -33,7 +33,7 @@ class EnrollmentApplication extends Model
 
         // Enrollment period
         'school_year', 'semester',
-            'subject_ids',
+        'subject_ids', 'document_urls',
 
         // Review
         'status', 'remarks', 'user_id',
@@ -47,6 +47,7 @@ class EnrollmentApplication extends Model
         'reviewed_at' => 'datetime',
         'course_id'   => 'integer',
         'subject_ids' => 'array',
+        'document_urls' => 'array',
     ];
 
     public function student()

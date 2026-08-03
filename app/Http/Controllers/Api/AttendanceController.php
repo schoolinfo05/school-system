@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\SchoolNotification;
 use App\Models\Student;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
@@ -45,6 +46,7 @@ class AttendanceController extends Controller
                 ['attendance_id' => $attendance->id, 'school_class_id' => $request->school_class_id, 'date' => $request->date]
             );
             $points->syncMonthlyPerfectAttendance($student, $request->date, $request->user());
+            $this->notifyParentAttendance($student, $attendance);
         }
 
         return response()->json($attendance, 201);
@@ -69,6 +71,7 @@ class AttendanceController extends Controller
                 ['attendance_id' => $attendance->id, 'school_class_id' => $attendance->school_class_id, 'date' => $attendance->date]
             );
             $points->syncMonthlyPerfectAttendance($attendance->student, $attendance->date, $request->user());
+            $this->notifyParentAttendance($attendance->student, $attendance);
         }
         return response()->json($attendance);
     }
@@ -93,6 +96,22 @@ class AttendanceController extends Controller
             'total_days'     => $total,
             'present_days'   => $present,
             'attendance_pct' => $total > 0 ? round(($present / $total) * 100, 1) : 0,
+        ]);
+    }
+
+    private function notifyParentAttendance(Student $student, Attendance $attendance): void
+    {
+        if (!$student->parent_user_id || $attendance->status === 'present') {
+            return;
+        }
+
+        SchoolNotification::create([
+            'user_id' => $student->parent_user_id,
+            'type' => 'attendance_alert_parent',
+            'title' => 'Attendance alert',
+            'body' => "{$student->first_name} {$student->last_name} was marked {$attendance->status} on {$attendance->date}.",
+            'channels' => ['in_app'],
+            'data' => ['student_id' => $student->id, 'attendance_id' => $attendance->id],
         ]);
     }
 }

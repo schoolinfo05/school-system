@@ -80,6 +80,13 @@ export default function RegistrarLayout() {
         }}
       />
       <Tabs.Screen
+        name="controls"
+        options={{
+          title: 'Controls',
+          tabBarIcon: ({ focused, color }) => <Icon emoji="*" focused={focused} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',

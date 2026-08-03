@@ -2,23 +2,59 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\StudentManageController;
+use App\Http\Controllers\Admin\SystemControlController;
 use App\Http\Controllers\Admin\UserManageController;
 use App\Http\Controllers\Registrar\DashboardController as RegistrarDashboardController;
 use App\Http\Controllers\Registrar\EnrollmentReviewController;
 use App\Http\Controllers\Registrar\PointsController;
+use App\Http\Controllers\PropertyCustodian\DashboardController as PropertyCustodianDashboardController;
 use App\Http\Controllers\Teacher\DashboardController as TeacherDashboard;
 use App\Http\Controllers\Teacher\GradeEntryController;
 use App\Http\Controllers\Teacher\AttendanceController as TeacherAttendance;
-use Illuminate\Http\Request;
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 
-Route::get('/', function () {
+$webPortalRoles = [
+    User::ROLE_ADMIN,
+    User::ROLE_REGISTRAR,
+    ...User::FACULTY_ROLES,
+    User::POSITION_PROPERTY_CUSTODIAN,
+];
+
+$redirectToPortalDashboard = function ($user) {
+    $isPropertyCustodian = (
+        $user->role === User::ROLE_STAFF
+        && $user->position === User::POSITION_PROPERTY_CUSTODIAN
+    ) || $user->role === User::POSITION_PROPERTY_CUSTODIAN;
+
+    return match (true) {
+        $user->role === User::ROLE_ADMIN => redirect('/admin/dashboard'),
+        $user->role === User::ROLE_REGISTRAR => redirect('/registrar/dashboard'),
+        in_array($user->role, User::FACULTY_ROLES, true) => redirect('/teacher/dashboard'),
+        $isPropertyCustodian => redirect('/property-custodian/dashboard'),
+        default => redirect('/login'),
+    };
+};
+
+Route::get('/', function () use ($redirectToPortalDashboard) {
     if (!auth()->check()) {
         return redirect('/login');
     }
 
-    if (!in_array(auth()->user()->role, ['admin', 'registrar'], true)) {
+    $user = auth()->user();
+    $isPropertyCustodian = (
+        $user->role === User::ROLE_STAFF
+        && $user->position === User::POSITION_PROPERTY_CUSTODIAN
+    ) || $user->role === User::POSITION_PROPERTY_CUSTODIAN;
+    $isAllowedWebUser = in_array($user->role, [
+        User::ROLE_ADMIN,
+        User::ROLE_REGISTRAR,
+        ...User::FACULTY_ROLES,
+    ], true) || $isPropertyCustodian;
+
+    if (!$isAllowedWebUser) {
         Auth::guard('web')->logout();
         request()->session()->invalidate();
         request()->session()->regenerateToken();
@@ -26,14 +62,22 @@ Route::get('/', function () {
         return redirect('/login');
     }
 
-    return match (auth()->user()->role) {
-        'registrar' => redirect('/registrar/dashboard'),
-        'admin' => redirect('/admin/dashboard'),
-    };
+    return $redirectToPortalDashboard($user);
 });
 
-Route::get('/dashboard', function () {
-    if (!in_array(auth()->user()->role, ['admin', 'registrar'], true)) {
+Route::get('/dashboard', function () use ($redirectToPortalDashboard) {
+    $user = auth()->user();
+    $isPropertyCustodian = (
+        $user->role === User::ROLE_STAFF
+        && $user->position === User::POSITION_PROPERTY_CUSTODIAN
+    ) || $user->role === User::POSITION_PROPERTY_CUSTODIAN;
+    $isAllowedWebUser = in_array($user->role, [
+        User::ROLE_ADMIN,
+        User::ROLE_REGISTRAR,
+        ...User::FACULTY_ROLES,
+    ], true) || $isPropertyCustodian;
+
+    if (!$isAllowedWebUser) {
         Auth::guard('web')->logout();
         request()->session()->invalidate();
         request()->session()->regenerateToken();
@@ -41,16 +85,18 @@ Route::get('/dashboard', function () {
         return redirect('/login');
     }
 
-    return match (auth()->user()->role) {
-        'registrar' => redirect('/registrar/dashboard'),
-        'admin' => redirect('/admin/dashboard'),
-    };
-})->middleware(['auth', 'web.roles:admin,registrar'])->name('dashboard');
+    return $redirectToPortalDashboard($user);
+})->middleware(['auth', 'web.roles:' . implode(',', $webPortalRoles)])->name('dashboard');
 
 Route::middleware(['auth', 'web.roles:admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/students', [StudentManageController::class, 'index'])->name('students.index');
     Route::get('/students/{student}', [StudentManageController::class, 'show'])->name('students.show');
+    Route::post('/students/{student}/fees', [StudentManageController::class, 'storeFee'])->name('students.fees.store');
+    Route::post('/students/{student}/fees/{fee}/pay', [StudentManageController::class, 'markFeePaid'])->name('students.fees.pay');
+    Route::get('/controls', [SystemControlController::class, 'index'])->name('controls.index');
+    Route::post('/controls', [SystemControlController::class, 'store'])->name('controls.store');
+    Route::get('/activity', [ActivityLogController::class, 'index'])->name('activity.index');
     Route::get('/users', [UserManageController::class, 'index'])->name('users.index');
     Route::post('/users', [UserManageController::class, 'store'])->name('users.store');
     Route::put('/users/{user}', [UserManageController::class, 'update'])->name('users.update');
@@ -62,17 +108,29 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::get('/enrollments/{enrollment}', [EnrollmentReviewController::class, 'show'])->name('enrollments.show');
     Route::post('/enrollments/{enrollment}/approve', [EnrollmentReviewController::class, 'approve'])->name('enrollments.approve');
     Route::post('/enrollments/{enrollment}/reject', [EnrollmentReviewController::class, 'reject'])->name('enrollments.reject');
+    Route::get('/students', [StudentManageController::class, 'index'])->name('students.index');
+    Route::get('/students/{student}', [StudentManageController::class, 'show'])->name('students.show');
+    Route::post('/students/{student}/fees', [StudentManageController::class, 'storeFee'])->name('students.fees.store');
+    Route::post('/students/{student}/fees/{fee}/pay', [StudentManageController::class, 'markFeePaid'])->name('students.fees.pay');
     Route::get('/points', [PointsController::class, 'index'])->name('points.index');
     Route::post('/points', [PointsController::class, 'store'])->name('points.store');
 });
 
-Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('teacher')->name('teacher.')->group(function () {
+Route::middleware(['auth', 'web.roles:admin,faculty,teacher,head_teacher,dean'])->prefix('teacher')->name('teacher.')->group(function () {
     Route::get('/dashboard',                    [TeacherDashboard::class, 'index'])->name('dashboard');
     Route::get('/class/{class}',                [TeacherDashboard::class, 'myClass'])->name('class');
     Route::get('/class/{class}/grades',         [GradeEntryController::class, 'index'])->name('grades');
     Route::post('/class/{class}/grades',        [GradeEntryController::class, 'store'])->name('grades.store');
     Route::get('/class/{class}/attendance',     [TeacherAttendance::class, 'index'])->name('attendance');
     Route::post('/class/{class}/attendance',    [TeacherAttendance::class, 'store'])->name('attendance.store');
+});
+
+Route::middleware(['auth', 'web.roles:admin,property_custodian'])->prefix('property-custodian')->name('property-custodian.')->group(function () {
+    Route::get('/dashboard', [PropertyCustodianDashboardController::class, 'index'])->name('dashboard');
+    Route::post('/marketplace', [PropertyCustodianDashboardController::class, 'storeMarketplaceItem'])->name('marketplace.store');
+    Route::put('/marketplace/{item}', [PropertyCustodianDashboardController::class, 'updateMarketplaceItem'])->name('marketplace.update');
+    Route::delete('/marketplace/{item}', [PropertyCustodianDashboardController::class, 'destroyMarketplaceItem'])->name('marketplace.destroy');
+    Route::post('/marketplace/orders/{order}/mark-paid', [PropertyCustodianDashboardController::class, 'markOrderPaid'])->name('marketplace.orders.mark-paid');
 });
 
 require __DIR__.'/auth.php';

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\EnrollmentApplication;
+use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\SchoolNotification;
 use App\Models\Student;
@@ -12,6 +13,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Role;
@@ -81,6 +83,8 @@ class EnrollmentController extends Controller
                 ? 'nullable|array'
                 : 'required|array|min:1',
             'subject_ids.*' => 'integer|exists:subjects,id',
+            'documents'     => 'nullable|array|max:10',
+            'documents.*'   => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:5120',
 
             // Enrollment period
             'school_year' => 'required|string|max:20',
@@ -131,6 +135,10 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
+        if ($message = $this->enrollmentWindowMessage($request->school_year, strtolower($request->semester))) {
+            return response()->json(['message' => $message], 422);
+        }
+
         // Normalize gender
         $genderMap = [
             'm' => 'male', 'f' => 'female',
@@ -154,12 +162,15 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
+        $documentUrls = $this->storeDocuments($request);
+
         $application = EnrollmentApplication::create([
             ...$request->except('password', 'password_confirmation', 'gender', 'course', 'subject_ids'),
             'course'   => $request->filled('course_id')
                 ? Course::find($request->course_id)?->name
                 : $request->course,
             'subject_ids' => $subjectIds,
+            'document_urls' => $documentUrls,
             'password' => $hashedPassword,
             'gender'   => $gender,
             'status'   => 'pending',
@@ -431,6 +442,8 @@ class EnrollmentController extends Controller
             'semester'        => 'required|in:1st,2nd,summer',
             'subject_ids'     => 'nullable|array',
             'subject_ids.*'   => 'integer|exists:subjects,id',
+            'documents'       => 'nullable|array|max:10',
+            'documents.*'     => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -447,7 +460,9 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($request, $subjectIds) {
+        $documentUrls = $this->storeDocuments($request);
+
+        DB::transaction(function () use ($request, $subjectIds, $documentUrls) {
             // Create user account
             $user = User::create([
                 'name'     => trim("{$request->first_name} {$request->last_name}"),
@@ -497,6 +512,7 @@ class EnrollmentController extends Controller
                 'school_year'     => $request->school_year,
                 'semester'        => $request->semester,
                 'subject_ids'     => $subjectIds,
+                'document_urls'   => $documentUrls,
                 // Pre-approved — no pending review needed
                 'status'      => 'approved',
                 'user_id'     => $user->id,
@@ -591,6 +607,55 @@ class EnrollmentController extends Controller
             ->map(fn ($id) => (int) $id)
             ->values()
             ->all();
+    }
+
+    private function enrollmentWindowMessage(string $schoolYear, string $semester): ?string
+    {
+        $term = AcademicTerm::where('school_year', $schoolYear)
+            ->where('semester', $semester)
+            ->first();
+
+        if (!$term) {
+            return 'Enrollment is closed until an administrator opens this academic term.';
+        }
+
+        if (!$term->is_active) {
+            return 'Enrollment is closed for this academic term.';
+        }
+
+        if ($term->grade_finalization_deadline && now()->lt($term->grade_finalization_deadline)) {
+            return 'Enrollment opens after grades are finalized on ' . $term->grade_finalization_deadline->toDateTimeString() . '.';
+        }
+
+        if ($term->enrollment_opens_at && now()->lt($term->enrollment_opens_at)) {
+            return 'Enrollment opens on ' . $term->enrollment_opens_at->toDateTimeString() . '.';
+        }
+
+        if ($term->enrollment_closes_at && now()->gt($term->enrollment_closes_at)) {
+            return 'Enrollment closed on ' . $term->enrollment_closes_at->toDateTimeString() . '.';
+        }
+
+        return null;
+    }
+
+    private function storeDocuments(Request $request): array
+    {
+        if (!$request->hasFile('documents')) {
+            return [];
+        }
+
+        $urls = [];
+        foreach ($request->file('documents') as $file) {
+            $path = $file->store('enrollment-documents', 'public');
+            $urls[] = [
+                'name' => $file->getClientOriginalName(),
+                'type' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+                'url' => url(Storage::url($path)),
+            ];
+        }
+
+        return $urls;
     }
 
     private function authorizeRegistrar(Request $request)

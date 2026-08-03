@@ -45,8 +45,11 @@ export default function Login() {
       } else {
         router.replace('/(tabs)/today');
       }
-    } catch {
-      Alert.alert('Login failed', 'Invalid email or password.');
+    } catch (error) {
+      const message = error?.response?.data?.message
+        || (error?.request ? 'Cannot reach the server. Check the API URL, Laravel server, and firewall.' : error?.message)
+        || 'Invalid email or password.';
+      Alert.alert('Login failed', message);
     } finally {
       setLoading(false);
     }

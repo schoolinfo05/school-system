@@ -29,6 +29,15 @@ export default function RegistrarStudents() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(null);
   const [password, setPassword] = useState('');
+  const [fees, setFees] = useState({ fees: [], total_due: 0, total_paid: 0 });
+  const [feeForm, setFeeForm] = useState({
+    type: 'Tuition Fee',
+    amount: '',
+    due_date: '',
+    school_year: '',
+    semester: '',
+    notes: '',
+  });
   const totals = useMemo(() => ({
     active: students.filter(student => student.status === 'active').length,
     inactive: students.filter(student => student.status === 'inactive').length,
@@ -37,15 +46,18 @@ export default function RegistrarStudents() {
 
   const fetchStudents = useCallback(async () => {
     try {
-      const res = await api.get('/registrar/students');
+      const params = {};
+      if (search.trim()) params.search = search.trim();
+      const res = await api.get('/registrar/students', { params });
       setStudents(res.data || []);
     } catch (e) {
       console.log('Students fetch error:', e.message);
+      Alert.alert('Could not load students', e.response?.data?.message || 'Please check that this account has the registrar role.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [search]);
 
   useEffect(() => { fetchStudents(); }, [fetchStudents]);
 
@@ -60,6 +72,7 @@ export default function RegistrarStudents() {
   const openDetail = (student) => {
     setSelected(student);
     setPassword('');
+    setFees({ fees: [], total_due: 0, total_paid: 0 });
     setForm({
       student_id: student.student_id || '',
       first_name: student.first_name || '',
@@ -74,9 +87,79 @@ export default function RegistrarStudents() {
       school_year: student.school_year || '',
       status: student.status || 'active',
     });
+    setFeeForm(current => ({
+      ...current,
+      school_year: student.school_year || current.school_year,
+    }));
+    loadFees(student.id);
   };
 
   const setField = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  const setFeeField = (key, value) => setFeeForm(current => ({ ...current, [key]: value }));
+
+  const loadFees = async (studentId) => {
+    try {
+      const res = await api.get(`/students/${studentId}/fees`);
+      setFees(res.data || { fees: [], total_due: 0, total_paid: 0 });
+    } catch (e) {
+      console.log('Student fees error:', e.message);
+    }
+  };
+
+  const createFee = async () => {
+    if (!selected) return;
+    if (!feeForm.type.trim() || !Number(feeForm.amount) || !feeForm.due_date.trim() || !feeForm.school_year.trim()) {
+      Alert.alert('Missing fee details', 'Type, amount, due date, and school year are required.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api.post('/fees', {
+        student_id: selected.id,
+        type: feeForm.type.trim(),
+        amount: Number(feeForm.amount),
+        due_date: feeForm.due_date.trim(),
+        school_year: feeForm.school_year.trim(),
+        semester: feeForm.semester.trim() || null,
+        notes: feeForm.notes.trim() || null,
+      });
+      setFeeForm({
+        type: 'Tuition Fee',
+        amount: '',
+        due_date: '',
+        school_year: form?.school_year || '',
+        semester: '',
+        notes: '',
+      });
+      await loadFees(selected.id);
+      Alert.alert('Fee posted', 'The tuition fee is now visible to the student.');
+    } catch (e) {
+      Alert.alert('Could not post fee', e.response?.data?.message || 'Please check the fee details.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmFeePaid = async (fee) => {
+    if (!selected || !fee) return;
+    const remaining = Math.max(0, Number(fee.amount || 0) - Number(fee.paid_amount || 0));
+
+    setSaving(true);
+    try {
+      await api.post(`/fees/${fee.id}/pay`, {
+        amount: remaining,
+        payment_method: 'cash',
+        payment_reference: null,
+      });
+      await loadFees(selected.id);
+      Alert.alert('Payment confirmed', 'The fee was marked as paid.');
+    } catch (e) {
+      Alert.alert('Could not confirm payment', e.response?.data?.message || 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const saveStudent = async () => {
     if (!selected || !form) return;
@@ -354,6 +437,57 @@ export default function RegistrarStudents() {
                 )}
               </View>
 
+              <View style={s.infoPanel}>
+                <View style={s.panelHeader}>
+                  <Text style={s.infoTitle}>Tuition & Fees</Text>
+                  <Text style={s.balanceText}>Due PHP {Number(fees.total_due || 0).toFixed(2)}</Text>
+                </View>
+                {(fees.fees ?? []).length ? fees.fees.map(fee => {
+                  const remaining = Math.max(0, Number(fee.amount || 0) - Number(fee.paid_amount || 0));
+                  return (
+                    <View key={fee.id} style={s.feeRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.subjectName}>{fee.type}</Text>
+                        <Text style={s.subjectMeta}>Due {fee.due_date || 'TBA'} · {fee.status}</Text>
+                      </View>
+                      <View style={s.feeActions}>
+                        <Text style={s.subjectUnits}>PHP {remaining.toFixed(2)}</Text>
+                        {fee.status !== 'paid' ? (
+                          <TouchableOpacity style={s.confirmFeeBtn} onPress={() => confirmFeePaid(fee)} disabled={saving}>
+                            <Text style={s.confirmFeeText}>Confirm</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                }) : (
+                  <Text style={s.emptyInline}>No fees posted for this student.</Text>
+                )}
+
+                <Text style={s.infoTitle}>Post tuition fee</Text>
+                <Field label="Fee type" value={feeForm.type} onChangeText={value => setFeeField('type', value)} />
+                <View style={s.twoCol}>
+                  <View style={{ flex: 1 }}>
+                    <Field label="Amount" value={feeForm.amount} onChangeText={value => setFeeField('amount', value)} keyboardType="numeric" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Field label="Due date" value={feeForm.due_date} onChangeText={value => setFeeField('due_date', value)} placeholder="YYYY-MM-DD" />
+                  </View>
+                </View>
+                <View style={s.twoCol}>
+                  <View style={{ flex: 1 }}>
+                    <Field label="School year" value={feeForm.school_year} onChangeText={value => setFeeField('school_year', value)} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Field label="Semester" value={feeForm.semester} onChangeText={value => setFeeField('semester', value)} placeholder="Optional" />
+                  </View>
+                </View>
+                <Field label="Notes" value={feeForm.notes} onChangeText={value => setFeeField('notes', value)} multiline />
+                <TouchableOpacity style={[s.postFeeBtn, saving && { opacity: 0.7 }]} onPress={createFee} disabled={saving}>
+                  <Text style={s.postFeeText}>Post fee</Text>
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.7 }]} onPress={saveStudent} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveText}>Save student</Text>}
               </TouchableOpacity>
@@ -477,6 +611,14 @@ const s = StyleSheet.create({
   restoreSubjectBtn: { backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
   restoreSubjectText: { color: '#166534', fontSize: 11, fontWeight: '900' },
   emptyInline: { color: '#64748B', fontSize: 12, paddingVertical: 8 },
+  panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 4 },
+  balanceText: { color: '#334155', fontSize: 12, fontWeight: '900' },
+  feeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderColor: '#E2E8F0' },
+  feeActions: { alignItems: 'flex-end', gap: 6 },
+  confirmFeeBtn: { backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+  confirmFeeText: { color: '#166534', fontSize: 11, fontWeight: '900' },
+  postFeeBtn: { marginTop: 14, backgroundColor: '#DCFCE7', borderRadius: 12, padding: 14, alignItems: 'center' },
+  postFeeText: { color: '#166534', fontWeight: '900', fontSize: 13 },
   // keep some legacy styles used above
   studentCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

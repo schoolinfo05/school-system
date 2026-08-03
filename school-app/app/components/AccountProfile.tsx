@@ -1,7 +1,7 @@
 // @ts-nocheck
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
 import { useTheme } from '../../src/theme-context';
@@ -22,12 +22,31 @@ export default function AccountProfile() {
   const router = useRouter();
   const { theme, themeName, setThemeName, themes } = useTheme();
   const [user, setUser] = useState(null);
+  const [notificationPrefs, setNotificationPrefs] = useState([]);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(value => {
       if (value) setUser(JSON.parse(value));
     });
+    api.get('/notifications/preferences')
+      .then(res => setNotificationPrefs(res.data?.preferences ?? []))
+      .catch(() => {});
   }, []);
+
+  const togglePreference = async (category, key) => {
+    const previous = notificationPrefs;
+    const next = notificationPrefs.map(pref => (
+      pref.category === category ? { ...pref, [key]: !pref[key] } : pref
+    ));
+    setNotificationPrefs(next);
+
+    try {
+      await api.put('/notifications/preferences', { preferences: next });
+    } catch (e) {
+      setNotificationPrefs(previous);
+      Alert.alert('Update failed', e.response?.data?.message || 'Could not save notification preferences.');
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to log out?', [
@@ -86,6 +105,24 @@ export default function AccountProfile() {
         </View>
       </View>
 
+      <View style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Text style={[s.title, { color: theme.text }]}>Notifications</Text>
+        {notificationPrefs.map(pref => (
+          <View key={pref.category} style={[s.prefRow, { borderColor: theme.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.prefTitle, { color: theme.text }]}>{pref.category.replace('_', ' ').toUpperCase()}</Text>
+              <Text style={[s.prefMeta, { color: theme.textSub }]}>In-app alerts</Text>
+            </View>
+            <Switch
+              value={!!pref.in_app}
+              onValueChange={() => togglePreference(pref.category, 'in_app')}
+              trackColor={{ false: theme.border, true: theme.primaryLight }}
+              thumbColor={pref.in_app ? theme.primary : '#f4f3f4'}
+            />
+          </View>
+        ))}
+      </View>
+
       <TouchableOpacity style={[s.logoutBtn, { backgroundColor: theme.dangerLight, borderColor: theme.danger }]} onPress={handleLogout}>
         <Text style={[s.logoutText, { color: theme.danger }]}>Logout</Text>
       </TouchableOpacity>
@@ -108,6 +145,9 @@ const s = StyleSheet.create({
   paletteOption: { flex: 1, minWidth: 86, borderRadius: 12, borderWidth: 1, paddingVertical: 12, alignItems: 'center' },
   paletteDot: { width: 28, height: 28, borderRadius: 14, marginBottom: 8 },
   paletteLabel: { fontSize: 11, fontWeight: '900' },
+  prefRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1 },
+  prefTitle: { fontSize: 13, fontWeight: '900' },
+  prefMeta: { fontSize: 11, marginTop: 3 },
   logoutBtn: { marginHorizontal: 16, borderRadius: 14, borderWidth: 1, padding: 16, alignItems: 'center' },
   logoutText: { fontSize: 14, fontWeight: '900' },
 });

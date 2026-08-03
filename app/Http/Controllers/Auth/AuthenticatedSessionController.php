@@ -31,22 +31,35 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        if (!in_array($request->user()->role, ['admin', 'registrar'], true)) {
+        $user = $request->user();
+        $isPropertyCustodian = (
+            $user->role === User::ROLE_STAFF
+            && $user->position === User::POSITION_PROPERTY_CUSTODIAN
+        ) || $user->role === User::POSITION_PROPERTY_CUSTODIAN;
+        $isAllowedWebUser = in_array($user->role, [
+            User::ROLE_ADMIN,
+            User::ROLE_REGISTRAR,
+            ...User::FACULTY_ROLES,
+        ], true) || $isPropertyCustodian;
+
+        if (!$isAllowedWebUser) {
             Auth::guard('web')->logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
             throw ValidationException::withMessages([
-                'email' => 'Only admin and registrar accounts can sign in to the web portal.',
+                'email' => 'Only admin, registrar, teacher, and property custodian accounts can sign in to the web portal.',
             ]);
         }
 
-        $route = match ($request->user()->role) {
-            'registrar' => route('registrar.dashboard'),
-            'admin' => route('admin.dashboard'),
+        $route = match (true) {
+            $user->role === User::ROLE_ADMIN => route('admin.dashboard'),
+            $user->role === User::ROLE_REGISTRAR => route('registrar.dashboard'),
+            in_array($user->role, User::FACULTY_ROLES, true) => route('teacher.dashboard'),
+            $isPropertyCustodian => route('property-custodian.dashboard'),
         };
 
-        return redirect()->intended($route);
+        return redirect($route);
     }
 
     /**

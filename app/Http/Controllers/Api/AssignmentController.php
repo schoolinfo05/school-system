@@ -13,7 +13,9 @@ use App\Models\Student;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
+use ZipArchive;
 
 class AssignmentController extends Controller
 {
@@ -62,6 +64,69 @@ class AssignmentController extends Controller
         $this->notifyEnrolledStudents($assignment, 'New class work', "{$assignment->title} is now available.");
 
         return response()->json($assignment->load(['sectionSubject.section', 'sectionSubject.subject']), 201);
+    }
+
+    public function generateQuiz(Request $request)
+    {
+        $this->authorizeFaculty($request->user());
+
+        $data = $request->validate([
+            'module_text' => ['nullable', 'string', 'max:30000'],
+            'module_file' => ['nullable', 'file', 'mimes:txt,pdf,doc,docx', 'max:10240'],
+            'question_count' => ['nullable', 'integer', 'min:3', 'max:20'],
+        ]);
+
+        $content = trim((string) ($data['module_text'] ?? ''));
+        if ($request->hasFile('module_file')) {
+            $content .= "\n\n" . $this->extractModuleText($request->file('module_file')->getRealPath(), $request->file('module_file')->getClientOriginalExtension());
+        }
+
+        $content = trim($content);
+        if ($content === '') {
+            return response()->json(['message' => 'Add module text or upload a readable TXT/DOCX file.'], 422);
+        }
+
+        $key = config('services.groq.key');
+        if (!$key) {
+            return response()->json(['message' => 'Groq is not configured. Add GROQ_API_KEY to your .env file.'], 503);
+        }
+
+        $count = (int) ($data['question_count'] ?? 10);
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $key,
+            'Content-Type' => 'application/json',
+        ])->post('https://api.groq.com/openai/v1/chat/completions', [
+            'model' => 'llama-3.3-70b-versatile',
+            'max_tokens' => 1800,
+            'temperature' => 0.4,
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => 'Return only valid JSON. Generate multiple-choice quiz questions from teacher module content.',
+                ],
+                [
+                    'role' => 'user',
+                    'content' => "Generate {$count} multiple-choice questions. JSON shape: [{\"question\":\"...\",\"choices\":[\"A\",\"B\",\"C\",\"D\"],\"answer\":\"correct choice\",\"explanation\":\"...\"}]. Module:\n" . mb_substr($content, 0, 24000),
+                ],
+            ],
+        ]);
+
+        if (!$response->successful()) {
+            return response()->json(['message' => 'AI quiz generation failed.'], 503);
+        }
+
+        $raw = preg_replace('/```json|```/', '', (string) $response->json('choices.0.message.content'));
+        $questions = json_decode(trim($raw), true);
+        if (!is_array($questions)) {
+            return response()->json(['message' => 'AI response could not be parsed. Try shorter module text.'], 422);
+        }
+
+        return response()->json([
+            'questions' => collect($questions)
+                ->filter(fn ($item) => is_array($item) && !blank($item['question'] ?? null))
+                ->values()
+                ->all(),
+        ]);
     }
 
     public function show(Request $request, ClassAssignment $assignment)
@@ -150,6 +215,9 @@ class AssignmentController extends Controller
             'answer_text' => ['nullable', 'string', 'max:10000'],
             'file_url' => ['nullable', 'string', 'max:1000'],
             'answers' => ['nullable', 'array'],
+            'violation_count' => ['nullable', 'integer', 'min:0'],
+            'violations' => ['nullable', 'array'],
+            'auto_submit' => ['nullable', 'boolean'],
         ]);
 
         if (blank($data['answer_text'] ?? null) && blank($data['file_url'] ?? null) && empty($data['answers'] ?? [])) {
@@ -160,6 +228,11 @@ class AssignmentController extends Controller
         $autoScore = $assignment->type === 'quiz'
             ? $this->autoScoreQuiz($assignment, $data['answers'] ?? [])
             : null;
+        $existingSubmission = AssignmentSubmission::where('class_assignment_id', $assignment->id)
+            ->where('student_id', $student->id)
+            ->first();
+        $violationCount = max((int) ($data['violation_count'] ?? 0), (int) ($existingSubmission?->violation_count ?? 0));
+        $isFlagged = $request->boolean('auto_submit') || $violationCount >= 3 || $existingSubmission?->status === 'flagged';
 
         $submission = AssignmentSubmission::updateOrCreate(
             [
@@ -173,9 +246,13 @@ class AssignmentController extends Controller
                 'answers' => $data['answers'] ?? null,
                 'score' => $autoScore,
                 'plagiarism_score' => $plagiarismScore,
-                'status' => $autoScore === null ? 'submitted' : 'graded',
+                'violation_count' => $violationCount,
+                'violations' => $data['violations'] ?? $existingSubmission?->violations,
+                'status' => $isFlagged ? 'flagged' : ($autoScore === null ? 'submitted' : 'graded'),
                 'submitted_at' => now(),
-                'graded_at' => $autoScore === null ? null : now(),
+                'auto_submitted_at' => $isFlagged ? ($existingSubmission?->auto_submitted_at ?? now()) : null,
+                'flagged_at' => $isFlagged ? ($existingSubmission?->flagged_at ?? now()) : null,
+                'graded_at' => $isFlagged || $autoScore === null ? null : now(),
             ]
         );
 
@@ -189,6 +266,58 @@ class AssignmentController extends Controller
         ]);
 
         return response()->json($submission->load('assignment.sectionSubject.subject'), 201);
+    }
+
+    public function recordViolation(Request $request, ClassAssignment $assignment)
+    {
+        if ($assignment->type !== 'quiz') {
+            return response()->json(['message' => 'Violations can only be recorded for quizzes.'], 422);
+        }
+
+        $student = $this->studentFor($request->user());
+        if (!$this->studentCanAccess($request->user(), $assignment)) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $data = $request->validate([
+            'type' => ['required', 'string', 'max:80'],
+            'details' => ['nullable', 'array'],
+        ]);
+
+        $submission = AssignmentSubmission::firstOrCreate(
+            [
+                'class_assignment_id' => $assignment->id,
+                'student_id' => $student->id,
+            ],
+            [
+                'user_id' => $request->user()->id,
+                'status' => 'in_progress',
+                'submitted_at' => null,
+            ]
+        );
+
+        $violations = $submission->violations ?? [];
+        $violations[] = [
+            'type' => $data['type'],
+            'details' => $data['details'] ?? [],
+            'recorded_at' => now()->toISOString(),
+        ];
+
+        $count = count($violations);
+        $updates = [
+            'violation_count' => $count,
+            'violations' => $violations,
+        ];
+
+        if ($count >= 3 && $submission->status !== 'flagged') {
+            $updates['status'] = 'flagged';
+            $updates['auto_submitted_at'] = now();
+            $updates['flagged_at'] = now();
+        }
+
+        $submission->update($updates);
+
+        return response()->json($submission->fresh());
     }
 
     public function grade(Request $request, ClassAssignment $assignment, AssignmentSubmission $submission)
@@ -275,6 +404,36 @@ class AssignmentController extends Controller
                 'data' => ['assignment_id' => $assignment->id],
             ]);
         }
+    }
+
+    private function extractModuleText(string $path, string $extension): string
+    {
+        $extension = strtolower($extension);
+
+        if ($extension === 'txt') {
+            return (string) file_get_contents($path);
+        }
+
+        if ($extension === 'docx') {
+            $zip = new ZipArchive();
+            if ($zip->open($path) !== true) {
+                return '';
+            }
+            $xml = $zip->getFromName('word/document.xml') ?: '';
+            $zip->close();
+
+            $xml = preg_replace('/<w:tab\/>/', ' ', $xml);
+            $xml = preg_replace('/<\/w:p>/', "\n", $xml);
+            return trim(strip_tags($xml));
+        }
+
+        if ($extension === 'pdf') {
+            $bytes = (string) file_get_contents($path);
+            preg_match_all('/\(([^()]*)\)\s*Tj/', $bytes, $matches);
+            return trim(implode("\n", $matches[1] ?? []));
+        }
+
+        return '';
     }
 
     private function studentCanAccess(User $user, ClassAssignment $assignment): bool

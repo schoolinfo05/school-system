@@ -1,7 +1,7 @@
 @extends('layouts.portal', ['title' => $student->first_name . ' ' . $student->last_name])
 
 @section('content')
-<a href="{{ route('admin.students.index') }}" class="text-sm text-blue-700 font-bold hover:underline">Back to students</a>
+<a href="{{ route(($routePrefix ?? 'admin') . '.students.index') }}" class="text-sm text-blue-700 font-bold hover:underline">Back to students</a>
 
 <section class="mt-4 bg-white rounded-xl border border-slate-200 shadow-sm p-6">
     <div class="flex flex-col md:flex-row md:items-center gap-5 justify-between">
@@ -47,20 +47,77 @@
     </section>
 
     <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <h2 class="font-black text-slate-800 mb-4">Fees</h2>
+        <div class="mb-4 flex items-center justify-between gap-3">
+            <h2 class="font-black text-slate-800">Fees</h2>
+            <p class="text-xs font-black uppercase text-slate-400">Post tuition</p>
+        </div>
         <div class="divide-y divide-slate-100">
             @forelse($fees as $fee)
-                <div class="py-3 flex items-center justify-between">
-                    <div>
-                        <p class="font-semibold text-slate-800">{{ $fee->type }}</p>
-                        <p class="text-xs text-slate-500">Due {{ $fee->due_date }} · {{ ucfirst($fee->status) }}</p>
+                @php($remaining = max(0, (float) $fee->amount - (float) $fee->paid_amount))
+                <div class="py-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="font-semibold text-slate-800">{{ $fee->type }}</p>
+                            <p class="text-xs text-slate-500">
+                                Due {{ $fee->due_date }} · {{ ucfirst($fee->status) }} · Paid PHP {{ number_format((float) $fee->paid_amount, 2) }}
+                            </p>
+                        </div>
+                        <p class="font-black text-slate-900">PHP {{ number_format($remaining, 2) }}</p>
                     </div>
-                    <p class="font-black text-slate-900">PHP {{ number_format($fee->amount) }}</p>
+                    @if($fee->status !== 'paid')
+                        <form method="POST" action="{{ route(($routePrefix ?? 'admin') . '.students.fees.pay', [$student, $fee]) }}" class="mt-3 grid grid-cols-1 gap-2 rounded-lg bg-slate-50 p-3 md:grid-cols-[1fr_140px_1fr_auto]">
+                            @csrf
+                            <input name="amount" value="{{ old('amount', number_format($remaining, 2, '.', '')) }}" type="number" min="1" step="0.01" class="rounded-lg border-slate-300 text-sm" placeholder="Amount">
+                            <select name="payment_method" class="rounded-lg border-slate-300 text-sm">
+                                <option value="cash">Cash</option>
+                                <option value="gcash">GCash</option>
+                                <option value="qrph">QRPH</option>
+                                <option value="bank_transfer">Bank transfer</option>
+                            </select>
+                            <input name="payment_reference" value="{{ old('payment_reference') }}" class="rounded-lg border-slate-300 text-sm" placeholder="Reference optional">
+                            <button class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white">Confirm</button>
+                        </form>
+                    @endif
                 </div>
             @empty
                 <p class="text-sm text-slate-500">No fees recorded.</p>
             @endforelse
         </div>
+
+        <form method="POST" action="{{ route(($routePrefix ?? 'admin') . '.students.fees.store', $student) }}" class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            @csrf
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label class="text-xs font-bold uppercase text-slate-500">
+                    Fee type
+                    <input name="type" value="{{ old('type', 'Tuition Fee') }}" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                </label>
+                <label class="text-xs font-bold uppercase text-slate-500">
+                    Amount
+                    <input name="amount" value="{{ old('amount') }}" type="number" min="1" step="0.01" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                </label>
+                <label class="text-xs font-bold uppercase text-slate-500">
+                    Due date
+                    <input name="due_date" value="{{ old('due_date') }}" type="date" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                </label>
+                <label class="text-xs font-bold uppercase text-slate-500">
+                    School year
+                    <input name="school_year" value="{{ old('school_year', $student->school_year) }}" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                </label>
+                <label class="text-xs font-bold uppercase text-slate-500">
+                    Semester
+                    <input name="semester" value="{{ old('semester') }}" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                </label>
+                <label class="text-xs font-bold uppercase text-slate-500">
+                    Quarter
+                    <input name="quarter" value="{{ old('quarter') }}" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                </label>
+            </div>
+            <label class="mt-3 block text-xs font-bold uppercase text-slate-500">
+                Notes
+                <textarea name="notes" rows="2" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">{{ old('notes') }}</textarea>
+            </label>
+            <button class="mt-3 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white">Post fee</button>
+        </form>
     </section>
 </div>
 @endsection

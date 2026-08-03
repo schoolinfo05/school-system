@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Image,
   TouchableOpacity, Alert, ActivityIndicator,
+  Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -19,6 +20,7 @@ export default function Profile() {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState([]);
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(role => {
@@ -34,11 +36,31 @@ export default function Profile() {
         router.replace('/(staff)/profile');
         return;
       }
-      api.get('/dashboard/student')
-        .then(res => setData(res.data))
+      Promise.all([
+        api.get('/dashboard/student'),
+        api.get('/notifications/preferences'),
+      ])
+        .then(([dashboardRes, prefsRes]) => {
+          setData(dashboardRes.data);
+          setNotificationPrefs(prefsRes.data?.preferences ?? []);
+        })
         .finally(() => setLoading(false));
     });
   }, [router]);
+
+  const togglePreference = async (category, key) => {
+    const next = notificationPrefs.map(pref => (
+      pref.category === category ? { ...pref, [key]: !pref[key] } : pref
+    ));
+    setNotificationPrefs(next);
+
+    try {
+      await api.put('/notifications/preferences', { preferences: next });
+    } catch (e) {
+      setNotificationPrefs(notificationPrefs);
+      Alert.alert('Update failed', e.response?.data?.message || 'Could not save notification preferences.');
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to log out?', [
@@ -216,6 +238,24 @@ export default function Profile() {
         ))}
       </View>
 
+      <View style={[styles.card, { backgroundColor: theme.card }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Notifications</Text>
+        {notificationPrefs.map(pref => (
+          <View key={pref.category} style={[styles.prefRow, { borderColor: theme.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.prefTitle, { color: theme.text }]}>{pref.category.replace('_', ' ').toUpperCase()}</Text>
+              <Text style={[styles.prefMeta, { color: theme.textSub }]}>In-app alerts</Text>
+            </View>
+            <Switch
+              value={!!pref.in_app}
+              onValueChange={() => togglePreference(pref.category, 'in_app')}
+              trackColor={{ false: theme.border, true: theme.primaryLight }}
+              thumbColor={pref.in_app ? theme.primary : '#f4f3f4'}
+            />
+          </View>
+        ))}
+      </View>
+
       {/* ── Badges ── */}
       <View style={[styles.card, { backgroundColor: theme.card }]}> 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Achievements</Text>
@@ -310,6 +350,14 @@ const styles = StyleSheet.create({
   },
   infoLabel:      { fontSize: Font.sm, color: Colors.textSub },
   infoValue:      { fontSize: Font.sm, color: Colors.text, fontWeight: '500', maxWidth: '55%', textAlign: 'right' },
+  prefRow:        {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+  },
+  prefTitle:      { fontSize: Font.sm, fontWeight: '800' },
+  prefMeta:       { fontSize: Font.xs, marginTop: 3 },
 
   badgeGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   badgeItem:      {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Modal,
   RefreshControl,
   ScrollView,
@@ -25,6 +26,7 @@ export default function StudentAssignments() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [violations, setViolations] = useState([]);
 
   const load = useCallback(async () => {
     try {
@@ -49,18 +51,23 @@ export default function StudentAssignments() {
       const existing = {};
       (item.submission?.answers ?? []).forEach((value, index) => { existing[index] = value; });
       setAnswers(existing);
+      setViolations(item.submission?.violations ?? []);
     } catch (e) {
       Alert.alert('Could not open', e.response?.data?.message || 'Please try again.');
     }
   };
 
-  const submit = async () => {
+  const submit = async (overrideViolations = null) => {
     if (!selected) return;
+    const activeViolations = overrideViolations ?? violations;
     setSubmitting(true);
     try {
       await api.post(`/assignments/${selected.id}/submit`, {
         answer_text: selected.type === 'quiz' ? null : answerText,
         answers: selected.type === 'quiz' ? Object.keys(answers).sort().map(key => answers[key]) : null,
+        violation_count: activeViolations.length,
+        violations: activeViolations,
+        auto_submit: selected.type === 'quiz' && activeViolations.length >= 3,
       });
       setSelected(null);
       await load();
@@ -71,6 +78,40 @@ export default function StudentAssignments() {
       setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (!selected || selected.type !== 'quiz') return undefined;
+
+    const subscription = AppState.addEventListener('change', async (state) => {
+      if (state !== 'background' && state !== 'inactive') return;
+
+      const violation = {
+        type: 'app_switch',
+        details: { app_state: state },
+        recorded_at: new Date().toISOString(),
+      };
+      const nextViolations = [...violations, violation];
+      setViolations(nextViolations);
+
+      try {
+        await api.post(`/assignments/${selected.id}/violation`, {
+          type: violation.type,
+          details: violation.details,
+        });
+      } catch (e) {
+        console.log('Quiz violation report failed:', e.message);
+      }
+
+      if (nextViolations.length >= 3) {
+        Alert.alert('Quiz flagged', 'This quiz was auto-submitted for teacher review after repeated app switching.');
+        await submit(nextViolations);
+      } else {
+        Alert.alert('Stay in quiz', `App switching is recorded during quizzes. Warning ${nextViolations.length}/3.`);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [selected, violations]);
 
   if (loading) {
     return (
@@ -135,6 +176,11 @@ export default function StudentAssignments() {
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={s.body}>
+            {selected?.type === 'quiz' && violations.length ? (
+              <View style={[s.warningCard, { borderColor: theme.warning }]}>
+                <Text style={[s.warningText, { color: theme.warning }]}>Quiz warnings: {violations.length}/3</Text>
+              </View>
+            ) : null}
             <View style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[s.sub, { color: theme.textSub }]}>{selected?.instructions || 'No instructions provided.'}</Text>
             </View>
@@ -200,6 +246,8 @@ const s = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   body: { padding: 16, gap: 12, paddingBottom: 100 },
   card: { borderWidth: 1, borderRadius: 14, padding: 15 },
+  warningCard: { borderWidth: 1, borderRadius: 12, padding: 12, backgroundColor: '#FFF7ED' },
+  warningText: { fontSize: 12, fontWeight: '900' },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   badgeText: { fontSize: 10, fontWeight: '900' },

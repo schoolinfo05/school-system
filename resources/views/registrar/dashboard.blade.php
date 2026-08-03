@@ -23,7 +23,7 @@
             @foreach($recentApplications as $application)
                 <a href="{{ route('registrar.enrollments.show', $application) }}" class="block py-3 hover:bg-slate-50">
                     <p class="font-bold text-slate-800">{{ $application->full_name }}</p>
-                    <p class="text-xs text-slate-500">{{ $application->email }} · {{ ucfirst($application->status) }}</p>
+                    <p class="text-xs text-slate-500">{{ $application->email }} / {{ ucfirst($application->status) }}</p>
                 </a>
             @endforeach
         </div>
@@ -36,7 +36,7 @@
                 <div class="py-3 flex items-center justify-between">
                     <div>
                         <p class="font-bold text-slate-800">{{ $reward->student?->first_name }} {{ $reward->student?->last_name }}</p>
-                        <p class="text-xs text-slate-500">{{ $reward->title }} · {{ str_replace('_', ' ', $reward->source) }}</p>
+                        <p class="text-xs text-slate-500">{{ $reward->title }} / {{ str_replace('_', ' ', $reward->source) }}</p>
                     </div>
                     <p class="font-black text-emerald-700">+{{ $reward->points }}</p>
                 </div>

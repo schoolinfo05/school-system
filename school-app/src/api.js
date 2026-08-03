@@ -1,8 +1,21 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+
+const configuredApiUrl = (
+  process.env.EXPO_PUBLIC_API_URL ||
+  Constants.expoConfig?.extra?.apiUrl ||
+  Constants.manifest?.extra?.apiUrl
+)?.trim();
+
+if (!configuredApiUrl) {
+  throw new Error(
+    'EXPO_PUBLIC_API_URL is not configured. Add it to .env.local before starting the app or set it in the EAS build environment.'
+  );
+}
 
 const api = axios.create({
-  baseURL: 'http://192.168.16.182:8000/api',
+  baseURL: `${configuredApiUrl.replace(/\/$/, '')}/api`,
   headers: { 'Content-Type': 'application/json' },
 });
 

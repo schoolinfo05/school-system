@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\MarketplaceItem;
 use App\Models\MarketplaceMessage;
 use App\Models\MarketplaceOrder;
+use App\Models\MarketplaceSetting;
 use App\Models\SchoolNotification;
 use App\Models\Student;
 use App\Models\StudentReward;
@@ -24,6 +25,7 @@ class MarketplaceController extends Controller
             ->when(
                 !$request->boolean('include_all') || !$this->canManageMarketplace($request),
                 fn ($query) => $query->where('status', 'available')
+                    ->where('approval_status', 'approved')
             )
             ->when($request->category, fn($q) =>
                 $q->where('category', $request->category)
@@ -103,6 +105,9 @@ class MarketplaceController extends Controller
             'qrph_image_url' => $qrphImageUrl,
             'image_urls'     => $imageUrls,
             'user_id'        => $request->user()->id,
+            'approval_status' => $this->requiresApproval($request) ? 'pending' : 'approved',
+            'approved_by' => $this->requiresApproval($request) ? null : $request->user()->id,
+            'approved_at' => $this->requiresApproval($request) ? null : now(),
         ]);
 
         return response()->json($item->load('seller'), 201);
@@ -129,6 +134,10 @@ class MarketplaceController extends Controller
         }
 
         $quantity = (int) $request->input('quantity', 1);
+
+        if ($item->approval_status !== 'approved') {
+            return response()->json(['message' => 'This item is still waiting for school approval.'], 422);
+        }
 
         if ($item->status !== 'available' || $item->stock < 1) {
             return response()->json(['message' => 'This item is no longer available.'], 422);
@@ -220,6 +229,10 @@ class MarketplaceController extends Controller
 
         if (!$item->accepts_gcash) {
             return response()->json(['message' => 'This item does not accept GCash.'], 422);
+        }
+
+        if ($item->approval_status !== 'approved') {
+            return response()->json(['message' => 'This item is still waiting for school approval.'], 422);
         }
 
         if ($item->status !== 'available' || $item->stock < 1) {
@@ -458,6 +471,77 @@ class MarketplaceController extends Controller
                 'enabled'       => (bool) (config('services.qrph.image_url') || config('services.qrph.account_number')),
             ],
         ]);
+    }
+
+    public function settings(Request $request)
+    {
+        if (!$this->canManageMarketplace($request)) {
+            return response()->json(['message' => 'Only school management can view marketplace settings.'], 403);
+        }
+
+        return response()->json($this->settingsPayload());
+    }
+
+    public function updateSettings(Request $request)
+    {
+        if (!$request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
+            return response()->json(['message' => 'Only school management can update marketplace settings.'], 403);
+        }
+
+        $data = $request->validate([
+            'require_item_approval' => ['nullable', 'boolean'],
+            'redemption_rate' => ['nullable', 'numeric', 'min:0'],
+            'max_redemption_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+        ]);
+
+        foreach ($data as $key => $value) {
+            MarketplaceSetting::updateOrCreate(
+                ['key' => $key],
+                ['value' => ['value' => $value], 'updated_by' => $request->user()->id]
+            );
+        }
+
+        return response()->json($this->settingsPayload());
+    }
+
+    public function approve(Request $request, MarketplaceItem $item)
+    {
+        if (!$request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
+            return response()->json(['message' => 'Only school management can approve listings.'], 403);
+        }
+
+        $item->update([
+            'approval_status' => 'approved',
+            'approved_by' => $request->user()->id,
+            'approved_at' => now(),
+            'approval_notes' => $request->input('notes'),
+        ]);
+
+        $this->notifyUser($item->user_id, 'marketplace_item_approved', 'Marketplace item approved', "{$item->title} is now available.", ['item_id' => $item->id]);
+
+        return response()->json($item->fresh()->load('seller'));
+    }
+
+    public function reject(Request $request, MarketplaceItem $item)
+    {
+        if (!$request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
+            return response()->json(['message' => 'Only school management can reject listings.'], 403);
+        }
+
+        $data = $request->validate([
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $item->update([
+            'approval_status' => 'rejected',
+            'approved_by' => $request->user()->id,
+            'approved_at' => now(),
+            'approval_notes' => $data['notes'] ?? null,
+        ]);
+
+        $this->notifyUser($item->user_id, 'marketplace_item_rejected', 'Marketplace item rejected', $data['notes'] ?? "{$item->title} was not approved.", ['item_id' => $item->id]);
+
+        return response()->json($item->fresh()->load('seller'));
     }
 
     // POST /api/marketplace/orders/{order}/mark-paid — management verifies manual payment
@@ -718,7 +802,9 @@ class MarketplaceController extends Controller
         }
 
         $balance = (int) StudentReward::where('student_id', $student->id)->sum('points');
-        $maxByValue = (int) floor(($subtotal * 0.40) / 0.5);
+        $rate = max(0.01, (float) $this->settingValue('redemption_rate', 0.5));
+        $maxPercent = max(0, min(100, (float) $this->settingValue('max_redemption_percent', 40)));
+        $maxByValue = (int) floor(($subtotal * ($maxPercent / 100)) / $rate);
         $maxPoints = max(0, min(100, $maxByValue, $balance));
 
         if ($requested < 50) {
@@ -736,7 +822,7 @@ class MarketplaceController extends Controller
         return [
             'student' => $student,
             'points' => $requested,
-            'discount' => round($requested * 0.5, 2),
+            'discount' => round($requested * $rate, 2),
             'balance' => $balance,
             'max_points' => $maxPoints,
         ];
@@ -864,12 +950,41 @@ class MarketplaceController extends Controller
             || $this->isPropertyCustodian($request);
     }
 
+    private function requiresApproval(Request $request): bool
+    {
+        if ($request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
+            return false;
+        }
+
+        return (bool) $this->settingValue('require_item_approval', false);
+    }
+
+    private function settingsPayload(): array
+    {
+        return [
+            'require_item_approval' => (bool) $this->settingValue('require_item_approval', false),
+            'redemption_rate' => (float) $this->settingValue('redemption_rate', 0.5),
+            'max_redemption_percent' => (float) $this->settingValue('max_redemption_percent', 40),
+        ];
+    }
+
+    private function settingValue(string $key, mixed $default): mixed
+    {
+        $setting = MarketplaceSetting::where('key', $key)->first();
+        return $setting?->value['value'] ?? $default;
+    }
+
     private function isPropertyCustodian(Request $request): bool
     {
         $user = $request->user();
 
         return $user
-            && $user->role === User::ROLE_STAFF
-            && $user->position === User::POSITION_PROPERTY_CUSTODIAN;
+            && (
+                (
+                    $user->role === User::ROLE_STAFF
+                    && $user->position === User::POSITION_PROPERTY_CUSTODIAN
+                )
+                || $user->role === User::POSITION_PROPERTY_CUSTODIAN
+            );
     }
 }

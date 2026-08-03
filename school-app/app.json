@@ -12,6 +12,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.schoolbuds.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/schoolbuds-icon.png",
@@ -39,11 +41,17 @@
           }
         }
       ],
-      "expo-sharing"
+      "expo-font"
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "apiUrl": "http://192.168.16.182:8000",
+      "eas": {
+        "projectId": "0d5bd4f9-04f7-42d6-af20-a948bfdfab3b"
+      }
     }
   }
 }

@@ -15,6 +15,7 @@ class EnsureWebPortalRole
 
         if ($user && (
             in_array($user->role, $roles, true)
+            || in_array($user->position, $roles, true)
             || $user->hasAnyRole($roles)
         )) {
             return $next($request);
@@ -25,7 +26,7 @@ class EnsureWebPortalRole
         $request->session()->regenerateToken();
 
         return redirect()->route('login')->withErrors([
-            'email' => 'Only admin and registrar accounts can sign in to the web portal.',
+            'email' => 'Only admin, registrar, teacher, and property custodian accounts can sign in to the web portal.',
         ]);
     }
 }

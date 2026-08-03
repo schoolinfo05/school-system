@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AcademicTerm;
 use App\Models\Grade;
+use App\Models\SchoolNotification;
 use App\Models\Student;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
@@ -24,6 +26,10 @@ class GradeController extends Controller
             'quarter'         => 'required|in:1,2,3,4',
             'score'           => 'nullable|numeric|min:0|max:100',
         ]);
+
+        if ($message = $this->gradeDeadlineMessage($request->school_year, null)) {
+            return response()->json(['message' => $message], 422);
+        }
 
         $grade = Grade::updateOrCreate(
             [
@@ -50,6 +56,7 @@ class GradeController extends Controller
                     null,
                     ['grade_id' => $grade->id, 'school_class_id' => $request->school_class_id, 'quarter' => $request->quarter]
                 );
+                $this->notifyParentGradePosted($student, $grade);
             }
         }
 
@@ -74,6 +81,7 @@ class GradeController extends Controller
                 null,
                 ['grade_id' => $grade->id, 'school_class_id' => $grade->school_class_id, 'quarter' => $grade->quarter]
             );
+            $this->notifyParentGradePosted($grade->student, $grade);
         }
         return response()->json($grade);
     }
@@ -92,5 +100,36 @@ class GradeController extends Controller
             ->get();
 
         return response()->json($grades);
+    }
+
+    private function gradeDeadlineMessage(string $schoolYear, ?string $semester): ?string
+    {
+        $query = AcademicTerm::where('school_year', $schoolYear);
+        if ($semester) {
+            $query->where('semester', $semester);
+        }
+
+        $term = $query->first();
+        if ($term?->grade_finalization_deadline && now()->gt($term->grade_finalization_deadline)) {
+            return 'Grade entry is closed for this term. Finalization deadline was ' . $term->grade_finalization_deadline->toDateTimeString() . '.';
+        }
+
+        return null;
+    }
+
+    private function notifyParentGradePosted(Student $student, Grade $grade): void
+    {
+        if (!$student->parent_user_id) {
+            return;
+        }
+
+        SchoolNotification::create([
+            'user_id' => $student->parent_user_id,
+            'type' => ((float) $grade->score < 75) ? 'low_grade_alert' : 'grade_posted_parent',
+            'title' => ((float) $grade->score < 75) ? 'Low grade alert' : 'Grade posted',
+            'body' => "{$student->first_name} {$student->last_name} received {$grade->score} for Q{$grade->quarter}.",
+            'channels' => ['in_app'],
+            'data' => ['student_id' => $student->id, 'grade_id' => $grade->id],
+        ]);
     }
 }

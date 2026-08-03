@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AcademicTerm;
 use App\Models\SchoolClass;
+use App\Models\SchoolNotification;
 use App\Models\SectionSubject;
 use App\Models\Student;
 use App\Models\StudentSubject;
@@ -100,6 +102,10 @@ class TeacherController extends Controller
             'grades.*.score'      => 'required|numeric|min:0|max:100',
         ]);
 
+        if ($message = $this->gradeDeadlineMessage($schoolClass->school_year, $sectionSubject->section?->semester)) {
+            return response()->json(['message' => $message], 422);
+        }
+
         foreach ($request->grades as $g) {
             $remarks = $this->getRemark($g['score']);
             $grade = Grade::updateOrCreate(
@@ -123,6 +129,7 @@ class TeacherController extends Controller
                     $sectionSubject->section?->semester,
                     ['grade_id' => $grade->id, 'school_class_id' => $schoolClass->id, 'quarter' => $g['quarter']]
                 );
+                $this->notifyParentGradePosted($student, $grade);
             }
         }
 
@@ -169,6 +176,7 @@ class TeacherController extends Controller
                     $schoolClass->school_year,
                     $sectionSubject->section?->semester
                 );
+                $this->notifyParentAttendance($student, $attendance);
             }
         }
 
@@ -316,5 +324,54 @@ class TeacherController extends Controller
         if ($score >= 80) return 'Satisfactory';
         if ($score >= 75) return 'Fairly Satisfactory';
         return 'Did Not Meet Expectations';
+    }
+
+    private function gradeDeadlineMessage(string $schoolYear, ?string $semester): ?string
+    {
+        if (!$semester) {
+            return null;
+        }
+
+        $term = AcademicTerm::where('school_year', $schoolYear)
+            ->where('semester', $semester)
+            ->first();
+
+        if ($term?->grade_finalization_deadline && now()->gt($term->grade_finalization_deadline)) {
+            return 'Grade entry is closed for this term. Finalization deadline was ' . $term->grade_finalization_deadline->toDateTimeString() . '.';
+        }
+
+        return null;
+    }
+
+    private function notifyParentGradePosted(Student $student, Grade $grade): void
+    {
+        if (!$student->parent_user_id) {
+            return;
+        }
+
+        SchoolNotification::create([
+            'user_id' => $student->parent_user_id,
+            'type' => ((float) $grade->score < 75) ? 'low_grade_alert' : 'grade_posted_parent',
+            'title' => ((float) $grade->score < 75) ? 'Low grade alert' : 'Grade posted',
+            'body' => "{$student->first_name} {$student->last_name} received {$grade->score} for Q{$grade->quarter}.",
+            'channels' => ['in_app'],
+            'data' => ['student_id' => $student->id, 'grade_id' => $grade->id],
+        ]);
+    }
+
+    private function notifyParentAttendance(Student $student, Attendance $attendance): void
+    {
+        if (!$student->parent_user_id || $attendance->status === 'present') {
+            return;
+        }
+
+        SchoolNotification::create([
+            'user_id' => $student->parent_user_id,
+            'type' => 'attendance_alert_parent',
+            'title' => 'Attendance alert',
+            'body' => "{$student->first_name} {$student->last_name} was marked {$attendance->status} on {$attendance->date}.",
+            'channels' => ['in_app'],
+            'data' => ['student_id' => $student->id, 'attendance_id' => $attendance->id],
+        ]);
     }
 }

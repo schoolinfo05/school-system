@@ -180,6 +180,7 @@ export default function Market() {
   const isWideWeb = Platform.OS === 'web' && windowWidth >= 900;
   const galleryWidth = isWideWeb ? Math.min(windowWidth, 760) : windowWidth;
   const [role, setRole]             = useState(null);
+  const [position, setPosition]     = useState(null);
   const [viewMode, setViewMode]     = useState('browse');
   const [items, setItems]           = useState([]);
   const [myItems, setMyItems]       = useState([]);
@@ -228,11 +229,14 @@ export default function Market() {
     accepts_cash: true, accepts_gcash: true, accepts_qrph: true,
     gcash_name: '', gcash_number: '', qrph_image_url: '',
   });
-  const canManageListings = SCHOOL_MANAGEMENT_ROLES.includes(role);
+  const canManageListings = SCHOOL_MANAGEMENT_ROLES.includes(role)
+    || role === 'property_custodian'
+    || (role === 'staff' && position === 'property_custodian');
   const canBuyItems = role === 'student';
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(setRole);
+    AsyncStorage.getItem('position').then(setPosition);
     api.get('/marketplace/payment-options')
       .then(res => setPaymentOptions({
         ...DEFAULT_PAYMENT_OPTIONS,
@@ -349,7 +353,7 @@ export default function Market() {
   // ── Post item ───────────────────────────────────────────────
   const handleSell = async () => {
     if (!canManageListings) {
-      Alert.alert('Not allowed', 'Only school management can post marketplace items.');
+      Alert.alert('Not allowed', 'Only school management and property custodians can post marketplace items.');
       setShowSell(false);
       return;
     }

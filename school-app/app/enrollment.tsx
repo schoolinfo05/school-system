@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import api from '../src/api';
 
 const C = {
@@ -54,6 +55,8 @@ export default function EnrollmentScreen() {
   const router = useRouter();
   const [loading, setLoading]           = useState(false);
   const [loadingSubjects, setLoadingSubjects] = useState(false);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [enrollmentSettings, setEnrollmentSettings] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [subjects, setSubjects]         = useState([]);
   const [courses, setCourses]           = useState([]);
@@ -80,10 +83,37 @@ export default function EnrollmentScreen() {
     subject_ids: [],
   });
   const [existingStudent, setExistingStudent] = useState(null);
+  const [documents, setDocuments] = useState([]);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupMessage, setLookupMessage] = useState('');
 
   const set = useCallback((key, val) => setForm(p => ({ ...p, [key]: val })), []);
+
+  useEffect(() => {
+    const loadEnrollmentSettings = async () => {
+      try {
+        const res = await api.get('/enrollment/settings');
+        const settings = res.data;
+        setEnrollmentSettings(settings);
+        if (settings?.term) {
+          setForm(prev => ({
+            ...prev,
+            school_year: settings.term.school_year || prev.school_year,
+            semester: settings.term.semester === 'summer' ? 'Summer' : settings.term.semester || prev.semester,
+          }));
+        }
+      } catch {
+        setEnrollmentSettings({
+          enrollment_open: false,
+          message: 'Enrollment settings could not be loaded. Please try again later.',
+        });
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+
+    loadEnrollmentSettings();
+  }, []);
 
   const courseCodeFromName = (name) => {
     if (!name) return '';
@@ -244,6 +274,10 @@ export default function EnrollmentScreen() {
   }, [form.academic_status]);
 
   const handleSubmit = async () => {
+    if (!enrollmentSettings?.enrollment_open) {
+      return Alert.alert('Enrollment closed', enrollmentSettings?.message || 'Enrollment is not open right now.');
+    }
+
     if (!form.email.trim())                           return Alert.alert('Required', 'Email is required.');
     if (!existingStudent && form.password.length < 8) return Alert.alert('Required', 'Password must be at least 8 characters.');
     if (!existingStudent && form.password !== form.password_confirmation) return Alert.alert('Error', 'Passwords do not match.');
@@ -292,9 +326,27 @@ export default function EnrollmentScreen() {
       id_no: form.id_no,
     };
 
+    const body = new FormData();
+    Object.entries(payload).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach(item => body.append(`${key}[]`, String(item)));
+      } else if (value !== null && value !== undefined) {
+        body.append(key, String(value));
+      }
+    });
+    documents.forEach((doc, index) => {
+      body.append('documents[]', {
+        uri: doc.uri,
+        name: doc.fileName || `enrollment-document-${index + 1}.jpg`,
+        type: doc.mimeType || 'image/jpeg',
+      });
+    });
+
     setLoading(true);
     try {
-      await api.post('/enrollment', payload);
+      await api.post('/enrollment', body, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       Alert.alert(
         '🎉 Application Submitted!',
         `Your registration has been submitted.\nTrack using: ${form.email}`,
@@ -304,6 +356,24 @@ export default function EnrollmentScreen() {
       Alert.alert('Error', e.response?.data?.message || 'Submission failed. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const pickDocuments = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Allow photo access to attach enrollment requirements.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      quality: 0.85,
+    });
+
+    if (!result.canceled) {
+      setDocuments(current => [...current, ...(result.assets ?? [])].slice(0, 10));
     }
   };
 
@@ -366,8 +436,28 @@ export default function EnrollmentScreen() {
           <Text style={s.schoolSub}>De La Salle Supervised School</Text>
           <Text style={s.deptName}>HIGHER EDUCATION DEPARTMENT</Text>
           <Text style={s.formTitle}>REGISTRATION FORM</Text>
-          <Text style={s.ayLine}>A.Y. {CURRENT_SY}</Text>
+          <Text style={s.ayLine}>A.Y. {form.school_year}</Text>
         </View>
+
+        {loadingSettings ? (
+          <View style={s.noticeCard}>
+            <ActivityIndicator color={C.primary} />
+            <Text style={s.noticeText}>Loading enrollment settings...</Text>
+          </View>
+        ) : enrollmentSettings && !enrollmentSettings.enrollment_open ? (
+          <View style={s.closedCard}>
+            <Text style={s.closedTitle}>Enrollment is closed</Text>
+            <Text style={s.closedText}>{enrollmentSettings.message}</Text>
+          </View>
+        ) : enrollmentSettings?.term ? (
+          <View style={s.noticeCard}>
+            <Text style={s.noticeTitle}>Enrollment is open</Text>
+            <Text style={s.noticeText}>
+              {enrollmentSettings.term.semester.toUpperCase()} Semester, A.Y. {enrollmentSettings.term.school_year}
+              {enrollmentSettings.term.exam_date ? ` - Exam: ${enrollmentSettings.term.exam_date}` : ''}
+            </Text>
+          </View>
+        ) : null}
 
         {/* ── Requirements Checklist ── */}
         <View style={s.card}>
@@ -381,6 +471,21 @@ export default function EnrollmentScreen() {
               </View>
             ))}
           </View>
+          <TouchableOpacity style={s.attachBtn} onPress={pickDocuments}>
+            <Text style={s.attachBtnText}>Attach requirement photos</Text>
+          </TouchableOpacity>
+          {documents.length ? (
+            <View style={s.docList}>
+              {documents.map((doc, index) => (
+                <View key={`${doc.uri}-${index}`} style={s.docItem}>
+                  <Text style={s.docName} numberOfLines={1}>{doc.fileName || `Document ${index + 1}`}</Text>
+                  <TouchableOpacity onPress={() => setDocuments(current => current.filter((_, i) => i !== index))}>
+                    <Text style={s.docRemove}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         {/* ── Student Classification ── */}
@@ -717,7 +822,7 @@ export default function EnrollmentScreen() {
         </View>
 
         {/* ── Submit ── */}
-        <TouchableOpacity style={s.submitBtn} onPress={handleSubmit} disabled={loading}>
+        <TouchableOpacity style={[s.submitBtn, (!enrollmentSettings?.enrollment_open || loadingSettings) && s.submitBtnDisabled]} onPress={handleSubmit} disabled={loading || loadingSettings || !enrollmentSettings?.enrollment_open}>
           {loading
             ? <ActivityIndicator color="#fff" />
             : <Text style={s.submitBtnText}>Submit Application</Text>
@@ -755,11 +860,38 @@ const s = StyleSheet.create({
   },
   sectionTitle:    { fontSize: 16, fontWeight: '700', color: C.primary, marginBottom: 4 },
   sectionSubtitle: { fontSize: 13, color: C.subtext, marginBottom: 12 },
+  noticeCard: {
+    backgroundColor: '#EEF4FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#B8C7E6',
+    padding: 14,
+    marginBottom: 14,
+    gap: 6,
+  },
+  noticeTitle: { fontSize: 14, fontWeight: '800', color: C.primary },
+  noticeText: { fontSize: 13, color: C.subtext, fontWeight: '600', lineHeight: 18 },
+  closedCard: {
+    backgroundColor: '#FFF3F3',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E7B8B8',
+    padding: 14,
+    marginBottom: 14,
+  },
+  closedTitle: { fontSize: 14, fontWeight: '800', color: C.accent },
+  closedText: { fontSize: 13, color: C.subtext, marginTop: 5, lineHeight: 18 },
 
   reqGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },
   reqItem:   { flexDirection: 'row', alignItems: 'center', width: '50%', paddingVertical: 3 },
   reqBullet: { fontSize: 12, color: C.muted, marginRight: 6, fontFamily: 'monospace' },
   reqText:   { fontSize: 12, color: C.subtext, flex: 1 },
+  attachBtn:     { borderWidth: 1, borderColor: C.primary, borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
+  attachBtnText: { color: C.primary, fontSize: 14, fontWeight: '700' },
+  docList:       { marginTop: 10, gap: 8 },
+  docItem:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FBFAF7', borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10 },
+  docName:       { flex: 1, color: C.text, fontSize: 13, marginRight: 10 },
+  docRemove:     { color: C.accent, fontSize: 12, fontWeight: '800' },
 
   checkRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   checkBox:      { width: 22, height: 22, borderWidth: 2, borderColor: C.border, borderRadius: 5, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
@@ -825,6 +957,7 @@ const s = StyleSheet.create({
   lookupResultText: { fontSize: 13, color: C.text, fontWeight: '600' },
 
   submitBtn:     { backgroundColor: C.primary, borderRadius: 12, padding: 18, alignItems: 'center', marginTop: 10 },
+  submitBtnDisabled: { backgroundColor: C.muted },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   statusLink:    { alignItems: 'center', marginTop: 20 },
   statusLinkText:{ color: C.primary, fontSize: 14, fontWeight: '600' },

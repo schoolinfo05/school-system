@@ -35,7 +35,7 @@
                     <td class="px-5 py-4 text-slate-600">{{ $student->grade_level }} · {{ $student->section ?: 'TBA' }}</td>
                     <td class="px-5 py-4 text-slate-600">{{ $student->school_year }}</td>
                     <td class="px-5 py-4"><span class="rounded-full px-2 py-1 text-xs font-bold {{ $student->status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">{{ ucfirst($student->status) }}</span></td>
-                    <td class="px-5 py-4 text-right"><a href="{{ route('admin.students.show', $student) }}" class="text-blue-700 font-bold hover:underline">Open</a></td>
+                    <td class="px-5 py-4 text-right"><a href="{{ route(($routePrefix ?? 'admin') . '.students.show', $student) }}" class="text-blue-700 font-bold hover:underline">Open</a></td>
                 </tr>
             @empty
                 <tr><td colspan="5" class="px-5 py-10 text-center text-slate-500">No students found.</td></tr>

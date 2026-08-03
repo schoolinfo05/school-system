@@ -4,10 +4,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import HeaderGradient from '../components/ui/HeaderGradient';
@@ -17,13 +21,23 @@ import { useTheme } from '../../src/theme-context';
 export default function StudyLoad() {
   const { theme } = useTheme();
   const [data, setData] = useState(null);
+  const [fees, setFees] = useState({ fees: [], total_due: 0, total_paid: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [paymentFee, setPaymentFee] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('gcash');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paying, setPaying] = useState(false);
 
   const loadStudyLoad = async () => {
     try {
-      const res = await api.get('/my-subjects');
-      setData(res.data);
+      const [subjectsRes, feesRes] = await Promise.all([
+        api.get('/my-subjects'),
+        api.get('/my-fees'),
+      ]);
+      setData(subjectsRes.data);
+      setFees(feesRes.data);
     } catch (error) {
       console.log('Study load error:', error.message);
     } finally {
@@ -35,6 +49,38 @@ export default function StudyLoad() {
   useEffect(() => {
     loadStudyLoad();
   }, []);
+
+  const openPayment = (fee) => {
+    const remaining = Math.max(0, Number(fee.amount || 0) - Number(fee.paid_amount || 0));
+    setPaymentFee(fee);
+    setPaymentAmount(String(remaining));
+    setPaymentMethod('gcash');
+    setPaymentReference('');
+  };
+
+  const submitPayment = async () => {
+    if (!paymentFee) return;
+    if (!Number(paymentAmount)) {
+      Alert.alert('Amount required', 'Enter the amount you paid.');
+      return;
+    }
+
+    setPaying(true);
+    try {
+      await api.post(`/fees/${paymentFee.id}/pay`, {
+        amount: Number(paymentAmount),
+        payment_method: paymentMethod,
+        payment_reference: paymentReference,
+      });
+      setPaymentFee(null);
+      await loadStudyLoad();
+      Alert.alert('Payment recorded', 'Your tuition payment has been recorded.');
+    } catch (error) {
+      Alert.alert('Payment failed', error.response?.data?.message || 'Could not record payment.');
+    } finally {
+      setPaying(false);
+    }
+  };
 
   const subjects = useMemo(() => data?.subjects ?? [], [data?.subjects]);
   const sections = data?.sections ?? [];
@@ -98,6 +144,42 @@ export default function StudyLoad() {
             </View>
           </View>
 
+          <View style={[styles.tuitionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Tuition & Fees</Text>
+              <Text style={[styles.sectionMeta, { color: theme.textSub }]}>PHP {Number(fees.total_due || 0).toFixed(2)} due</Text>
+            </View>
+            <View style={styles.tuitionTotals}>
+              <Detail label="Total paid" value={`PHP ${Number(fees.total_paid || 0).toFixed(2)}`} theme={theme} />
+              <Detail label="Remaining" value={`PHP ${Number(fees.total_due || 0).toFixed(2)}`} theme={theme} />
+            </View>
+            {(fees.fees ?? []).length === 0 ? (
+              <Text style={[styles.emptyText, { color: theme.textSub }]}>No tuition fees posted yet.</Text>
+            ) : (
+              (fees.fees ?? []).map(fee => {
+                const remaining = Math.max(0, Number(fee.amount || 0) - Number(fee.paid_amount || 0));
+                return (
+                  <View key={fee.id} style={[styles.feeRow, { borderColor: theme.border }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.feeTitle, { color: theme.text }]}>{fee.type}</Text>
+                      <Text style={[styles.feeMeta, { color: theme.textSub }]}>
+                        Due {fee.due_date ? new Date(fee.due_date).toLocaleDateString() : 'TBA'} · {fee.status}
+                      </Text>
+                    </View>
+                    <View style={styles.feeAction}>
+                      <Text style={[styles.feeAmount, { color: theme.text }]}>PHP {remaining.toFixed(2)}</Text>
+                      {fee.status !== 'paid' ? (
+                        <TouchableOpacity style={[styles.payBtn, { backgroundColor: theme.primary }]} onPress={() => openPayment(fee)}>
+                          <Text style={styles.payText}>Pay</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Enrolled Subjects</Text>
             <Text style={[styles.sectionMeta, { color: theme.textSub }]}>
@@ -145,6 +227,49 @@ export default function StudyLoad() {
           )}
         </ScrollView>
       )}
+
+      <Modal visible={!!paymentFee} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Record Payment</Text>
+            <Text style={[styles.sectionMeta, { color: theme.textSub }]}>{paymentFee?.type}</Text>
+            <TextInput
+              style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.bg }]}
+              value={paymentAmount}
+              onChangeText={setPaymentAmount}
+              keyboardType="numeric"
+              placeholder="Amount"
+              placeholderTextColor={theme.textMuted}
+            />
+            <View style={styles.methodRow}>
+              {['gcash', 'qrph', 'cash', 'bank_transfer'].map(method => (
+                <TouchableOpacity
+                  key={method}
+                  style={[styles.methodPill, { borderColor: paymentMethod === method ? theme.primary : theme.border, backgroundColor: paymentMethod === method ? theme.primaryLight : theme.bg }]}
+                  onPress={() => setPaymentMethod(method)}
+                >
+                  <Text style={[styles.methodText, { color: paymentMethod === method ? theme.primary : theme.textSub }]}>{method.replace('_', ' ').toUpperCase()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.bg }]}
+              value={paymentReference}
+              onChangeText={setPaymentReference}
+              placeholder="Reference number"
+              placeholderTextColor={theme.textMuted}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.cancelBtn, { borderColor: theme.border }]} onPress={() => setPaymentFee(null)} disabled={paying}>
+                <Text style={[styles.cancelText, { color: theme.textSub }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: theme.primary }]} onPress={submitPayment} disabled={paying}>
+                {paying ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -233,4 +358,24 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 16, fontWeight: '900' },
   emptyText: { fontSize: 13, textAlign: 'center', lineHeight: 20, marginTop: 6 },
+  tuitionCard: { borderRadius: 14, borderWidth: 1, padding: 14 },
+  tuitionTotals: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 10 },
+  feeRow: { borderTopWidth: 1, paddingTop: 12, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  feeTitle: { fontSize: 14, fontWeight: '900' },
+  feeMeta: { fontSize: 11, fontWeight: '700', marginTop: 3 },
+  feeAction: { alignItems: 'flex-end', gap: 6 },
+  feeAmount: { fontSize: 12, fontWeight: '900' },
+  payBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  payText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center', padding: 18 },
+  modalCard: { width: '100%', borderRadius: 16, padding: 16 },
+  input: { borderWidth: 1, borderRadius: 12, minHeight: 46, paddingHorizontal: 12, fontSize: 14, marginTop: 12 },
+  methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  methodPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 8 },
+  methodText: { fontSize: 11, fontWeight: '900' },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  cancelBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  confirmBtn: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  cancelText: { fontSize: 13, fontWeight: '900' },
+  confirmText: { color: '#fff', fontSize: 13, fontWeight: '900' },
 });

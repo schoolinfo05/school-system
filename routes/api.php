@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\RewardController;
 use App\Http\Controllers\Api\AssignmentController;
 use App\Http\Controllers\Api\PropertyCustodianController;
 use App\Http\Controllers\Api\ActivityLogController;
+use App\Http\Controllers\Api\AcademicTermController;
 
 // ── Public routes (no login required) ────────────────────────────
 Route::post('/login',            [AuthController::class, 'login']);
@@ -29,6 +30,7 @@ Route::post('/reset-password',   [AuthController::class, 'resetPassword']);
 Route::post('/enrollment',       [EnrollmentController::class, 'store']);
 Route::get('/enrollment/status', [EnrollmentController::class, 'status']);
 Route::get('/enrollment/lookup', [EnrollmentController::class, 'lookup']);
+Route::get('/enrollment/settings', [AcademicTermController::class, 'current']);
 Route::get('/sections',          [SubjectSectionController::class, 'sectionIndex']);
 Route::get('/sections/{id}',     [SubjectSectionController::class, 'sectionShow']);
 Route::get('/subjects',          [SubjectSectionController::class, 'subjectIndex']);
@@ -47,6 +49,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('grades', GradeController::class);
     Route::apiResource('attendances', AttendanceController::class);
     Route::apiResource('fees', FeeController::class);
+    Route::post('/fees/{fee}/pay', [FeeController::class, 'pay']);
+    Route::get('/my-fees', [FeeController::class, 'mine']);
 
     Route::get('/students/{student}/grades',     [GradeController::class, 'byStudent']);
     Route::get('/students/{student}/attendance', [AttendanceController::class, 'byStudent']);
@@ -55,12 +59,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/parent',              [ParentController::class, 'dashboard']);
     Route::get('/my-subjects', [SubjectSectionController::class, 'mySubjects']);
     Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/preferences', [NotificationController::class, 'preferences']);
+    Route::put('/notifications/preferences', [NotificationController::class, 'updatePreferences']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
     Route::get('/rewards/me', [RewardController::class, 'mine']);
     Route::post('/students/{student}/rewards', [RewardController::class, 'award']);
     Route::get('/assignments', [AssignmentController::class, 'studentIndex']);
     Route::get('/assignments/{assignment}', [AssignmentController::class, 'show']);
+    Route::post('/assignments/{assignment}/violation', [AssignmentController::class, 'recordViolation']);
     Route::post('/assignments/{assignment}/submit', [AssignmentController::class, 'submit']);
 
     Route::post('/courses',        [CourseController::class, 'store']);
@@ -96,6 +103,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/teacher/class/{class}/attendance',  [TeacherController::class, 'getAttendance']);
     Route::get('/teacher/class/{class}/performance', [TeacherController::class, 'classPerformance']);
     Route::get('/teacher/assignments', [AssignmentController::class, 'teacherIndex']);
+    Route::post('/teacher/assignments/generate-quiz', [AssignmentController::class, 'generateQuiz']);
     Route::post('/teacher/assignments', [AssignmentController::class, 'store']);
     Route::put('/teacher/assignments/{assignment}', [AssignmentController::class, 'update']);
     Route::delete('/teacher/assignments/{assignment}', [AssignmentController::class, 'destroy']);
@@ -112,6 +120,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/marketplace/my-chats',        [MarketplaceController::class, 'myChats']);
     Route::get('/marketplace/sales',           [MarketplaceController::class, 'sales']);
     Route::get('/marketplace/payment-options', [MarketplaceController::class, 'paymentOptions']);
+    Route::get('/marketplace/settings', [MarketplaceController::class, 'settings']);
+    Route::put('/marketplace/settings', [MarketplaceController::class, 'updateSettings']);
+    Route::post('/marketplace/{item}/approve', [MarketplaceController::class, 'approve']);
+    Route::post('/marketplace/{item}/reject', [MarketplaceController::class, 'reject']);
     Route::post('/marketplace/orders/{order}/mark-paid', [MarketplaceController::class, 'markOrderPaid']);
     Route::post('/marketplace/orders/{order}/cancel', [MarketplaceController::class, 'cancelOrder']);
     Route::get('/marketplace/orders/{order}/receipt', [MarketplaceController::class, 'receipt']);
@@ -138,6 +150,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/registrar/students/{student}/reset-password', [AdminStudentController::class, 'resetPassword']);
     Route::post('/registrar/students/{student}/subjects/{subject}/drop', [AdminStudentController::class, 'dropSubject']);
     Route::post('/registrar/students/{student}/subjects/{subject}/restore', [AdminStudentController::class, 'restoreSubject']);
+    Route::get('/registrar/academic-terms',             [AcademicTermController::class, 'index']);
+    Route::post('/registrar/academic-terms',            [AcademicTermController::class, 'upsert']);
+    Route::get('/registrar/event-participations',       [RewardController::class, 'eventIndex']);
+    Route::post('/registrar/event-participations/{participation}/approve', [RewardController::class, 'approveEvent']);
+    Route::post('/registrar/event-participations/{participation}/reject', [RewardController::class, 'rejectEvent']);
+
+    Route::post('/teacher/event-participations', [RewardController::class, 'verifyEvent']);
 
     // Property custodian
     Route::get('/property-custodian/dashboard', [PropertyCustodianController::class, 'dashboard']);
@@ -156,4 +175,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/admin/students/{student}', [AdminStudentController::class, 'update']);
     Route::post('/admin/students/{student}/reset-password', [AdminStudentController::class, 'resetPassword']);
     Route::delete('/admin/students/{student}', [AdminStudentController::class, 'destroy']);
+    Route::get('/admin/academic-terms',             [AcademicTermController::class, 'index']);
+    Route::post('/admin/academic-terms',            [AcademicTermController::class, 'upsert']);
 });
