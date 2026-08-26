@@ -172,7 +172,7 @@ export default function Chat() {
         initials={(contactName ?? 'T').slice(0, 2).toUpperCase()}
         stats={[
           { label: 'Messages', value: messages.length, accent: '#A5F3FC' },
-          { label: 'Unread', value: messages.filter(m => m.sender_id !== myId && !m.read).length, accent: '#FDE68A' },
+          { label: 'Unread', value: messages.filter(m => m.sender_id !== myId && !m.is_read).length, accent: '#FDE68A' },
           { label: 'Status', value: loading ? 'Loading' : 'Open', accent: '#FBCFE8' },
         ]}
       >

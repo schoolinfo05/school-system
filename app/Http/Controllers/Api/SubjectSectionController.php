@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\EnrollmentApplication;
 use App\Models\Fee;
+use App\Models\SchoolClass;
 use App\Models\Student;
 use App\Models\StudentSubject;
 use App\Models\Subject;
@@ -501,6 +502,36 @@ class SubjectSectionController extends Controller
         }
 
         $student = Student::where('user_id', $user->id)->first();
+
+        if ($subjects->isEmpty() && $student && $student->section && $student->section !== 'TBA') {
+            $legacyClasses = SchoolClass::query()
+                ->where('grade_level', $student->grade_level)
+                ->where('section', $student->section)
+                ->where('school_year', $student->school_year)
+                ->with('teacher:id,name')
+                ->orderBy('subject')
+                ->get();
+
+            $subjects = $legacyClasses->map(fn($class) => [
+                'section_id'   => null,
+                'section_name' => $class->section,
+                'subject_id'   => null,
+                'code'         => $class->subject,
+                'name'         => $class->subject,
+                'units_lec'    => 0,
+                'units_lab'    => 0,
+                'day'          => null,
+                'time_start'   => $class->schedule,
+                'time_end'     => null,
+                'room'         => $class->room,
+                'teacher'      => $class->teacher?->name,
+            ]);
+
+            if ($legacyClasses->isNotEmpty()) {
+                $sections = collect([(object) ['id' => null, 'name' => $student->section]]);
+            }
+        }
+
         $fees = $student
             ? Fee::where('student_id', $student->id)->orderBy('due_date')->get()
             : collect();

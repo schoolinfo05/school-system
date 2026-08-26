@@ -19,7 +19,7 @@ export default function SearchBar({
 }: Props) {
   return (
     <View style={styles.container}>
-      <Feather name={icon} size={18} color="#FFFFFF" />
+      <Feather name={icon} size={15} color="#FFFFFF" />
       <TextInput
         style={styles.input}
         value={value}
@@ -40,15 +40,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.24)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.34)',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginTop: 16,
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginTop: 10,
   },
   input: {
     flex: 1,
     color: '#FFFFFF',
-    marginLeft: 10,
-    fontSize: 15,
+    marginLeft: 8,
+    fontSize: 12,
   },
 });

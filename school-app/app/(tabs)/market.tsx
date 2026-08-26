@@ -201,6 +201,7 @@ export default function Market() {
   const [cancellingId, setCancellingId] = useState(null);
   const [receiptLoadingId, setReceiptLoadingId] = useState(null);
   const [verifyingId, setVerifyingId] = useState(null);
+  const [receivingId, setReceivingId] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('gcash');
   const [paymentReference, setPaymentReference] = useState('');
   const [checkoutQuantity, setCheckoutQuantity] = useState('1');
@@ -226,6 +227,7 @@ export default function Market() {
   const [form, setForm] = useState({
     title: '', description: '', price: '', stock: '1',
     category: 'books', condition: 'good', location: 'Cebu City',
+    pickup_instructions: 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.',
     accepts_cash: true, accepts_gcash: true, accepts_qrph: true,
     gcash_name: '', gcash_number: '', qrph_image_url: '',
   });
@@ -233,6 +235,17 @@ export default function Market() {
     || role === 'property_custodian'
     || (role === 'staff' && position === 'property_custodian');
   const canBuyItems = role === 'student';
+  const activeCheckoutCount = orders.filter(order => !['completed', 'cancelled'].includes(order.status)).length;
+  const headerStats = canManageListings
+    ? [
+        { label: 'Browse', value: items.length, accent: '#A5F3FC' },
+        { label: 'Sales', value: viewMode === 'sales' ? sales.length : 0, accent: '#FCD34D' },
+        { label: 'Listings', value: myItems.length, accent: '#A7F3D0' },
+      ]
+    : [
+        { label: 'Available', value: items.length, accent: '#A7F3D0' },
+        { label: 'Checkout', value: activeCheckoutCount, accent: '#FCD34D' },
+      ];
 
   useEffect(() => {
     AsyncStorage.getItem('role').then(setRole);
@@ -305,6 +318,14 @@ export default function Market() {
   }, []);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  useEffect(() => {
+    if (canBuyItems) fetchMyOrders();
+    if (canManageListings) {
+      fetchMyItems();
+      fetchSales();
+    }
+  }, [canBuyItems, canManageListings, fetchMyItems, fetchMyOrders, fetchSales]);
 
   useEffect(() => {
     setLoading(true);
@@ -412,6 +433,7 @@ export default function Market() {
       setForm({
         title: '', description: '', price: '', stock: '1',
         category: 'books', condition: 'good', location: 'Cebu City',
+        pickup_instructions: 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.',
         accepts_cash: true, accepts_gcash: true, accepts_qrph: true,
         gcash_name: '', gcash_number: '', qrph_image_url: '',
       });
@@ -437,6 +459,7 @@ export default function Market() {
       category:       item.category       ?? 'books',
       condition:      item.condition      ?? 'good',
       location:       item.location       ?? '',
+      pickup_instructions: item.pickup_instructions ?? 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.',
       accepts_cash:   !!item.accepts_cash,
       accepts_gcash:  !!item.accepts_gcash,
       accepts_qrph:   !!item.accepts_qrph,
@@ -643,8 +666,8 @@ export default function Market() {
       Alert.alert(
         ['gcash', 'qrph'].includes(paymentMethod) ? 'Pending verification' : 'Checkout started',
         ['gcash', 'qrph'].includes(paymentMethod)
-          ? 'Your payment reference was submitted. School management will verify the payment.'
-          : 'The seller has been notified. Please coordinate payment and pickup with them.'
+          ? `Your payment reference was submitted. After verification: ${checkoutItem?.pickup_instructions || 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.'}`
+          : (checkoutItem?.pickup_instructions || 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.')
       );
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message ?? 'Could not complete checkout for this item.');
@@ -697,6 +720,20 @@ export default function Market() {
     }
   };
 
+  const handleMarkReceived = async (order) => {
+    setReceivingId(order.id);
+    try {
+      const res = await api.post(`/marketplace/orders/${order.id}/received`);
+      const updatedOrder = res.data;
+      setOrders(prev => prev.map(item => item.id === updatedOrder.id ? updatedOrder : item));
+      Alert.alert('Received', 'Order marked as received.');
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message ?? 'Could not mark this order as received.');
+    } finally {
+      setReceivingId(null);
+    }
+  };
+
   // ── Open item detail ────────────────────────────────────────
   const handlePrintReceipt = async (order) => {
     setReceiptLoadingId(order.id);
@@ -733,8 +770,15 @@ export default function Market() {
     const isGcash     = order.payment_method === 'gcash';
     const isQrph      = order.payment_method === 'qrph';
     const isCancelled = order.status === 'cancelled';
+    const isCompleted = order.status === 'completed';
     const isPaid      = order.status === 'paid' || order.status === 'completed' || !!order.paid_at || order.paymongo_status === 'paid';
     const canCancel   = ['reserved', 'pending_verification'].includes(order.status);
+    const canMarkReceived = !isCancelled && !isCompleted && (
+      order.status === 'reserved'
+      || order.status === 'paid'
+      || !!order.paid_at
+      || order.paymongo_status === 'paid'
+    );
 
     return (
       <View key={order.id} style={[s.orderCard, isWideWeb && s.orderCardWeb]}>
@@ -758,7 +802,7 @@ export default function Market() {
               s.orderStatusText,
               isCancelled ? s.orderStatusCancelledText : isPaid ? s.orderStatusPaidText : s.orderStatusReservedText,
             ]}>
-              {isCancelled ? 'CANCELLED' : order.status === 'paid' ? 'PAID' : ['gcash', 'qrph'].includes(order.payment_method) ? 'PENDING' : 'CHECKOUT'}
+              {isCancelled ? 'CANCELLED' : isCompleted ? 'RECEIVED' : order.status === 'paid' ? 'PAID' : ['gcash', 'qrph'].includes(order.payment_method) ? 'PENDING' : 'CHECKOUT'}
             </Text>
           </View>
         </View>
@@ -783,16 +827,25 @@ export default function Market() {
             <Text style={s.referenceLabel}>Cancel reason</Text>
             <Text style={s.orderNote}>{order.notes}</Text>
           </View>
-        ) : ['gcash', 'qrph'].includes(order.payment_method) && order.gcash_reference ? (
+        ) : null}
+
+        {!isCancelled && ['gcash', 'qrph'].includes(order.payment_method) && order.gcash_reference ? (
           <View style={s.referenceBox}>
             <Text style={s.referenceLabel}>{isQrph ? 'QRPH reference' : 'GCash reference'}</Text>
             <Text style={s.referenceValue}>{order.gcash_reference}</Text>
           </View>
-        ) : ['gcash', 'qrph'].includes(order.payment_method) ? (
-          <Text style={s.orderNote}>Payment is pending school management verification.</Text>
-        ) : (
-          <Text style={s.orderNote}>Coordinate pickup and payment with the seller.</Text>
-        )}
+        ) : null}
+
+        {!isCancelled && ['gcash', 'qrph'].includes(order.payment_method) && !order.gcash_reference ? (
+            <Text style={s.orderNote}>Payment is pending school management verification.</Text>
+        ) : null}
+
+        {!isCancelled ? (
+          <View style={s.cashOrderBox}>
+            <Text style={s.referenceLabel}>{['gcash', 'qrph'].includes(order.payment_method) ? 'Pickup after payment verification' : 'Pickup instructions'}</Text>
+            <Text style={s.orderNote}>{item.pickup_instructions || 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.'}</Text>
+          </View>
+        ) : null}
 
         {canCancel && (
           <TouchableOpacity
@@ -801,6 +854,19 @@ export default function Market() {
             disabled={cancellingId === order.id}
           >
             <Text style={s.orderCancelText}>Cancel checkout</Text>
+          </TouchableOpacity>
+        )}
+
+        {canMarkReceived && (
+          <TouchableOpacity
+            style={[s.receivedBtn, receivingId === order.id && { opacity: 0.6 }]}
+            onPress={() => handleMarkReceived(order)}
+            disabled={receivingId === order.id}
+          >
+            {receivingId === order.id
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={s.receivedBtnText}>Mark as received</Text>
+            }
           </TouchableOpacity>
         )}
 
@@ -825,7 +891,8 @@ export default function Market() {
     const buyerName  = order.buyer?.name ?? 'Student buyer';
     const status     = order.status ?? 'reserved';
     const isCancelled= status === 'cancelled';
-    const isPaid     = status === 'paid';
+    const isReceived = status === 'completed';
+    const isPaid     = status === 'paid' || isReceived;
     const canVerify  = ['pending_verification', 'reserved'].includes(status) && ['gcash', 'qrph'].includes(order.payment_method);
 
     return (
@@ -850,7 +917,7 @@ export default function Market() {
               s.orderStatusText,
               isCancelled ? s.orderStatusCancelledText : isPaid ? s.orderStatusPaidText : s.orderStatusReservedText,
             ]}>
-              {status.toUpperCase()}
+              {isReceived ? 'RECEIVED' : status.toUpperCase()}
             </Text>
           </View>
         </View>
@@ -878,6 +945,13 @@ export default function Market() {
           <View style={s.referenceBox}>
             <Text style={s.referenceLabel}>{order.payment_method === 'qrph' ? 'QRPH reference' : 'GCash reference'}</Text>
             <Text style={s.referenceValue}>{order.gcash_reference}</Text>
+          </View>
+        ) : null}
+
+        {order.payment_method === 'cash' || ['gcash', 'qrph'].includes(order.payment_method) ? (
+          <View style={s.cashOrderBox}>
+            <Text style={s.referenceLabel}>{order.payment_method === 'cash' ? 'Cash pickup instructions' : 'Pickup after payment verification'}</Text>
+            <Text style={s.orderNote}>{item.pickup_instructions || 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.'}</Text>
           </View>
         ) : null}
 
@@ -919,12 +993,8 @@ export default function Market() {
     return (
       <View key={i} style={[s.itemCard, isWideWeb ? s.itemCardWeb : s.itemCardMobile, isUnavailable && !isMine && s.itemCardDimmed]}>
 
-        {/* Tappable image area → opens detail modal */}
-        <TouchableOpacity
-          style={s.itemImg}
-          onPress={() => openItemDetail(item)}
-          activeOpacity={0.88}
-        >
+        {/* Image thumbnail */}
+        <View style={s.itemImg}>
           {firstImage ? (
             <Image
               source={{ uri: firstImage }}
@@ -942,18 +1012,16 @@ export default function Market() {
               <Text style={s.photoCountText}>+{item.image_urls.length - 1}</Text>
             </View>
           )}
-        </TouchableOpacity>
+        </View>
 
         {/* Body */}
         <View style={s.itemBody}>
-          <TouchableOpacity onPress={() => openItemDetail(item)} activeOpacity={0.7}>
-            <Text
-              style={[s.itemTitle, isUnavailable && !isMine && s.textDimmed]}
-              numberOfLines={2}
-            >
-              {item.title}
-            </Text>
-          </TouchableOpacity>
+          <Text
+            style={[s.itemTitle, isUnavailable && !isMine && s.textDimmed]}
+            numberOfLines={2}
+          >
+            {item.title}
+          </Text>
 
           <Text style={[s.itemPrice, isSold && !isMine && s.itemPriceSold]}>
             ₱{Number(item.price).toLocaleString()}
@@ -1060,11 +1128,7 @@ export default function Market() {
             : 'Browse fixed-price school marketplace items'
         }
         initials="MK"
-        stats={[
-          { label: 'Browse', value: items.length, accent: '#A5F3FC' },
-          { label: 'Sales', value: viewMode === 'sales' ? sales.length : 0, accent: '#FCD34D' },
-          { label: 'Orders', value: viewMode === 'orders' ? orders.length : 0, accent: '#FCA5A5' },
-        ]}
+        stats={headerStats}
       >
         <SearchBar
           value={search}
@@ -1073,42 +1137,42 @@ export default function Market() {
           onSubmitEditing={fetchItems}
         />
       </HeaderGradient>
-      <View style={[s.contentShell, isWideWeb && s.contentShellWeb]}>
-        <View style={s.toggleRow}>
+      <View style={[s.contentShell, { backgroundColor: theme.card, borderBottomColor: theme.border }, isWideWeb && s.contentShellWeb]}>
+        <View style={[s.toggleRow, { backgroundColor: theme.primaryLight, borderColor: theme.border }]}>
           <TouchableOpacity
-            style={[s.toggleBtn, viewMode === 'browse' && s.toggleBtnActive]}
+            style={[s.toggleBtn, viewMode === 'browse' && [s.toggleBtnActive, { backgroundColor: theme.card }]]}
             onPress={() => setViewMode('browse')}
           >
-            <Text style={[s.toggleBtnText, viewMode === 'browse' && s.toggleBtnTextActive]}>
+            <Text style={[s.toggleBtnText, { color: theme.textSub }, viewMode === 'browse' && { color: theme.primary }]}>
               🛒  Browse
             </Text>
           </TouchableOpacity>
           {canManageListings && (
             <TouchableOpacity
-              style={[s.toggleBtn, viewMode === 'mine' && s.toggleBtnActive]}
+              style={[s.toggleBtn, viewMode === 'mine' && [s.toggleBtnActive, { backgroundColor: theme.card }]]}
               onPress={() => setViewMode('mine')}
             >
-              <Text style={[s.toggleBtnText, viewMode === 'mine' && s.toggleBtnTextActive]}>
+              <Text style={[s.toggleBtnText, { color: theme.textSub }, viewMode === 'mine' && { color: theme.primary }]}>
                 📋  My Listings
               </Text>
             </TouchableOpacity>
           )}
           {canManageListings && (
             <TouchableOpacity
-              style={[s.toggleBtn, viewMode === 'sales' && s.toggleBtnActive]}
+              style={[s.toggleBtn, viewMode === 'sales' && [s.toggleBtnActive, { backgroundColor: theme.card }]]}
               onPress={() => setViewMode('sales')}
             >
-              <Text style={[s.toggleBtnText, viewMode === 'sales' && s.toggleBtnTextActive]}>
+              <Text style={[s.toggleBtnText, { color: theme.textSub }, viewMode === 'sales' && { color: theme.primary }]}>
                 Sales
               </Text>
             </TouchableOpacity>
           )}
           {canBuyItems && (
             <TouchableOpacity
-              style={[s.toggleBtn, viewMode === 'orders' && s.toggleBtnActive]}
+              style={[s.toggleBtn, viewMode === 'orders' && [s.toggleBtnActive, { backgroundColor: theme.card }]]}
               onPress={() => setViewMode('orders')}
             >
-              <Text style={[s.toggleBtnText, viewMode === 'orders' && s.toggleBtnTextActive]}>
+              <Text style={[s.toggleBtnText, { color: theme.textSub }, viewMode === 'orders' && { color: theme.primary }]}>
                 Checkout
               </Text>
             </TouchableOpacity>
@@ -1118,7 +1182,7 @@ export default function Market() {
 
       {/* ── Category tabs ── */}
       {viewMode === 'browse' && (
-        <View style={s.catWrapper}>
+        <View style={[s.catWrapper, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1129,12 +1193,16 @@ export default function Market() {
               return (
                 <TouchableOpacity
                   key={cat.key}
-                  style={[s.catTab, active && s.catTabActive]}
+                  style={[
+                    s.catTab,
+                    { backgroundColor: theme.bg, borderColor: theme.border },
+                    active && { backgroundColor: theme.primaryLight, borderColor: theme.primary },
+                  ]}
                   onPress={() => setCategory(cat.key)}
                   activeOpacity={0.7}
                 >
                   <Text style={s.catEmoji}>{CAT_EMOJI[cat.key]}</Text>
-                  <Text style={[s.catLabel, active && s.catLabelActive]}>
+                  <Text style={[s.catLabel, { color: theme.textSub }, active && { color: theme.primary, fontWeight: '700' }]}>
                     {cat.label}
                   </Text>
                 </TouchableOpacity>
@@ -1227,17 +1295,23 @@ export default function Market() {
       {/* ══════════════════════════════════════════════════════
           ── Item Detail Modal ──
       ══════════════════════════════════════════════════════ */}
-      <Modal visible={!!viewItem} animationType="slide" presentationStyle="pageSheet">
-        <View style={s.modal}>
+      <Modal visible={!!viewItem} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent={false}>
+        <View style={s.detailModal}>
           {/* Header */}
-          <View style={s.modalHeader}>
+          <View style={s.detailHeader}>
             <Text style={s.modalTitle} numberOfLines={1}>{viewItem?.title}</Text>
-            <TouchableOpacity style={s.modalCloseBtn} onPress={() => setViewItem(null)}>
+            <TouchableOpacity style={s.detailCloseBtn} onPress={() => setViewItem(null)}>
               <Text style={s.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={{ paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={s.modalScroll}
+            contentContainerStyle={s.detailScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+          >
 
             {/* ── Image gallery (horizontal pager) ── */}
             {viewItem?.image_urls?.length > 0 ? (
@@ -1280,7 +1354,7 @@ export default function Market() {
               </View>
             )}
 
-            <View style={{ padding: 16 }}>
+            <View style={s.detailBody}>
 
               {/* Price row */}
               <View style={s.detailPriceRow}>
@@ -1301,8 +1375,10 @@ export default function Market() {
               </View>
 
               {/* Description */}
-              <Text style={s.detailSectionLabel}>Description</Text>
-              <Text style={s.detailDescription}>{viewItem?.description}</Text>
+              <View style={s.detailInfoBlock}>
+                <Text style={s.detailSectionLabel}>Description</Text>
+                <Text style={s.detailDescription}>{viewItem?.description}</Text>
+              </View>
 
               {/* Location */}
               {viewItem?.location ? (
@@ -1441,6 +1517,20 @@ export default function Market() {
               placeholder="e.g. Cebu City"
               value={form.location}
               onChangeText={v => setForm(p => ({ ...p, location: v }))} />
+
+            {(form.accepts_cash || form.accepts_gcash || form.accepts_qrph) && (
+              <>
+                <Text style={s.fieldLabel}>Pickup / Claim Instructions</Text>
+                <TextInput
+                  style={[s.fieldInput, s.instructionsInput]}
+                  placeholder="Where and how should the buyer claim the item?"
+                  value={form.pickup_instructions}
+                  onChangeText={v => setForm(p => ({ ...p, pickup_instructions: v }))}
+                  multiline
+                  textAlignVertical="top"
+                />
+              </>
+            )}
 
             <Text style={s.fieldLabel}>Item Photos (up to 3)</Text>
             <TouchableOpacity style={s.uploadBtn} onPress={() => pickItemImages(setItemImages)}>
@@ -1609,6 +1699,20 @@ export default function Market() {
                 value={editForm.location}
                 onChangeText={v => setEditForm(p => ({ ...p, location: v }))} />
 
+              {(editForm.accepts_cash || editForm.accepts_gcash || editForm.accepts_qrph) && (
+                <>
+                  <Text style={s.fieldLabel}>Pickup / Claim Instructions</Text>
+                  <TextInput
+                    style={[s.fieldInput, s.instructionsInput]}
+                    placeholder="Where and how should the buyer claim the item?"
+                    value={editForm.pickup_instructions}
+                    onChangeText={v => setEditForm(p => ({ ...p, pickup_instructions: v }))}
+                    multiline
+                    textAlignVertical="top"
+                  />
+                </>
+              )}
+
               <Text style={s.fieldLabel}>Item Photos (up to 3)</Text>
               <TouchableOpacity style={s.uploadBtn} onPress={() => pickItemImages(setEditItemImages)}>
                 <Text style={s.uploadBtnText}>
@@ -1723,112 +1827,133 @@ export default function Market() {
           <View style={s.checkoutCard}>
             <Text style={s.checkoutTitle}>Checkout</Text>
 
-            {checkoutItem?.image_urls?.[0] && (
-              <Image
-                source={{ uri: checkoutItem.image_urls[0] }}
-                style={s.checkoutItemImage}
-                resizeMode="cover"
-              />
-            )}
-
-            <Text style={s.checkoutItem}>{checkoutItem?.title}</Text>
-            <Text style={s.checkoutPrice}>
-              ₱{Number((checkoutItem?.price ?? 0) * (parseInt(checkoutQuantity, 10) || 1)).toLocaleString()}
-            </Text>
-            <Text style={s.checkoutItem}>₱{Number(checkoutItem?.price ?? 0).toLocaleString()} each · {checkoutItem?.stock ?? 1} in stock</Text>
-
-            <Text style={s.fieldLabel}>Quantity</Text>
-            <View style={s.quantityRow}>
-              <TouchableOpacity
-                style={s.quantityBtn}
-                onPress={() => setCheckoutQuantity(String(Math.max(1, (parseInt(checkoutQuantity, 10) || 1) - 1)))}
-              >
-                <Text style={s.quantityBtnText}>-</Text>
-              </TouchableOpacity>
-              <TextInput
-                style={[s.fieldInput, s.quantityInput]}
-                value={checkoutQuantity}
-                onChangeText={v => setCheckoutQuantity(v.replace(/[^0-9]/g, ''))}
-                keyboardType="number-pad"
-              />
-              <TouchableOpacity
-                style={s.quantityBtn}
-                onPress={() => {
-                  const current = parseInt(checkoutQuantity, 10) || 1;
-                  setCheckoutQuantity(String(Math.min(checkoutItem?.stock ?? 1, current + 1)));
-                }}
-              >
-                <Text style={s.quantityBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-
-            {paymentOptions?.qrph && (
-              <View style={s.gcashBox}>
-                <Text style={s.gcashTitle}>Pay with QRPH</Text>
-                {(checkoutItem?.qrph_image_url || paymentOptions?.qrph?.image_url) ? (
-                  <Image
-                    source={{ uri: checkoutItem?.qrph_image_url || paymentOptions.qrph.image_url }}
-                    style={s.qrImage}
-                    resizeMode="contain"
-                  />
-                ) : null}
-                <Text style={s.gcashLine}>Account: {paymentOptions?.qrph?.account_name}</Text>
-                {paymentOptions?.qrph?.account_number ? (
-                  <Text style={s.gcashLine}>Number: {paymentOptions.qrph.account_number}</Text>
-                ) : null}
-                <Text style={s.gcashLine}>{paymentOptions?.qrph?.instructions}</Text>
-              </View>
-            )}
-
-            {checkoutItem?.accepts_gcash && (
-              <View style={s.gcashBox}>
-                <Text style={s.gcashTitle}>Pay with GCash</Text>
-                <Text style={s.gcashLine}>Name: {checkoutItem?.gcash_name}</Text>
-                <Text style={s.gcashLine}>Number: {checkoutItem?.gcash_number}</Text>
-                <Text style={s.gcashLine}>Send payment, then enter the reference number below.</Text>
-              </View>
-            )}
-
-            <Text style={s.fieldLabel}>Payment Method</Text>
-            <View style={s.chipRow}>
-              {checkoutItem?.accepts_qrph && paymentOptions?.qrph && (
-                <TouchableOpacity
-                  style={[s.chip, paymentMethod === 'qrph' && s.chipActive]}
-                  onPress={() => setPaymentMethod('qrph')}
-                >
-                  <Text style={[s.chipText, paymentMethod === 'qrph' && s.chipTextActive]}>QRPH</Text>
-                </TouchableOpacity>
-              )}
-              {checkoutItem?.accepts_gcash && (
-                <TouchableOpacity
-                  style={[s.chip, paymentMethod === 'gcash' && s.chipActive]}
-                  onPress={() => setPaymentMethod('gcash')}
-                >
-                  <Text style={[s.chipText, paymentMethod === 'gcash' && s.chipTextActive]}>GCash online</Text>
-                </TouchableOpacity>
-              )}
-              {checkoutItem?.accepts_cash && (
-                <TouchableOpacity
-                  style={[s.chip, paymentMethod === 'cash' && s.chipActive]}
-                  onPress={() => setPaymentMethod('cash')}
-                >
-                  <Text style={[s.chipText, paymentMethod === 'cash' && s.chipTextActive]}>Cash</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {['gcash', 'qrph'].includes(paymentMethod) && (
-              <>
-                <Text style={s.fieldLabel}>Payment Reference Number *</Text>
-                <TextInput
-                  style={s.fieldInput}
-                  placeholder="Enter reference after payment"
-                  value={paymentReference}
-                  onChangeText={setPaymentReference}
-                  autoCapitalize="characters"
+            <ScrollView
+              style={s.checkoutScroll}
+              contentContainerStyle={s.checkoutScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {checkoutItem?.image_urls?.[0] && (
+                <Image
+                  source={{ uri: checkoutItem.image_urls[0] }}
+                  style={s.checkoutItemImage}
+                  resizeMode="cover"
                 />
-              </>
-            )}
+              )}
+
+              <Text style={s.checkoutItem}>{checkoutItem?.title}</Text>
+              <Text style={s.checkoutPrice}>
+                ₱{Number((checkoutItem?.price ?? 0) * (parseInt(checkoutQuantity, 10) || 1)).toLocaleString()}
+              </Text>
+              <Text style={s.checkoutItem}>₱{Number(checkoutItem?.price ?? 0).toLocaleString()} each · {checkoutItem?.stock ?? 1} in stock</Text>
+
+              <Text style={s.fieldLabel}>Quantity</Text>
+              <View style={s.quantityRow}>
+                <TouchableOpacity
+                  style={s.quantityBtn}
+                  onPress={() => setCheckoutQuantity(String(Math.max(1, (parseInt(checkoutQuantity, 10) || 1) - 1)))}
+                >
+                  <Text style={s.quantityBtnText}>-</Text>
+                </TouchableOpacity>
+                <TextInput
+                  style={[s.fieldInput, s.quantityInput]}
+                  value={checkoutQuantity}
+                  onChangeText={v => setCheckoutQuantity(v.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                />
+                <TouchableOpacity
+                  style={s.quantityBtn}
+                  onPress={() => {
+                    const current = parseInt(checkoutQuantity, 10) || 1;
+                    setCheckoutQuantity(String(Math.min(checkoutItem?.stock ?? 1, current + 1)));
+                  }}
+                >
+                  <Text style={s.quantityBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+
+              {paymentOptions?.qrph && (
+                <View style={s.gcashBox}>
+                  <Text style={s.gcashTitle}>Pay with QRPH</Text>
+                  {(checkoutItem?.qrph_image_url || paymentOptions?.qrph?.image_url) ? (
+                    <Image
+                      source={{ uri: checkoutItem?.qrph_image_url || paymentOptions.qrph.image_url }}
+                      style={s.qrImage}
+                      resizeMode="contain"
+                    />
+                  ) : null}
+                  <Text style={s.gcashLine}>Account: {paymentOptions?.qrph?.account_name}</Text>
+                  {paymentOptions?.qrph?.account_number ? (
+                    <Text style={s.gcashLine}>Number: {paymentOptions.qrph.account_number}</Text>
+                  ) : null}
+                  <Text style={s.gcashLine}>{paymentOptions?.qrph?.instructions}</Text>
+                </View>
+              )}
+
+              {checkoutItem?.accepts_gcash && (
+                <View style={s.gcashBox}>
+                  <Text style={s.gcashTitle}>Pay with GCash</Text>
+                  <Text style={s.gcashLine}>Name: {checkoutItem?.gcash_name}</Text>
+                  <Text style={s.gcashLine}>Number: {checkoutItem?.gcash_number}</Text>
+                  <Text style={s.gcashLine}>Send payment, then enter the reference number below.</Text>
+                </View>
+              )}
+
+              {checkoutItem?.accepts_cash && (
+                <View style={s.cashBox}>
+                  <Text style={s.cashTitle}>Cash pickup</Text>
+                  <Text style={s.cashLine}>{checkoutItem?.pickup_instructions || 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.'}</Text>
+                </View>
+              )}
+
+              {['gcash', 'qrph'].includes(paymentMethod) && (
+                <View style={s.cashBox}>
+                  <Text style={s.cashTitle}>Pickup after payment verification</Text>
+                  <Text style={s.cashLine}>{checkoutItem?.pickup_instructions || 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.'}</Text>
+                </View>
+              )}
+
+              <Text style={s.fieldLabel}>Payment Method</Text>
+              <View style={s.chipRow}>
+                {checkoutItem?.accepts_qrph && paymentOptions?.qrph && (
+                  <TouchableOpacity
+                    style={[s.chip, paymentMethod === 'qrph' && s.chipActive]}
+                    onPress={() => setPaymentMethod('qrph')}
+                  >
+                    <Text style={[s.chipText, paymentMethod === 'qrph' && s.chipTextActive]}>QRPH</Text>
+                  </TouchableOpacity>
+                )}
+                {checkoutItem?.accepts_gcash && (
+                  <TouchableOpacity
+                    style={[s.chip, paymentMethod === 'gcash' && s.chipActive]}
+                    onPress={() => setPaymentMethod('gcash')}
+                  >
+                    <Text style={[s.chipText, paymentMethod === 'gcash' && s.chipTextActive]}>GCash online</Text>
+                  </TouchableOpacity>
+                )}
+                {checkoutItem?.accepts_cash && (
+                  <TouchableOpacity
+                    style={[s.chip, paymentMethod === 'cash' && s.chipActive]}
+                    onPress={() => setPaymentMethod('cash')}
+                  >
+                    <Text style={[s.chipText, paymentMethod === 'cash' && s.chipTextActive]}>Cash</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {['gcash', 'qrph'].includes(paymentMethod) && (
+                <>
+                  <Text style={s.fieldLabel}>Payment Reference Number *</Text>
+                  <TextInput
+                    style={s.fieldInput}
+                    placeholder="Enter reference after payment"
+                    value={paymentReference}
+                    onChangeText={setPaymentReference}
+                    autoCapitalize="characters"
+                  />
+                </>
+              )}
+            </ScrollView>
 
             <View style={s.checkoutActions}>
               <TouchableOpacity style={s.cancelBtn} onPress={() => setCheckoutItem(null)} disabled={!!buyingId}>
@@ -1921,9 +2046,9 @@ const s = StyleSheet.create({
   sellBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   contentShell: {
-    backgroundColor: C.blue,
     paddingHorizontal: 12,
-    paddingBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
   },
   contentShellWeb: {
     paddingHorizontal: 24,
@@ -1931,18 +2056,23 @@ const s = StyleSheet.create({
   },
   toggleRow: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.18)',
     borderRadius: 12,
     padding: 3,
-    marginBottom: 12,
+    marginBottom: 8,
     gap: 3,
     width: '100%',
     maxWidth: 1180,
+    borderWidth: 1,
   },
-  toggleBtn:           { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
-  toggleBtnActive:     { backgroundColor: '#fff' },
-  toggleBtnText:       { fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: '600' },
-  toggleBtnTextActive: { color: C.blue },
+  toggleBtn:           { flex: 1, paddingVertical: 7, borderRadius: 9, alignItems: 'center' },
+  toggleBtnActive:     {
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  toggleBtnText:       { fontSize: 12, fontWeight: '700' },
 
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   searchBox: {
@@ -1968,13 +2098,11 @@ const s = StyleSheet.create({
   catTab:         {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 20, backgroundColor: C.bg,
-    borderWidth: 1, borderColor: C.border,
+    borderRadius: 20,
+    borderWidth: 1,
   },
-  catTabActive:   { backgroundColor: C.blueLight, borderColor: C.blue },
   catEmoji:       { fontSize: 14 },
-  catLabel:       { fontSize: 12, color: C.sub, fontWeight: '500' },
-  catLabelActive: { color: C.blue, fontWeight: '700' },
+  catLabel:       { fontSize: 12, fontWeight: '600' },
 
   summaryBar: {
     flexDirection: 'row',
@@ -2072,6 +2200,7 @@ const s = StyleSheet.create({
   orderMetaLabel: { fontSize: 11, color: C.muted, fontWeight: '700' },
   orderMetaValue: { fontSize: 14, color: C.text, fontWeight: '800', marginTop: 3 },
   referenceBox:   { marginTop: 12, backgroundColor: C.blueLight, borderRadius: 10, padding: 10 },
+  cashOrderBox:   { marginTop: 12, backgroundColor: C.greenLight, borderRadius: 10, padding: 10 },
   cancelReasonBox:{ marginTop: 12, backgroundColor: C.dangerLight, borderRadius: 10, padding: 10 },
   referenceLabel: { fontSize: 11, color: C.blue, fontWeight: '800' },
   referenceValue: { fontSize: 14, color: C.text, fontWeight: '800', marginTop: 3 },
@@ -2096,6 +2225,14 @@ const s = StyleSheet.create({
     borderColor: '#BCEBD8',
   },
   receiptBtnText: { color: C.green, fontWeight: '800', fontSize: 12 },
+  receivedBtn: {
+    marginTop: 12,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: C.green,
+  },
+  receivedBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
   verifyBtn: {
     marginTop: 12,
     borderRadius: 10,
@@ -2191,7 +2328,8 @@ const s = StyleSheet.create({
   },
   modalTitle:     { fontSize: 18, fontWeight: '700', color: C.text, flex: 1, marginRight: 12 },
   modalCloseBtn:  { padding: 4 },
-  modalCloseText: { fontSize: 18, color: C.muted },
+  modalCloseText: { fontSize: 18, color: C.sub, lineHeight: 22 },
+  modalScroll:    { flex: 1 },
   modalBody:      { padding: 16 },
   fieldLabel:     { fontSize: 13, fontWeight: '600', color: C.sub, marginTop: 16, marginBottom: 6 },
   fieldInput: {
@@ -2199,6 +2337,7 @@ const s = StyleSheet.create({
     borderRadius: 10, padding: 12,
     fontSize: 14, color: C.text, backgroundColor: C.bg,
   },
+  instructionsInput: { minHeight: 92, lineHeight: 20 },
   helperText:   { fontSize: 12, color: C.muted, marginTop: 8 },
   paymentPanel: { backgroundColor: C.bg, borderRadius: 12, padding: 12, marginTop: 10 },
   chipRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -2223,20 +2362,55 @@ const s = StyleSheet.create({
   },
 
   // ── Item Detail Modal styles ──────────────────────────────────
-  detailGallery:      { width: '100%', height: 280 },
-  detailGalleryImg:   { height: 280 },
+  detailModal: {
+    flex: 1,
+    backgroundColor: C.bg,
+  },
+  detailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: HEADER_TOP,
+    paddingBottom: 14,
+    backgroundColor: C.card,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8EDF3',
+  },
+  detailCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F3F6FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailCloseText: {
+    color: C.sub,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  detailScrollContent: { flexGrow: 1, paddingBottom: 28, backgroundColor: C.bg },
+  detailBody:          { padding: 14, gap: 10 },
+  detailGallery:      { width: '100%', height: 180, backgroundColor: '#F3F8F6' },
+  detailGalleryImg:   { height: 180 },
   detailGalleryEmpty: {
-    height: 220,
+    height: 170,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F0F4FF',
+    backgroundColor: '#F3F8F6',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E1ECE7',
   },
+  detailGalleryEmoji: { fontSize: 48 },
   dotRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    backgroundColor: C.card,
   },
   dot:       { width: 7, height: 7, borderRadius: 4, backgroundColor: C.muted },
   dotActive: { backgroundColor: C.blue, width: 18 },
@@ -2245,15 +2419,23 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    backgroundColor: C.card,
+    borderRadius: 12,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: '#E8EDF3',
   },
-  detailPrice: { fontSize: 28, fontWeight: '800', color: C.blue },
+  detailPrice: { fontSize: 26, fontWeight: '900', color: C.blue },
 
   detailStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    backgroundColor: C.card,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E8EDF3',
   },
   detailStatusBadge: {
     borderRadius: 6,
@@ -2262,20 +2444,27 @@ const s = StyleSheet.create({
   },
 
   detailSectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '900',
     color: C.muted,
-    marginTop: 16,
+    marginTop: 2,
     marginBottom: 6,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   detailDescription: {
     fontSize: 14,
     color: C.text,
     lineHeight: 22,
   },
-  detailMeta: { fontSize: 14, color: C.sub },
+  detailMeta: { fontSize: 14, color: C.sub, lineHeight: 20 },
+  detailInfoBlock: {
+    backgroundColor: C.card,
+    borderRadius: 12,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: '#E8EDF3',
+  },
 
   detailSellerRow: {
     flexDirection: 'row',
@@ -2293,17 +2482,17 @@ const s = StyleSheet.create({
   detailSellerAvatarText: { fontSize: 15, fontWeight: '800', color: C.blue },
   detailSellerName:       { fontSize: 14, fontWeight: '600', color: C.text },
 
-  detailActions: { marginTop: 24, gap: 10 },
+  detailActions: { marginTop: 4, gap: 10 },
   detailBuyBtn: {
     backgroundColor: C.green,
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 14,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   detailEditBtn: {
     backgroundColor: C.blueLight,
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 14,
+    paddingVertical: 15,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: C.blue,
@@ -2322,10 +2511,13 @@ const s = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: C.border,
+    maxHeight: '88%',
   },
   checkoutTitle: { fontSize: 18, fontWeight: '800', color: C.text },
   checkoutItem:  { fontSize: 14, color: C.sub, marginTop: 6 },
   checkoutPrice: { fontSize: 24, fontWeight: '800', color: C.blue, marginTop: 8 },
+  checkoutScroll: { marginTop: 8 },
+  checkoutScrollContent: { paddingBottom: 8 },
 
   checkoutItemImage: {
     width: '100%',
@@ -2355,6 +2547,9 @@ const s = StyleSheet.create({
   },
   gcashTitle: { fontSize: 13, fontWeight: '800', color: C.blue, marginBottom: 6 },
   gcashLine:  { fontSize: 13, color: C.text, marginTop: 2 },
+  cashBox:    { backgroundColor: C.greenLight, borderRadius: 12, padding: 12, marginTop: 14 },
+  cashTitle:  { fontSize: 13, fontWeight: '800', color: C.green, marginBottom: 6 },
+  cashLine:   { fontSize: 13, color: C.text, lineHeight: 20 },
   qrImage:    { width: '100%', height: 220, backgroundColor: '#fff', borderRadius: 10, marginVertical: 10 },
   qrPreview:  { width: '100%', height: 160, backgroundColor: '#fff', borderRadius: 10, marginTop: 10 },
   uploadBtn:  { backgroundColor: C.blueLight, borderRadius: 10, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: C.blue },

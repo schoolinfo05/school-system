@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AcademicTerm;
+use App\Models\SchoolNotification;
+use App\Models\Student;
 use Illuminate\Http\Request;
 
 class AcademicTermController extends Controller
@@ -23,7 +25,7 @@ class AcademicTermController extends Controller
 
     public function index(Request $request)
     {
-        $this->authorizeRegistrar($request);
+        $this->authorizeAdmin($request);
 
         return response()->json(
             AcademicTerm::query()
@@ -35,7 +37,7 @@ class AcademicTermController extends Controller
 
     public function upsert(Request $request)
     {
-        $this->authorizeRegistrar($request);
+        $this->authorizeAdmin($request);
 
         $data = $request->validate([
             'school_year' => ['required', 'string', 'max:20'],
@@ -46,6 +48,12 @@ class AcademicTermController extends Controller
             'enrollment_closes_at' => ['nullable', 'date', 'after_or_equal:enrollment_opens_at'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        $previouslyOpenTermIds = AcademicTerm::query()
+            ->get()
+            ->filter(fn (AcademicTerm $term) => $term->isEnrollmentOpen())
+            ->pluck('id')
+            ->all();
 
         if (($data['is_active'] ?? false) === true) {
             AcademicTerm::query()
@@ -68,14 +76,18 @@ class AcademicTermController extends Controller
             ]
         );
 
+        if ($term->fresh()->isEnrollmentOpen() && !in_array($term->id, $previouslyOpenTermIds, true)) {
+            $this->notifyStudentsEnrollmentOpened($term);
+        }
+
         return response()->json($term);
     }
 
-    private function authorizeRegistrar(Request $request): void
+    private function authorizeAdmin(Request $request): void
     {
         $user = $request->user();
-        if (!$user || !$user->hasAnyRole(['registrar', 'admin'])) {
-            abort(response()->json(['message' => 'Registrar or admin access is required.'], 403));
+        if (!$user || !$user->hasAnyRole(['admin'])) {
+            abort(response()->json(['message' => 'Admin access is required.'], 403));
         }
     }
 
@@ -102,5 +114,38 @@ class AcademicTermController extends Controller
         }
 
         return 'Enrollment is open.';
+    }
+
+    private function notifyStudentsEnrollmentOpened(AcademicTerm $term): void
+    {
+        Student::query()
+            ->where('status', 'active')
+            ->whereNotNull('user_id')
+            ->distinct()
+            ->pluck('user_id')
+            ->each(function (int $userId) use ($term) {
+                $alreadyNotified = SchoolNotification::query()
+                    ->where('user_id', $userId)
+                    ->where('type', 'enrollment_opened')
+                    ->where('data->academic_term_id', $term->id)
+                    ->exists();
+
+                if ($alreadyNotified) {
+                    return;
+                }
+
+                SchoolNotification::create([
+                    'user_id' => $userId,
+                    'type' => 'enrollment_opened',
+                    'title' => 'Enrollment is open',
+                    'body' => "Enrollment is now open for {$term->semester} Semester, A.Y. {$term->school_year}.",
+                    'channels' => ['in_app'],
+                    'data' => [
+                        'academic_term_id' => $term->id,
+                        'school_year' => $term->school_year,
+                        'semester' => $term->semester,
+                    ],
+                ]);
+            });
     }
 }

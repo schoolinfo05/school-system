@@ -8,8 +8,10 @@ use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\SchoolNotification;
 use App\Models\Student;
+use App\Models\StudentSubject;
 use App\Models\Subject;
 use App\Models\User;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
@@ -116,7 +118,6 @@ class EnrollmentController extends Controller
         if ($existingApplication && $existingApplication->user_id) {
             $rules['email'] = [
                 'required', 'email',
-                'unique:enrollment_applications,email',
                 Rule::unique('users', 'email')->ignore($existingApplication->user_id),
             ];
         } else {
@@ -132,6 +133,18 @@ class EnrollmentController extends Controller
             return response()->json([
                 'message' => $validator->errors()->first(),
                 'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        if ($existingApplication && EnrollmentApplication::query()
+            ->where('id_no', $request->id_no)
+            ->where('school_year', $request->school_year)
+            ->where('semester', strtolower($request->semester))
+            ->where('status', 'pending')
+            ->exists()
+        ) {
+            return response()->json([
+                'message' => 'You already have a pending enrollment application for this term.',
             ], 422);
         }
 
@@ -174,6 +187,7 @@ class EnrollmentController extends Controller
             'password' => $hashedPassword,
             'gender'   => $gender,
             'status'   => 'pending',
+            'user_id'  => $existingApplication?->user_id,
         ]);
 
         return response()->json([
@@ -240,6 +254,8 @@ class EnrollmentController extends Controller
         return response()->json([
             // From students table
             'student_id'          => $student->student_id,
+            'has_account'         => (bool) $student->user_id,
+            'account_name'        => trim("{$student->first_name} {$student->last_name}"),
             'first_name'          => $student->first_name,
             'last_name'           => $student->last_name,
             'email'               => $student->email,
@@ -301,7 +317,7 @@ class EnrollmentController extends Controller
     }
 
     // POST /api/registrar/enrollments/{id}/approve
-    public function approve(Request $request, $id)
+    public function approve(Request $request, $id, PointsService $points)
     {
         $this->authorizeRegistrar($request);
         $request->validate(['remarks' => 'nullable|string|max:500']);
@@ -312,7 +328,12 @@ class EnrollmentController extends Controller
             return response()->json(['message' => 'Application already reviewed.'], 422);
         }
 
-        DB::transaction(function () use ($app, $request) {
+        $prerequisiteMessage = $this->prerequisiteFailureMessage($app);
+        if ($prerequisiteMessage) {
+            return response()->json(['message' => $prerequisiteMessage], 422);
+        }
+
+        DB::transaction(function () use ($app, $request, $points) {
             // Reuse existing user account if one already exists for this email
             $user = User::where('email', $app->email)->first();
 
@@ -339,7 +360,7 @@ class EnrollmentController extends Controller
             ]);
 
             // Sync to students table so grades/attendance/fees work
-            Student::updateOrCreate(
+            $student = Student::updateOrCreate(
                 ['user_id' => $user->id],
                 [
                     'student_id'  => $studentId,
@@ -356,6 +377,9 @@ class EnrollmentController extends Controller
                     'status'      => 'active',
                 ]
             );
+
+            $this->activateStudentSubjects($app, $user->id);
+            $this->awardEarlyEnrollmentIfEligible($app, $student, $points, $request->user());
 
             SchoolNotification::create([
                 'user_id' => $user->id,
@@ -656,6 +680,102 @@ class EnrollmentController extends Controller
         }
 
         return $urls;
+    }
+
+    private function activateStudentSubjects(EnrollmentApplication $app, int $userId): void
+    {
+        foreach (($app->subject_ids ?? []) as $subjectId) {
+            StudentSubject::updateOrCreate(
+                [
+                    'user_id' => $userId,
+                    'subject_id' => (int) $subjectId,
+                    'section_id' => null,
+                ],
+                [
+                    'status' => 'enrolled',
+                    'drop_reason' => null,
+                    'dropped_at' => null,
+                    'dropped_by' => null,
+                ]
+            );
+        }
+    }
+
+    private function prerequisiteFailureMessage(EnrollmentApplication $app): ?string
+    {
+        $subjectIds = collect($app->subject_ids ?? [])->map(fn ($id) => (int) $id)->filter()->values();
+        if ($subjectIds->isEmpty() || !$app->user_id) {
+            return null;
+        }
+
+        $student = Student::where('user_id', $app->user_id)->first();
+        if (!$student) {
+            return null;
+        }
+
+        $subjects = Subject::whereIn('id', $subjectIds)
+            ->with('prerequisites')
+            ->get();
+
+        $missing = [];
+        foreach ($subjects as $subject) {
+            foreach ($subject->prerequisites as $prerequisite) {
+                if (!$this->studentPassedSubject($student, $prerequisite)) {
+                    $missing[] = "{$subject->code} requires {$prerequisite->code}";
+                }
+            }
+        }
+
+        return empty($missing)
+            ? null
+            : 'Prerequisite check failed: ' . implode('; ', array_unique($missing)) . '.';
+    }
+
+    private function studentPassedSubject(Student $student, Subject $subject): bool
+    {
+        $completed = StudentSubject::where('user_id', $student->user_id)
+            ->where('subject_id', $subject->id)
+            ->where('status', 'completed')
+            ->exists();
+
+        if ($completed) {
+            return true;
+        }
+
+        return \App\Models\Grade::where('student_id', $student->id)
+            ->where('score', '>=', 75)
+            ->whereHas('schoolClass', function ($query) use ($subject) {
+                $query->where('subject', $subject->name)
+                    ->orWhere('subject', $subject->code);
+            })
+            ->exists();
+    }
+
+    private function awardEarlyEnrollmentIfEligible(EnrollmentApplication $app, Student $student, PointsService $points, ?User $awardedBy = null): void
+    {
+        $term = AcademicTerm::where('school_year', $app->school_year)
+            ->where('semester', strtolower((string) $app->semester))
+            ->first();
+
+        if (!$term?->enrollment_opens_at) {
+            return;
+        }
+
+        $earlyWindowEnds = $term->enrollment_opens_at->copy()->addDays(7);
+        if ($app->created_at && $app->created_at->greaterThan($earlyWindowEnds)) {
+            return;
+        }
+
+        $points->awardVerifiedPoints($student, [
+            'source' => 'early_enrollment',
+            'source_key' => "early-enrollment:{$student->id}:{$app->school_year}:{$app->semester}",
+            'title' => 'Early enrollment bonus',
+            'description' => 'Enrollment submitted during the early enrollment window.',
+            'points' => 30,
+            'school_year' => $app->school_year,
+            'semester' => $app->semester,
+            'meta' => ['enrollment_application_id' => $app->id],
+        ], $awardedBy);
     }
 
     private function authorizeRegistrar(Request $request)

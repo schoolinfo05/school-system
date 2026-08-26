@@ -9,6 +9,7 @@ use App\Models\Attendance;
 use App\Models\Fee;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
+use App\Models\User;
 
 class StudentManageController extends Controller
 {
@@ -51,6 +52,32 @@ class StudentManageController extends Controller
         return view('admin.students.show', compact('student', 'grades', 'fees', 'attendance', 'attendancePct', 'routePrefix'));
     }
 
+    public function updateParent(Request $request, Student $student)
+    {
+        $data = $request->validate([
+            'parent_email' => ['nullable', 'email'],
+        ]);
+
+        $parentId = null;
+        $parentEmail = trim((string) ($data['parent_email'] ?? ''));
+
+        if ($parentEmail !== '') {
+            $parent = User::where('email', $parentEmail)->first();
+
+            if (!$parent || ($parent->role !== User::ROLE_PARENT && !$parent->hasRole(User::ROLE_PARENT))) {
+                return back()
+                    ->withErrors(['parent_email' => 'Parent email must belong to a parent account.'])
+                    ->withInput();
+            }
+
+            $parentId = $parent->id;
+        }
+
+        $student->update(['parent_user_id' => $parentId]);
+
+        return back()->with('status', $parentId ? 'Parent account linked.' : 'Parent account unlinked.');
+    }
+
     public function storeFee(Request $request, Student $student)
     {
         $data = $request->validate([
@@ -58,8 +85,8 @@ class StudentManageController extends Controller
             'amount'      => ['required', 'numeric', 'min:1'],
             'due_date'    => ['required', 'date'],
             'school_year' => ['required', 'string', 'max:255'],
-            'semester'    => ['nullable', 'string', 'max:20'],
-            'quarter'     => ['nullable', 'string', 'max:50'],
+            'semester'    => ['nullable', 'in:1st,2nd,summer'],
+            'quarter'     => ['nullable', 'in:1,2,3,4'],
             'notes'       => ['nullable', 'string', 'max:1000'],
         ]);
 

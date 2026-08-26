@@ -191,6 +191,7 @@ class RewardController extends Controller
             'rules' => [
                 'redemption_rate' => '1 point = PHP 0.50',
                 'semester_cap' => PointsService::SEMESTER_CAP,
+                'redemption_cap' => PointsService::REDEMPTION_CAP,
                 'grade_cap' => PointsService::GRADE_CAP,
                 'attendance_cap' => PointsService::ATTENDANCE_CAP,
                 'event_cap' => PointsService::EVENT_CAP,

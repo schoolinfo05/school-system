@@ -19,8 +19,39 @@
                 <p class="text-xs font-bold text-blue-700 uppercase">Status</p>
                 <p class="text-lg font-black text-blue-800">{{ ucfirst($student->status) }}</p>
             </div>
+            <a href="#parent-account" class="portal-button-primary col-span-2">
+                {{ $student->parent ? 'Change parent link' : 'Link parent' }}
+            </a>
         </div>
     </div>
+</section>
+
+<section id="parent-account" class="mt-6 scroll-mt-24 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <div class="mb-4">
+        <h2 class="font-black text-slate-800">Parent Account</h2>
+        <p class="mt-1 text-sm text-slate-500">Link this student to an existing parent account by email.</p>
+    </div>
+
+    @if($student->parent)
+        <div class="mb-4 rounded-lg bg-violet-50 px-4 py-3 text-sm text-violet-800">
+            Current parent: <span class="font-bold">{{ $student->parent->name }}</span> · {{ $student->parent->email }}
+        </div>
+    @endif
+
+    <form method="POST" action="{{ route(($routePrefix ?? 'admin') . '.students.parent.update', $student) }}" class="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+        @csrf
+        @method('PUT')
+        <label class="text-xs font-bold uppercase text-slate-500">
+            Parent email
+            <input name="parent_email" value="{{ old('parent_email', $student->parent?->email) }}" type="email" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900" placeholder="parent@example.com">
+        </label>
+        <div class="flex items-end gap-2">
+            <button class="portal-button-primary">Link parent</button>
+            @if($student->parent)
+                <button name="parent_email" value="" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600" formnovalidate>Unlink</button>
+            @endif
+        </div>
+    </form>
 </section>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
@@ -105,11 +136,22 @@
                 </label>
                 <label class="text-xs font-bold uppercase text-slate-500">
                     Semester
-                    <input name="semester" value="{{ old('semester') }}" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                    <select name="semester" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                        <option value="">No semester</option>
+                        <option value="1st" @selected(old('semester') === '1st')>1st semester</option>
+                        <option value="2nd" @selected(old('semester') === '2nd')>2nd semester</option>
+                        <option value="summer" @selected(old('semester') === 'summer')>Summer</option>
+                    </select>
                 </label>
                 <label class="text-xs font-bold uppercase text-slate-500">
                     Quarter
-                    <input name="quarter" value="{{ old('quarter') }}" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                    <select name="quarter" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                        <option value="">No quarter</option>
+                        <option value="1" @selected(old('quarter') === '1')>Quarter 1</option>
+                        <option value="2" @selected(old('quarter') === '2')>Quarter 2</option>
+                        <option value="3" @selected(old('quarter') === '3')>Quarter 3</option>
+                        <option value="4" @selected(old('quarter') === '4')>Quarter 4</option>
+                    </select>
                 </label>
             </div>
             <label class="mt-3 block text-xs font-bold uppercase text-slate-500">

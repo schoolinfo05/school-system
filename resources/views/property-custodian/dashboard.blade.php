@@ -99,6 +99,7 @@
             </div>
 
             <input name="location" value="{{ old('location') }}" class="portal-field w-full" placeholder="Location">
+            <textarea name="pickup_instructions" class="portal-field min-h-20 w-full" placeholder="Pickup / claim instructions">{{ old('pickup_instructions', 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.') }}</textarea>
 
             <div class="space-y-2 rounded-lg bg-slate-50 p-3 text-sm font-semibold text-slate-700">
                 <label class="flex items-center gap-2">
@@ -177,6 +178,7 @@
                                 <input type="hidden" name="category" value="{{ $item->category }}">
                                 <input type="hidden" name="condition" value="{{ $item->condition }}">
                                 <input type="hidden" name="location" value="{{ $item->location }}">
+                                <input type="hidden" name="pickup_instructions" value="{{ $item->pickup_instructions }}">
                                 <input type="hidden" name="accepts_cash" value="{{ $item->accepts_cash ? 1 : 0 }}">
                                 <input type="hidden" name="accepts_gcash" value="{{ $item->accepts_gcash ? 1 : 0 }}">
                                 <input type="hidden" name="accepts_qrph" value="{{ $item->accepts_qrph ? 1 : 0 }}">
@@ -239,19 +241,65 @@
             </div>
             <div class="divide-y divide-slate-100">
                 @forelse($marketplaceOrders as $order)
-                    <div class="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_140px_140px_auto] lg:items-center">
-                        <div>
-                            <p class="font-bold text-slate-900">{{ $order->item?->title ?? 'Marketplace item' }}</p>
-                            <p class="mt-1 text-xs text-slate-500">{{ $order->buyer?->name ?? 'Buyer' }} / {{ strtoupper((string) $order->payment_method) }}</p>
+                    @php
+                        $paymentMethod = strtoupper((string) $order->payment_method);
+                        $referenceLabel = $order->payment_method === 'qrph' ? 'QRPH reference' : 'GCash reference';
+                        $isReceived = $order->status === 'completed';
+                    @endphp
+                    <div class="px-5 py-4">
+                        <div class="grid gap-3 lg:grid-cols-[1fr_140px_140px_auto] lg:items-center">
+                            <div>
+                                <p class="font-bold text-slate-900">{{ $order->item?->title ?? 'Marketplace item' }}</p>
+                                <p class="mt-1 text-xs text-slate-500">{{ $order->buyer?->name ?? 'Buyer' }} / {{ $paymentMethod }} / Order #{{ str_pad((string) $order->id, 6, '0', STR_PAD_LEFT) }}</p>
+                            </div>
+                            <p class="font-black text-slate-900">PHP {{ number_format((float) $order->total_amount, 2) }}</p>
+                            <span class="w-fit rounded-full px-2.5 py-1 text-xs font-bold {{ $isReceived ? 'bg-emerald-100 text-emerald-700' : ($order->status === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700') }}">
+                                {{ $isReceived ? 'Received' : str_replace('_', ' ', ucfirst($order->status)) }}
+                            </span>
+                            @if(!in_array($order->status, ['paid', 'completed', 'cancelled'], true))
+                                <form method="POST" action="{{ route('property-custodian.marketplace.orders.mark-paid', $order) }}">
+                                    @csrf
+                                    <button class="portal-button-primary" type="submit">Mark paid</button>
+                                </form>
+                            @endif
                         </div>
-                        <p class="font-black text-slate-900">PHP {{ number_format((float) $order->total_amount, 2) }}</p>
-                        <span class="w-fit rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">{{ str_replace('_', ' ', ucfirst($order->status)) }}</span>
-                        @if(!in_array($order->status, ['paid', 'completed', 'cancelled'], true))
-                            <form method="POST" action="{{ route('property-custodian.marketplace.orders.mark-paid', $order) }}">
-                                @csrf
-                                <button class="portal-button-primary" type="submit">Mark paid</button>
-                            </form>
-                        @endif
+
+                        <div class="mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+                            <div>
+                                <p class="font-bold uppercase tracking-wider text-slate-400">Buyer</p>
+                                <p class="mt-1 font-semibold text-slate-800">{{ $order->buyer?->name ?? 'Buyer' }}</p>
+                            </div>
+                            <div>
+                                <p class="font-bold uppercase tracking-wider text-slate-400">Payment</p>
+                                <p class="mt-1 font-semibold text-slate-800">{{ $paymentMethod }}</p>
+                            </div>
+                            <div>
+                                <p class="font-bold uppercase tracking-wider text-slate-400">Reference</p>
+                                <p class="mt-1 font-semibold text-slate-800">
+                                    @if(in_array($order->payment_method, ['gcash', 'qrph'], true))
+                                        {{ $order->gcash_reference ?: 'No reference submitted' }}
+                                    @else
+                                        Cash on pickup
+                                    @endif
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-bold uppercase tracking-wider text-slate-400">Received</p>
+                                <p class="mt-1 font-semibold {{ $isReceived ? 'text-emerald-700' : 'text-slate-800' }}">{{ $isReceived ? 'Student received item' : 'Waiting for student confirmation' }}</p>
+                            </div>
+                            @if(in_array($order->payment_method, ['gcash', 'qrph'], true))
+                                <div class="sm:col-span-2 lg:col-span-4">
+                                    <p class="font-bold uppercase tracking-wider text-slate-400">{{ $referenceLabel }}</p>
+                                    <p class="mt-1 rounded-lg bg-white px-3 py-2 font-mono text-sm font-bold text-slate-900">{{ $order->gcash_reference ?: 'No reference submitted' }}</p>
+                                </div>
+                            @endif
+                            @if(in_array($order->payment_method, ['cash', 'gcash', 'qrph'], true))
+                                <div class="sm:col-span-2 lg:col-span-4">
+                                    <p class="font-bold uppercase tracking-wider text-slate-400">{{ $order->payment_method === 'cash' ? 'Pickup instructions' : 'Pickup after payment verification' }}</p>
+                                    <p class="mt-1 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-800">{{ $order->item?->pickup_instructions ?: 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.' }}</p>
+                                </div>
+                            @endif
+                        </div>
                     </div>
                 @empty
                     <p class="px-5 py-8 text-sm text-slate-500">No marketplace sales yet.</p>

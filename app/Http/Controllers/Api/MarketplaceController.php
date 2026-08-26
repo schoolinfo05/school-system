@@ -12,6 +12,7 @@ use App\Models\SchoolNotification;
 use App\Models\Student;
 use App\Models\StudentReward;
 use App\Models\User;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -57,6 +58,7 @@ class MarketplaceController extends Controller
             'category'       => 'required|in:books,uniforms,electronics,supplies,other',
             'condition'      => 'required|in:new,like_new,good,fair',
             'location'       => 'nullable|string',
+            'pickup_instructions' => 'nullable|string|max:1000',
             'accepts_cash'   => 'nullable|boolean',
             'accepts_gcash'  => 'nullable|boolean',
             'accepts_qrph'   => 'nullable|boolean',
@@ -99,11 +101,12 @@ class MarketplaceController extends Controller
         $item = MarketplaceItem::create([
             ...$request->only([
                 'title', 'description', 'price', 'stock', 'category', 'condition',
-                'location', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
+                'location', 'pickup_instructions', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
                 'gcash_name', 'gcash_number',
             ]),
             'qrph_image_url' => $qrphImageUrl,
             'image_urls'     => $imageUrls,
+            'pickup_instructions' => $this->pickupInstructionsFor($request),
             'user_id'        => $request->user()->id,
             'approval_status' => $this->requiresApproval($request) ? 'pending' : 'approved',
             'approved_by' => $this->requiresApproval($request) ? null : $request->user()->id,
@@ -369,6 +372,7 @@ class MarketplaceController extends Controller
             'condition'      => 'nullable|in:new,like_new,good,fair',
             'status'         => 'nullable|in:available,reserved,sold',
             'location'       => 'nullable|string',
+            'pickup_instructions' => 'nullable|string|max:1000',
             'accepts_cash'   => 'nullable|boolean',
             'accepts_gcash'  => 'nullable|boolean',
             'accepts_qrph'   => 'nullable|boolean',
@@ -402,11 +406,14 @@ class MarketplaceController extends Controller
         $item->update([
             ...$request->only([
                 'title', 'description', 'price', 'stock', 'category', 'condition', 'status',
-                'location', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
+                'location', 'pickup_instructions', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
                 'gcash_name', 'gcash_number',
             ]),
             'qrph_image_url' => $qrphImageUrl,
             'image_urls'     => $imageUrls,
+            'pickup_instructions' => $request->has('pickup_instructions')
+                ? $this->pickupInstructionsFor($request)
+                : $item->pickup_instructions,
         ]);
 
         return response()->json($item->load('seller'));
@@ -587,6 +594,50 @@ class MarketplaceController extends Controller
         ]);
 
         return response()->json($order->load(['item', 'buyer', 'seller']));
+    }
+
+    public function markOrderReceived(Request $request, MarketplaceOrder $order)
+    {
+        if ($order->buyer_id !== $request->user()->id) {
+            return response()->json(['message' => 'Only the buyer can mark this order as received.'], 403);
+        }
+
+        if ($order->status === 'cancelled') {
+            return response()->json(['message' => 'Cancelled orders cannot be marked as received.'], 422);
+        }
+
+        if ($order->status === 'completed') {
+            return response()->json($order->load(['item.seller', 'seller']));
+        }
+
+        if (!in_array($order->status, ['reserved', 'paid'], true) && !$order->paid_at && $order->paymongo_status !== 'paid') {
+            return response()->json(['message' => 'This order is not ready to be marked as received.'], 422);
+        }
+
+        $order->update([
+            'status' => 'completed',
+            'paid_at' => $order->paid_at ?? now(),
+        ]);
+
+        $this->notifyUser(
+            $order->seller_id,
+            'order_received',
+            'Order received',
+            "The buyer marked {$order->item?->title} as received.",
+            ['order_id' => $order->id]
+        );
+
+        ActivityLog::record($request, 'marketplace_order_received', "{$request->user()->name} marked marketplace order #{$order->id} as received.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'buyer_id' => $order->buyer_id,
+                'seller_id' => $order->seller_id,
+                'payment_method' => $order->payment_method,
+            ],
+        ]);
+
+        return response()->json($order->fresh()->load(['item.seller', 'seller']));
     }
 
     public function receipt(Request $request, MarketplaceOrder $order)
@@ -789,6 +840,20 @@ class MarketplaceController extends Controller
         ]);
     }
 
+    private function pickupInstructionsFor(Request $request): ?string
+    {
+        $instructions = trim((string) $request->input('pickup_instructions', ''));
+        if ($instructions !== '') {
+            return $instructions;
+        }
+
+        if ($request->boolean('accepts_cash') || $request->boolean('accepts_gcash') || $request->boolean('accepts_qrph')) {
+            return 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.';
+        }
+
+        return null;
+    }
+
     private function redemptionFor(Request $request, float $subtotal): array
     {
         $requested = (int) $request->input('points_to_redeem', 0);
@@ -801,7 +866,7 @@ class MarketplaceController extends Controller
             abort(response()->json(['message' => 'Only student accounts with a profile can redeem points.'], 422));
         }
 
-        $balance = (int) StudentReward::where('student_id', $student->id)->sum('points');
+        $balance = app(PointsService::class)->redemptionBalanceFor($student, $student->school_year);
         $rate = max(0.01, (float) $this->settingValue('redemption_rate', 0.5));
         $maxPercent = max(0, min(100, (float) $this->settingValue('max_redemption_percent', 40)));
         $maxByValue = (int) floor(($subtotal * ($maxPercent / 100)) / $rate);

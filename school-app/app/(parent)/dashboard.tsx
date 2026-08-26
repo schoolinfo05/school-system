@@ -62,10 +62,47 @@ export default function ParentDashboard() {
                 <Metric label="Points" value={child.reward_summary?.points ?? 0} theme={theme} />
                 <Metric label="Point value" value={`PHP ${Number(child.reward_summary?.peso_value || 0).toFixed(2)}`} theme={theme} />
               </View>
+              <GradesList grades={child.grades} theme={theme} />
             </View>
           ))}
         </ScrollView>
       )}
+    </View>
+  );
+}
+
+function GradesList({ grades, theme }) {
+  const quarters = Object.entries(grades || {})
+    .map(([quarter, items]) => [quarter, Array.isArray(items) ? items : Object.values(items || {})])
+    .filter(([, items]) => items.length > 0);
+
+  return (
+    <View style={s.gradesBlock}>
+      <Text style={[s.sectionTitle, { color: theme.text }]}>Grades</Text>
+      {quarters.length === 0 ? (
+        <Text style={[s.emptyText, { color: theme.textSub }]}>No grades recorded yet.</Text>
+      ) : quarters.map(([quarter, items]) => (
+        <View key={quarter} style={s.quarterBlock}>
+          <Text style={[s.quarterTitle, { color: theme.textSub }]}>Quarter {quarter}</Text>
+          {items.map((grade, index) => (
+            <View key={grade.id ?? `${quarter}-${index}`} style={[s.gradeRow, { borderColor: theme.border }]}>
+              <View style={s.gradeInfo}>
+                <Text style={[s.gradeSubject, { color: theme.text }]} numberOfLines={1}>
+                  {grade.school_class?.subject || grade.subject || 'Subject'}
+                </Text>
+                {!!grade.remarks && (
+                  <Text style={[s.gradeRemarks, { color: theme.textSub }]} numberOfLines={1}>
+                    {grade.remarks}
+                  </Text>
+                )}
+              </View>
+              <Text style={[s.gradeScore, { color: scoreColor(Number(grade.score || 0)) }]}>
+                {grade.score ?? '-'}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ))}
     </View>
   );
 }
@@ -79,6 +116,12 @@ function Metric({ label, value, theme }) {
   );
 }
 
+function scoreColor(score) {
+  if (score >= 90) return '#047857';
+  if (score >= 75) return '#2563EB';
+  return '#DC2626';
+}
+
 const s = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -90,4 +133,14 @@ const s = StyleSheet.create({
   metric: { width: '47%', borderRadius: 12, padding: 12 },
   metricValue: { fontSize: 16, fontWeight: '900' },
   metricLabel: { fontSize: 11, fontWeight: '700', marginTop: 3 },
+  gradesBlock: { marginTop: 16 },
+  sectionTitle: { fontSize: 14, fontWeight: '900', marginBottom: 8 },
+  emptyText: { fontSize: 12, fontWeight: '600' },
+  quarterBlock: { marginTop: 8 },
+  quarterTitle: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginBottom: 6 },
+  gradeRow: { minHeight: 50, borderTopWidth: 1, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  gradeInfo: { flex: 1, minWidth: 0 },
+  gradeSubject: { fontSize: 13, fontWeight: '800' },
+  gradeRemarks: { fontSize: 11, fontWeight: '600', marginTop: 3 },
+  gradeScore: { minWidth: 44, textAlign: 'right', fontSize: 18, fontWeight: '900' },
 });

@@ -141,11 +141,23 @@ class TeacherChatController extends Controller
     private function contactIdsFor(User $user): array
     {
         if ($this->hasAnyRole($user, User::FACULTY_ROLES)) {
-            return DB::table('section_students')
+            $sectionStudentIds = DB::table('section_students')
                 ->join('section_subjects', 'section_students.section_id', '=', 'section_subjects.section_id')
                 ->where('section_subjects.teacher_id', $user->id)
                 ->where('section_students.status', 'enrolled')
-                ->pluck('section_students.user_id')
+                ->pluck('section_students.user_id');
+
+            $legacyStudentIds = DB::table('students')
+                ->join('school_classes', function ($join) use ($user) {
+                    $join->on('students.grade_level', '=', 'school_classes.grade_level')
+                        ->on('students.section', '=', 'school_classes.section')
+                        ->where('school_classes.teacher_id', '=', $user->id);
+                })
+                ->whereNotNull('students.user_id')
+                ->pluck('students.user_id');
+
+            return $sectionStudentIds
+                ->merge($legacyStudentIds)
                 ->unique()
                 ->values()
                 ->map(fn($id) => (int) $id)
@@ -153,12 +165,27 @@ class TeacherChatController extends Controller
         }
 
         if ($this->hasRole($user, 'student')) {
-            return DB::table('section_students')
+            $sectionTeacherIds = DB::table('section_students')
                 ->join('section_subjects', 'section_students.section_id', '=', 'section_subjects.section_id')
                 ->where('section_students.user_id', $user->id)
                 ->where('section_students.status', 'enrolled')
                 ->whereNotNull('section_subjects.teacher_id')
-                ->pluck('section_subjects.teacher_id')
+                ->pluck('section_subjects.teacher_id');
+
+            $student = Student::where('user_id', $user->id)->first();
+            $legacyTeacherIds = collect();
+
+            if ($student && $student->section && $student->section !== 'TBA') {
+                $legacyTeacherIds = DB::table('school_classes')
+                    ->where('grade_level', $student->grade_level)
+                    ->where('section', $student->section)
+                    ->where('school_year', $student->school_year)
+                    ->whereNotNull('teacher_id')
+                    ->pluck('teacher_id');
+            }
+
+            return $sectionTeacherIds
+                ->merge($legacyTeacherIds)
                 ->unique()
                 ->values()
                 ->map(fn($id) => (int) $id)

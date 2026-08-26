@@ -28,6 +28,7 @@ export default function RegistrarControls() {
   const [terms, setTerms] = useState([]);
   const [events, setEvents] = useState([]);
   const [termForm, setTermForm] = useState(EMPTY_TERM);
+  const [enrollmentStatus, setEnrollmentStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingTerm, setSavingTerm] = useState(false);
@@ -35,11 +36,13 @@ export default function RegistrarControls() {
   const load = useCallback(async () => {
     try {
       const [termRes, eventRes] = await Promise.all([
-        api.get('/registrar/academic-terms'),
+        api.get('/admin/academic-terms'),
         api.get('/registrar/event-participations'),
       ]);
+      const statusRes = await api.get('/enrollment/settings');
       setTerms(termRes.data ?? []);
       setEvents(eventRes.data ?? []);
+      setEnrollmentStatus(statusRes.data ?? null);
     } catch (e) {
       Alert.alert('Could not load controls', e.response?.data?.message || 'Please try again.');
     } finally {
@@ -56,7 +59,7 @@ export default function RegistrarControls() {
       const payload = Object.fromEntries(
         Object.entries(termForm).map(([key, value]) => [key, value === '' ? null : value])
       );
-      await api.post('/registrar/academic-terms', payload);
+      await api.post('/admin/academic-terms', payload);
       await load();
       Alert.alert('Saved', 'Academic term rules updated.');
     } catch (e) {
@@ -85,6 +88,8 @@ export default function RegistrarControls() {
   }
 
   const pendingEvents = events.filter(event => event.status === 'pending');
+  const enrollmentOpen = enrollmentStatus?.enrollment_open === true;
+  const activeTerm = enrollmentStatus?.term;
 
   return (
     <View style={s.container}>
@@ -94,6 +99,7 @@ export default function RegistrarControls() {
         initials="CT"
         stats={[
           { label: 'Terms', value: terms.length, accent: '#C7D2FE' },
+          { label: 'Enrollment', value: enrollmentOpen ? 'Open' : 'Closed', accent: enrollmentOpen ? '#A7F3D0' : '#FECACA' },
           { label: 'Pending events', value: pendingEvents.length, accent: '#FDE68A' },
         ]}
       />
@@ -102,6 +108,26 @@ export default function RegistrarControls() {
         contentContainerStyle={s.body}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
       >
+        <View style={[s.statusCard, enrollmentOpen ? s.statusCardOpen : s.statusCardClosed]}>
+          <View style={s.statusHeader}>
+            <View style={[s.statusDot, enrollmentOpen ? s.statusDotOpen : s.statusDotClosed]} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.statusTitle}>Enrollment is {enrollmentOpen ? 'Open' : 'Closed'}</Text>
+              <Text style={s.statusMessage}>
+                {enrollmentOpen
+                  ? 'Students can open and submit enrollment applications.'
+                  : 'Students cannot open the enrollment form right now.'}
+              </Text>
+            </View>
+          </View>
+          <Text style={s.statusDetail}>{enrollmentStatus?.message || 'Enrollment status is unavailable.'}</Text>
+          {activeTerm ? (
+            <Text style={s.statusDetail}>
+              {activeTerm.school_year} - {activeTerm.semester?.toUpperCase()} | {activeTerm.enrollment_opens_at || 'Anytime'} to {activeTerm.enrollment_closes_at || 'No close date'}
+            </Text>
+          ) : null}
+        </View>
+
         <View style={s.card}>
           <Text style={s.title}>Academic Settings</Text>
           <Field label="School year" value={termForm.school_year} onChangeText={value => setTermForm(current => ({ ...current, school_year: value }))} />
@@ -202,6 +228,16 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F6F9' },
   body: { padding: 16, gap: 12, paddingBottom: 100 },
   card: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#E5E7EB', padding: 15 },
+  statusCard: { borderRadius: 14, borderWidth: 1, padding: 15 },
+  statusCardOpen: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  statusCardClosed: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  statusHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  statusDot: { width: 14, height: 14, borderRadius: 7 },
+  statusDotOpen: { backgroundColor: '#1D9E75' },
+  statusDotClosed: { backgroundColor: '#E24B4A' },
+  statusTitle: { fontSize: 16, fontWeight: '900', color: '#111827' },
+  statusMessage: { fontSize: 12, color: '#374151', marginTop: 3, lineHeight: 17, fontWeight: '700' },
+  statusDetail: { fontSize: 12, color: '#4B5563', marginTop: 10, lineHeight: 18, fontWeight: '600' },
   title: { fontSize: 15, fontWeight: '900', color: '#111827' },
   sub: { fontSize: 12, color: '#6B7280', marginTop: 5, lineHeight: 18, fontWeight: '600' },
   sectionTitle: { fontSize: 13, color: '#374151', fontWeight: '900', marginTop: 4 },

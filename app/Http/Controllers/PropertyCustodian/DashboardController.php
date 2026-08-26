@@ -68,6 +68,7 @@ class DashboardController extends Controller
             'user_id' => $request->user()->id,
             'image' => $imageUrls[0] ?? null,
             'image_urls' => $imageUrls,
+            'pickup_instructions' => $this->pickupInstructionsFor($request),
             'accepts_cash' => $request->boolean('accepts_cash'),
             'accepts_gcash' => $request->boolean('accepts_gcash'),
             'accepts_qrph' => $request->boolean('accepts_qrph'),
@@ -99,6 +100,7 @@ class DashboardController extends Controller
             ...$data,
             'image' => $imageUrls[0] ?? $item->image,
             'image_urls' => $imageUrls,
+            'pickup_instructions' => $this->pickupInstructionsFor($request),
             'accepts_cash' => $request->boolean('accepts_cash'),
             'accepts_gcash' => $request->boolean('accepts_gcash'),
             'accepts_qrph' => $request->boolean('accepts_qrph'),
@@ -142,6 +144,7 @@ class DashboardController extends Controller
             'condition' => ['required', Rule::in(['new', 'like_new', 'good', 'fair'])],
             'status' => [$updating ? 'required' : 'nullable', Rule::in(['available', 'reserved', 'sold'])],
             'location' => ['nullable', 'string', 'max:255'],
+            'pickup_instructions' => ['nullable', 'string', 'max:1000'],
             'accepts_cash' => ['nullable', 'boolean'],
             'accepts_gcash' => ['nullable', 'boolean'],
             'accepts_qrph' => ['nullable', 'boolean'],
@@ -173,6 +176,20 @@ class DashboardController extends Controller
         if ($request->boolean('accepts_qrph') && !$request->filled('qrph_image_url')) {
             throw ValidationException::withMessages(['qrph_image_url' => 'QRPH image URL is required when QRPH is enabled.']);
         }
+    }
+
+    private function pickupInstructionsFor(Request $request): ?string
+    {
+        $instructions = trim((string) $request->input('pickup_instructions', ''));
+        if ($instructions !== '') {
+            return $instructions;
+        }
+
+        if ($request->boolean('accepts_cash') || $request->boolean('accepts_gcash') || $request->boolean('accepts_qrph')) {
+            return 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.';
+        }
+
+        return null;
     }
 
     private function storeMarketplaceImages(Request $request): array

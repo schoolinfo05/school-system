@@ -1,77 +1,53 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $class->subject }} — Students</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100 font-sans">
+@extends('layouts.portal', ['title' => $class->subject . ' Students'])
 
-<nav class="bg-white shadow px-6 py-4 flex items-center justify-between">
-    <span class="text-lg font-semibold text-gray-800">🏫 School System</span>
-    <a href="{{ route('teacher.dashboard') }}" class="text-sm text-blue-600 hover:underline">← Dashboard</a>
-</nav>
+@section('content')
+<a href="{{ route('teacher.classes') }}" class="text-sm font-bold text-violet-700 hover:underline">Back to classes</a>
 
-<div class="max-w-5xl mx-auto px-6 py-8">
-    <h1 class="text-xl font-semibold text-gray-800 mb-1">{{ $class->subject }}</h1>
-    <p class="text-sm text-gray-500 mb-6">Grade {{ $class->grade_level }} – {{ $class->section }} · {{ $class->room }} · {{ $class->schedule }}</p>
+<div class="mt-4 mb-6">
+    <h1 class="text-2xl font-black text-slate-900">{{ $class->subject }}</h1>
+    <p class="mt-1 text-sm text-slate-500">Grade {{ $class->grade_level }} - {{ $class->section }} · {{ $class->room ?: 'No room' }} · {{ $class->schedule ?: 'No schedule' }}</p>
+</div>
 
-    <div class="flex gap-3 mb-6">
-        <a href="{{ route('teacher.grades', $class) }}"
-            class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">
-            📝 Enter grades
-        </a>
-        <a href="{{ route('teacher.attendance', $class) }}"
-            class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700">
-            ✅ Mark attendance
-        </a>
-    </div>
+<div class="mb-5 flex flex-wrap gap-2">
+    <a href="{{ route('teacher.grades', $class) }}" class="portal-button-primary">Enter grades</a>
+    <a href="{{ route('teacher.attendance', $class) }}" class="portal-button-secondary">Mark attendance</a>
+</div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-gray-400 text-xs uppercase">
-                <tr>
-                    <th class="px-5 py-3 text-left">Student</th>
-                    <th class="px-5 py-3 text-center">Q1</th>
-                    <th class="px-5 py-3 text-center">Q2</th>
-                    <th class="px-5 py-3 text-center">Q3</th>
-                    <th class="px-5 py-3 text-center">Q4</th>
-                    <th class="px-5 py-3 text-center">Average</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-                @foreach($students as $student)
+<section class="portal-card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+                <th class="px-5 py-3 text-left">Student</th>
+                <th class="px-5 py-3 text-center">Q1</th>
+                <th class="px-5 py-3 text-center">Q2</th>
+                <th class="px-5 py-3 text-center">Q3</th>
+                <th class="px-5 py-3 text-center">Q4</th>
+                <th class="px-5 py-3 text-center">Average</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            @forelse($students as $student)
                 @php
                     $sg  = $grades[$student->id] ?? collect();
                     $avg = $sg->count() ? round($sg->avg('score'), 1) : null;
                 @endphp
-                <tr class="hover:bg-gray-50">
+                <tr>
                     <td class="px-5 py-3">
-                        <p class="font-medium text-gray-800">{{ $student->first_name }} {{ $student->last_name }}</p>
-                        <p class="text-xs text-gray-400">{{ $student->student_id }}</p>
+                        <p class="font-bold text-slate-800">{{ $student->first_name }} {{ $student->last_name }}</p>
+                        <p class="text-xs text-slate-500">{{ $student->student_id }}</p>
                     </td>
                     @foreach([1,2,3,4] as $q)
-                    @php $g = $sg->firstWhere('quarter', $q); @endphp
-                    <td class="px-5 py-3 text-center">
-                        @if($g)
-                        <span class="{{ $g->score >= 85 ? 'text-green-600' : ($g->score >= 75 ? 'text-yellow-600' : 'text-red-500') }} font-medium">
-                            {{ $g->score }}
-                        </span>
-                        @else
-                        <span class="text-gray-300">—</span>
-                        @endif
-                    </td>
+                        @php($g = $sg->firstWhere('quarter', $q))
+                        <td class="px-5 py-3 text-center font-bold {{ $g && $g->score >= 90 ? 'text-emerald-700' : ($g && $g->score >= 75 ? 'text-blue-700' : 'text-slate-400') }}">
+                            {{ $g?->score ?? '-' }}
+                        </td>
                     @endforeach
-                    <td class="px-5 py-3 text-center font-semibold
-                        {{ $avg >= 85 ? 'text-green-600' : ($avg >= 75 ? 'text-yellow-600' : 'text-gray-400') }}">
-                        {{ $avg ?? '—' }}
-                    </td>
+                    <td class="px-5 py-3 text-center font-black {{ $avg >= 90 ? 'text-emerald-700' : ($avg >= 75 ? 'text-blue-700' : 'text-slate-400') }}">{{ $avg ?? '-' }}</td>
                 </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </div>
-</div>
-</body>
-</html>
+            @empty
+                <tr><td colspan="6" class="px-5 py-10 text-center text-slate-500">No students found.</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+</section>
+@endsection

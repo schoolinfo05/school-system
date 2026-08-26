@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\EnrollmentController as ApiEnrollmentController;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\AuthorizesPortal;
 use App\Models\EnrollmentApplication;
+use App\Models\Subject;
 use Illuminate\Http\Request;
 
 class EnrollmentReviewController extends Controller
@@ -38,7 +39,13 @@ class EnrollmentReviewController extends Controller
     {
         $this->requireAnyRole($request, ['admin', 'registrar']);
 
-        return view('registrar.enrollments.show', ['application' => $enrollment->load(['course', 'reviewer:id,name'])]);
+        $application = $enrollment->load(['course', 'reviewer:id,name']);
+        $selectedSubjects = Subject::query()
+            ->whereIn('id', collect($application->subject_ids ?? [])->map(fn ($id) => (int) $id)->filter())
+            ->orderBy('code')
+            ->get();
+
+        return view('registrar.enrollments.show', compact('application', 'selectedSubjects'));
     }
 
     public function approve(Request $request, EnrollmentApplication $enrollment, ApiEnrollmentController $controller)

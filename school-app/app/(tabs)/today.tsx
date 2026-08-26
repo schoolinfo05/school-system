@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
   ActivityIndicator, RefreshControl, TouchableOpacity,
-  Platform, StatusBar,
+  Image, Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../src/api';
@@ -24,13 +24,45 @@ export default function Today() {
   const router = useRouter();
   const { theme } = useTheme();
   const [data, setData]             = useState(null);
+  const [notifications, setNotifications] = useState(null);
+  const [selectedNotification, setSelectedNotification] = useState(null);
+  const [user, setUser] = useState(null);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const openNotification = useCallback((notification) => {
+    setSelectedNotification(notification);
+
+    if (notification?.read_at) return;
+
+    const readAt = new Date().toISOString();
+    setNotifications(current => {
+      if (!current?.notifications) return current;
+
+      return {
+        ...current,
+        unread_count: Math.max(0, (current.unread_count ?? 0) - 1),
+        notifications: current.notifications.map(item =>
+          item.id === notification.id ? { ...item, read_at: readAt } : item
+        ),
+      };
+    });
+
+    api.post(`/notifications/${notification.id}/read`).catch(e => {
+      console.log('Mark notification read error:', e.message);
+    });
+  }, []);
+
   const fetchDashboard = useCallback(async () => {
     try {
-      const res = await api.get('/dashboard/student');
-      setData(res.data);
+      const [dashboardRes, notificationsRes, meRes] = await Promise.all([
+        api.get('/dashboard/student'),
+        api.get('/notifications'),
+        api.get('/me'),
+      ]);
+      setData(dashboardRes.data);
+      setNotifications(notificationsRes.data);
+      setUser(meRes.data?.user || meRes.data);
     } catch (e) {
       console.log('Dashboard error:', e.message);
     } finally {
@@ -66,6 +98,8 @@ export default function Today() {
     : '—';
   const hour     = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const recentNotifications = notifications?.notifications?.slice(0, 3) ?? [];
+  const unreadCount = notifications?.unread_count ?? 0;
 
   return (
     <ScrollView
@@ -77,14 +111,31 @@ export default function Today() {
       }
     >
       {/* ── Header ── */}
-      <View style={[styles.header, { backgroundColor: theme.primary }]}>
-        <Text style={styles.greeting}>{greeting} 👋</Text>
-        <Text style={styles.name}>
-          {student?.first_name} {student?.last_name}
-        </Text>
-        <Text style={styles.section}>
-          Grade {student?.grade_level} — {student?.section} · {student?.school_year}
-        </Text>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}> 
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.greeting}>{greeting}</Text>
+            <Text style={styles.name}>
+              {student?.first_name} {student?.last_name}
+            </Text>
+            <Text style={styles.section}>
+              Grade {student?.grade_level} - {student?.section} - {student?.school_year}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.profileBtn}
+            onPress={() => router.push('/(tabs)/profile')}
+            accessibilityLabel="Open profile"
+          >
+            {user?.profile_photo_url ? (
+              <Image source={{ uri: user.profile_photo_url }} style={styles.profileImage} />
+            ) : (
+              <Text style={styles.profileInitials}>
+                {`${student?.first_name?.[0] || ''}${student?.last_name?.[0] || ''}` || 'ME'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ── Stat cards ── */}
@@ -109,6 +160,44 @@ export default function Today() {
       </View>
 
       {/* ── Outstanding fees ── */}
+      <View style={[styles.card, { backgroundColor: theme.card }]}>
+        <View style={styles.cardHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Notifications</Text>
+            {unreadCount > 0 ? (
+              <Text style={[styles.notificationMeta, { color: theme.primary }]}>{unreadCount} unread</Text>
+            ) : null}
+          </View>
+        </View>
+        {recentNotifications.length > 0 ? (
+          recentNotifications.map(item => {
+            const opensEnrollment = item.type === 'enrollment_opened';
+            return (
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.notificationRow, { borderColor: theme.border }]}
+              activeOpacity={0.75}
+              onPress={() => openNotification(item)}
+            >
+              <View style={[styles.notificationDot, { backgroundColor: item.read_at ? theme.textMuted : theme.primary }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.notificationTitle, { color: theme.text }]}>{item.title}</Text>
+                <Text style={[styles.notificationBody, { color: theme.textSub }]}>{item.body || item.type}</Text>
+                <Text style={[styles.notificationDate, { color: theme.textMuted }]}>{new Date(item.created_at).toLocaleString()}</Text>
+              </View>
+              {opensEnrollment ? (
+                <View style={[styles.notificationActionBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
+                  <Text style={[styles.notificationActionText, { color: theme.primary }]}>Open</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+          );
+          })
+        ) : (
+          <Text style={[styles.empty, { color: theme.textMuted }]}>No notifications yet.</Text>
+        )}
+      </View>
+
       {(data?.pending_fees?.length ?? 0) > 0 && (
         <View style={[styles.card, styles.feeCard, { backgroundColor: theme.card, borderLeftColor: theme.danger }]}>
           <View style={styles.cardHeader}>
@@ -177,6 +266,51 @@ export default function Today() {
           <Text style={[styles.quickLabel, { color: theme.primary }]}>All grades</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={!!selectedNotification}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedNotification(null)}
+      >
+        <View style={styles.notificationModalBackdrop}>
+          <View style={[styles.notificationModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.notificationModalHeader}>
+              <Text style={[styles.notificationModalTitle, { color: theme.text }]}>
+                {selectedNotification?.title || 'Notification'}
+              </Text>
+              <TouchableOpacity
+                style={[styles.notificationModalClose, { backgroundColor: theme.bg }]}
+                onPress={() => setSelectedNotification(null)}
+              >
+                <Text style={[styles.notificationModalCloseText, { color: theme.textSub }]}>x</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.notificationModalBody, { color: theme.textSub }]}>
+              {selectedNotification?.body || selectedNotification?.type || 'No notification details available.'}
+            </Text>
+
+            {selectedNotification?.created_at ? (
+              <Text style={[styles.notificationModalDate, { color: theme.textMuted }]}>
+                {new Date(selectedNotification.created_at).toLocaleString()}
+              </Text>
+            ) : null}
+
+            {selectedNotification?.type === 'enrollment_opened' ? (
+              <TouchableOpacity
+                style={[styles.notificationModalAction, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  setSelectedNotification(null);
+                  router.push('/enrollment');
+                }}
+              >
+                <Text style={styles.notificationModalActionText}>Open enrollment</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -192,9 +326,22 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     paddingHorizontal: 20,
   },
+  headerRow:   { flexDirection: 'row', alignItems: 'center', gap: 14 },
   greeting:    { color: 'rgba(255,255,255,0.8)', fontSize: Font.sm },
   name:        { color: '#fff', fontSize: Font.xl, fontWeight: '700', marginTop: 4 },
   section:     { color: 'rgba(255,255,255,0.7)', fontSize: Font.xs, marginTop: 6 },
+  profileBtn:  {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  profileInitials: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  profileImage: { width: '100%', height: '100%', borderRadius: 23 },
 
   // Stats
   statsRow:    {
@@ -233,6 +380,80 @@ const styles = StyleSheet.create({
   },
   cardTitle:   { fontSize: Font.sm, fontWeight: '600', color: Colors.text },
   seeAll:      { fontSize: Font.xs, color: Colors.blue, fontWeight: '500' },
+  notificationMeta: { fontSize: Font.xs, fontWeight: '700', marginTop: 3 },
+  notificationRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  notificationDot: { width: 9, height: 9, borderRadius: 5, marginTop: 5 },
+  notificationTitle: { fontSize: Font.sm, fontWeight: '700' },
+  notificationBody: { fontSize: Font.xs, marginTop: 3, lineHeight: 17 },
+  notificationActionBtn: {
+    alignSelf: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  notificationActionText: { fontSize: Font.xs, fontWeight: '800' },
+  notificationDate: { fontSize: 10, marginTop: 5, fontWeight: '600' },
+  notificationModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    justifyContent: 'center',
+    padding: 22,
+  },
+  notificationModalCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: 18,
+    ...Shadow.card,
+  },
+  notificationModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  notificationModalTitle: {
+    flex: 1,
+    fontSize: Font.lg,
+    fontWeight: '800',
+  },
+  notificationModalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notificationModalCloseText: {
+    fontSize: Font.md,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  notificationModalBody: {
+    fontSize: Font.sm,
+    lineHeight: 21,
+  },
+  notificationModalDate: {
+    fontSize: Font.xs,
+    fontWeight: '700',
+    marginTop: 14,
+  },
+  notificationModalAction: {
+    borderRadius: Radius.full,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  notificationModalActionText: {
+    color: '#fff',
+    fontSize: Font.sm,
+    fontWeight: '800',
+  },
 
   // Fees
   feeRow:      {
@@ -281,3 +502,5 @@ const styles = StyleSheet.create({
 
   empty:       { fontSize: Font.sm, color: Colors.textMuted, textAlign: 'center', paddingVertical: 16 },
 });
+
+

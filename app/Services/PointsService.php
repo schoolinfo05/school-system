@@ -10,7 +10,8 @@ use App\Models\Attendance;
 
 class PointsService
 {
-    public const SEMESTER_CAP = 200;
+    public const SEMESTER_CAP = 250;
+    public const REDEMPTION_CAP = 200;
     public const GRADE_CAP = 80;
     public const ATTENDANCE_CAP = 60;
     public const EVENT_CAP = 40;
@@ -133,21 +134,42 @@ class PointsService
         $query = StudentReward::where('student_id', $student->id);
         $this->scopePeriod($query, $schoolYear, $semester);
 
-        $points = (int) $query->sum('points');
-        $level = intdiv($points, 100) + 1;
+        $earnedPoints = (int) (clone $query)
+            ->where('points', '>', 0)
+            ->sum('points');
+        $redemptionBalance = $this->redemptionBalanceFor($student, $schoolYear, $semester);
+        $level = intdiv($earnedPoints, 100) + 1;
 
         return [
-            'points' => $points,
-            'peso_value' => $points * 0.5,
+            'points' => $redemptionBalance,
+            'earned_points' => $earnedPoints,
+            'redeemable_points' => $redemptionBalance,
+            'redemption_cap' => self::REDEMPTION_CAP,
+            'peso_value' => $redemptionBalance * 0.5,
             'level' => $level,
-            'current_level_points' => max(0, $points - (($level - 1) * 100)),
+            'current_level_points' => max(0, $earnedPoints - (($level - 1) * 100)),
             'next_level_at' => $level * 100,
-            'points_to_next_level' => max(0, ($level * 100) - $points),
+            'points_to_next_level' => max(0, ($level * 100) - $earnedPoints),
             'semester_cap' => self::SEMESTER_CAP,
-            'semester_cap_remaining' => max(0, self::SEMESTER_CAP - $points),
+            'semester_cap_remaining' => max(0, self::SEMESTER_CAP - $earnedPoints),
+            'redemption_cap_remaining' => max(0, self::REDEMPTION_CAP - min(self::REDEMPTION_CAP, $earnedPoints)),
             'rewards_count' => (clone $query)->count(),
             'by_source' => $this->sourceTotals($student, $schoolYear, $semester),
         ];
+    }
+
+    public function redemptionBalanceFor(Student $student, ?string $schoolYear = null, ?string $semester = null): int
+    {
+        $earnedQuery = StudentReward::where('student_id', $student->id)
+            ->where('points', '>', 0)
+            ->whereNotIn('category', ['redemption']);
+        $this->scopePeriod($earnedQuery, $schoolYear, $semester);
+
+        $redemptionQuery = StudentReward::where('student_id', $student->id)
+            ->where('category', 'redemption');
+        $this->scopePeriod($redemptionQuery, $schoolYear, $semester);
+
+        return max(0, min(self::REDEMPTION_CAP, (int) $earnedQuery->sum('points')) + (int) $redemptionQuery->sum('points'));
     }
 
     private function awardOrUpdate(Student $student, array $attributes, ?int $sourceCap): StudentReward
@@ -194,7 +216,9 @@ class PointsService
         ?int $sourceCap,
         ?int $excludeId = null
     ): int {
-        $periodQuery = StudentReward::where('student_id', $student->id);
+        $periodQuery = StudentReward::where('student_id', $student->id)
+            ->where('points', '>', 0)
+            ->whereNotIn('category', ['redemption']);
         $this->scopePeriod($periodQuery, $schoolYear, $semester);
         if ($excludeId) {
             $periodQuery->where('id', '!=', $excludeId);
@@ -204,7 +228,9 @@ class PointsService
         $allowed = min($points, $semesterRemaining);
 
         if ($sourceCap !== null) {
-            $sourceQuery = StudentReward::where('student_id', $student->id)->where('source', $source);
+            $sourceQuery = StudentReward::where('student_id', $student->id)
+                ->where('source', $source)
+                ->where('points', '>', 0);
             $this->scopePeriod($sourceQuery, $schoolYear, $semester);
             if ($excludeId) {
                 $sourceQuery->where('id', '!=', $excludeId);

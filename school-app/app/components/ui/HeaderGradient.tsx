@@ -130,10 +130,10 @@ function routeForSegments(segments = []) {
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 24,
-    padding: 20,
+    borderRadius: 18,
+    padding: 16,
     paddingTop: HEADER_TOP,
-    marginBottom: 18,
+    marginBottom: 10,
     overflow: 'hidden',
   },
   topRow: {
@@ -176,26 +176,28 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   statsRow: {
-    marginTop: 20,
+    marginTop: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 10,
   },
   statCard: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.24)',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
   statValue: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '900',
   },
   statLabel: {
-    marginTop: 6,
+    marginTop: 3,
     color: 'rgba(255,255,255,0.92)',
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: '700',
   },
   children: {

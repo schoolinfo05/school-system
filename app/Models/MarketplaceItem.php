@@ -9,7 +9,7 @@ class MarketplaceItem extends Model
     protected $fillable = [
         'user_id', 'title', 'description', 'price',
         'stock', 'category', 'condition', 'status', 'approval_status',
-        'approved_by', 'approved_at', 'approval_notes', 'image', 'location',
+        'approved_by', 'approved_at', 'approval_notes', 'image', 'location', 'pickup_instructions',
         'accepts_cash', 'accepts_gcash', 'accepts_qrph', 'gcash_name', 'gcash_number', 'qrph_image_url','image_urls',
     ];
 

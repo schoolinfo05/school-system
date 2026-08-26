@@ -118,7 +118,7 @@ export default function MySubjects() {
                     )}
                     {sub.time_start && (
                       <Text style={[s.schedText, { color: theme.textSub }]}> 
-                        🕐 {sub.time_start} – {sub.time_end}
+                        🕐 {sub.time_end ? `${sub.time_start} – ${sub.time_end}` : sub.time_start}
                       </Text>
                     )}
                     {sub.room && (

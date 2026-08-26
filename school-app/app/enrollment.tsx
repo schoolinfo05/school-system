@@ -9,7 +9,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import api from '../src/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import api, { setToken } from '../src/api';
 
 const C = {
   primary: '#1A3A6B',
@@ -44,6 +45,8 @@ const REQUIREMENTS = [
   'Medical Certificate', 'Certificate of Good Moral', 'Drug Test',
 ];
 
+const CLOSED_MESSAGE = 'Sorry, enrollment is temporarily closed.';
+
 const Field = ({ label, required, children }) => (
   <View style={s.fieldWrap}>
     <Text style={s.inputLabel}>{label}{required ? ' *' : ''}</Text>
@@ -62,6 +65,7 @@ export default function EnrollmentScreen() {
   const [courses, setCourses]           = useState([]);
   const [courseSearch, setCourseSearch] = useState('');
   const [courseDropdownOpen, setCourseDropdownOpen] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState(null);
 
   const [form, setForm] = useState({
     student_type: '',
@@ -105,7 +109,7 @@ export default function EnrollmentScreen() {
       } catch {
         setEnrollmentSettings({
           enrollment_open: false,
-          message: 'Enrollment settings could not be loaded. Please try again later.',
+          message: CLOSED_MESSAGE,
         });
       } finally {
         setLoadingSettings(false);
@@ -113,6 +117,41 @@ export default function EnrollmentScreen() {
     };
 
     loadEnrollmentSettings();
+  }, []);
+
+  useEffect(() => {
+    const loadAuthenticatedStudent = async () => {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return;
+
+      setToken(token);
+      try {
+        const res = await api.get('/me');
+        const user = res.data?.user || res.data;
+        if (user?.role === 'student') {
+          setAuthenticatedUser(user);
+
+          const pendingId = await AsyncStorage.getItem('pendingEnrollmentId');
+          if (pendingId) {
+            setForm(prev => ({ ...prev, student_type: 'old_student', id_no: pendingId }));
+            await lookupExistingStudent(pendingId, user);
+            await AsyncStorage.removeItem('pendingEnrollmentId');
+          } else {
+            const dashboardRes = await api.get('/dashboard/student');
+            const studentId = dashboardRes.data?.student?.student_id;
+            if (studentId) {
+              setForm(prev => ({ ...prev, student_type: 'old_student', id_no: studentId }));
+              await lookupExistingStudent(studentId, user);
+            }
+          }
+        }
+      } catch {
+        await AsyncStorage.removeItem('pendingEnrollmentId');
+      }
+    };
+
+    loadAuthenticatedStudent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const courseCodeFromName = (name) => {
@@ -170,16 +209,41 @@ export default function EnrollmentScreen() {
     }));
   };
 
-  const handleLookupStudent = async () => {
-    if (!form.id_no.trim()) {
+  const lookupExistingStudent = async (studentId, user = authenticatedUser) => {
+    const idNo = studentId.trim();
+    if (!idNo) {
       return Alert.alert('Required', 'Enter a student ID number to look up.');
     }
+
     setLookupLoading(true);
     setLookupMessage('');
     try {
-      const res = await api.get('/enrollment/lookup', { params: { id_no: form.id_no.trim() } });
-      setExistingStudent(res.data);
-      fillExistingStudent(res.data);
+      const res = await api.get('/enrollment/lookup', { params: { id_no: idNo } });
+      const student = res.data;
+      const studentName = student.account_name || `${student.first_name || ''} ${student.last_name || ''}`.trim();
+
+      if (student.has_account && !user) {
+        await AsyncStorage.setItem('pendingEnrollmentId', idNo);
+        setExistingStudent(null);
+        Alert.alert(
+          'Account already registered',
+          `You already have an account registered to ${studentName || 'this School ID'}. Please log in to continue enrollment.`,
+          [{ text: 'Log in', onPress: () => router.push('/login') }]
+        );
+        return;
+      }
+
+      if (student.has_account && user?.email && student.email && student.email !== user.email) {
+        setExistingStudent(null);
+        Alert.alert(
+          'Use the registered account',
+          `This School ID is registered to ${studentName || student.email}. Please log in with that student account to continue enrollment.`
+        );
+        return;
+      }
+
+      setExistingStudent(student);
+      fillExistingStudent(student);
       setLookupMessage('Existing student found. Personal details have been prefilled.');
     } catch {
       setExistingStudent(null);
@@ -187,6 +251,10 @@ export default function EnrollmentScreen() {
     } finally {
       setLookupLoading(false);
     }
+  };
+
+  const handleLookupStudent = async () => {
+    await lookupExistingStudent(form.id_no);
   };
 
   useEffect(() => {
@@ -275,7 +343,7 @@ export default function EnrollmentScreen() {
 
   const handleSubmit = async () => {
     if (!enrollmentSettings?.enrollment_open) {
-      return Alert.alert('Enrollment closed', enrollmentSettings?.message || 'Enrollment is not open right now.');
+      return Alert.alert('Enrollment closed', enrollmentSettings?.message || CLOSED_MESSAGE);
     }
 
     if (!form.email.trim())                           return Alert.alert('Required', 'Email is required.');
@@ -418,6 +486,32 @@ export default function EnrollmentScreen() {
     .reduce((acc, sub) => acc + (sub.units_lab || 0) + (sub.units_lec || 0), 0);
 
   const isSHS = form.program_type === 'shs';
+  const renderHeader = () => (
+    <View style={s.schoolHeader}>
+      <Text style={s.schoolName}>{`St. Cecilia's College - Cebu, Inc.`}</Text>
+      <Text style={s.schoolSub}>De La Salle Supervised School</Text>
+      <Text style={s.deptName}>HIGHER EDUCATION DEPARTMENT</Text>
+      <Text style={s.formTitle}>REGISTRATION FORM</Text>
+      <Text style={s.ayLine}>A.Y. {form.school_year}</Text>
+    </View>
+  );
+
+  if (!loadingSettings && enrollmentSettings && !enrollmentSettings.enrollment_open) {
+    return (
+      <View style={s.container}>
+        <ScrollView contentContainerStyle={[s.body, s.closedBody]} showsVerticalScrollIndicator={false}>
+          {renderHeader()}
+          <View style={s.closedCard}>
+            <Text style={s.closedTitle}>Enrollment is closed</Text>
+            <Text style={s.closedText}>{CLOSED_MESSAGE}</Text>
+          </View>
+          <TouchableOpacity style={s.statusLink} onPress={() => router.push('/enrollment-status')}>
+            <Text style={s.statusLinkText}>{'Already applied? Check your status \u2192'}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -431,23 +525,12 @@ export default function EnrollmentScreen() {
       >
 
         {/* ── School Header ── */}
-        <View style={s.schoolHeader}>
-          <Text style={s.schoolName}>{`St. Cecilia's College - Cebu, Inc.`}</Text>
-          <Text style={s.schoolSub}>De La Salle Supervised School</Text>
-          <Text style={s.deptName}>HIGHER EDUCATION DEPARTMENT</Text>
-          <Text style={s.formTitle}>REGISTRATION FORM</Text>
-          <Text style={s.ayLine}>A.Y. {form.school_year}</Text>
-        </View>
+        {renderHeader()}
 
         {loadingSettings ? (
           <View style={s.noticeCard}>
             <ActivityIndicator color={C.primary} />
             <Text style={s.noticeText}>Loading enrollment settings...</Text>
-          </View>
-        ) : enrollmentSettings && !enrollmentSettings.enrollment_open ? (
-          <View style={s.closedCard}>
-            <Text style={s.closedTitle}>Enrollment is closed</Text>
-            <Text style={s.closedText}>{enrollmentSettings.message}</Text>
           </View>
         ) : enrollmentSettings?.term ? (
           <View style={s.noticeCard}>
@@ -841,6 +924,7 @@ export default function EnrollmentScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   body: { padding: 16, paddingBottom: 100 },
+  closedBody: { flexGrow: 1, justifyContent: 'center' },
 
   schoolHeader: {
     alignItems: 'center', backgroundColor: C.card,

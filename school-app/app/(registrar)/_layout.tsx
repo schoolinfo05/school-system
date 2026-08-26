@@ -68,8 +68,7 @@ export default function RegistrarLayout() {
       <Tabs.Screen
         name="market"
         options={{
-          title: 'Market',
-          tabBarIcon: ({ focused, color }) => <Icon emoji="🛒" focused={focused} color={color} />,
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -82,8 +81,7 @@ export default function RegistrarLayout() {
       <Tabs.Screen
         name="controls"
         options={{
-          title: 'Controls',
-          tabBarIcon: ({ focused, color }) => <Icon emoji="*" focused={focused} color={color} />,
+          href: null,
         }}
       />
       <Tabs.Screen

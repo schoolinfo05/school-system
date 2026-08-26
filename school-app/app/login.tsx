@@ -9,11 +9,14 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { setToken } from '../src/api';
 
+const CLOSED_MESSAGE = 'Sorry, enrollment is temporarily closed.';
+
 export default function Login() {
   const router = useRouter();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]     = useState(false);
+  const [checkingEnrollment, setCheckingEnrollment] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
@@ -32,7 +35,11 @@ export default function Login() {
       await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
       setToken(token);
 
-      if (role === 'admin') {
+      const pendingEnrollmentId = await AsyncStorage.getItem('pendingEnrollmentId');
+
+      if (role === 'student' && pendingEnrollmentId) {
+        router.replace('/enrollment');
+      } else if (role === 'admin') {
         router.replace('/(admin)/dashboard');
       } else if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
         router.replace('/(teacher)/classes');
@@ -52,6 +59,22 @@ export default function Login() {
       Alert.alert('Login failed', message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenEnrollment = async () => {
+    setCheckingEnrollment(true);
+    try {
+      const res = await api.get('/enrollment/settings');
+      if (!res.data?.enrollment_open) {
+        return Alert.alert('Enrollment closed', CLOSED_MESSAGE);
+      }
+
+      router.push('/enrollment');
+    } catch {
+      Alert.alert('Enrollment closed', CLOSED_MESSAGE);
+    } finally {
+      setCheckingEnrollment(false);
     }
   };
 
@@ -120,10 +143,14 @@ export default function Login() {
         </View>
 
         <TouchableOpacity
-          style={styles.enrollBtn}
-          onPress={() => router.push('/enrollment')}
+          style={[styles.enrollBtn, checkingEnrollment && styles.enrollBtnDisabled]}
+          onPress={handleOpenEnrollment}
+          disabled={checkingEnrollment}
         >
-          <Text style={styles.enrollBtnText}>📋  Apply for Enrollment</Text>
+          {checkingEnrollment
+            ? <ActivityIndicator color="#378ADD" />
+            : <Text style={styles.enrollBtnText}>📋  Apply for Enrollment</Text>
+          }
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -170,6 +197,7 @@ const styles = StyleSheet.create({
     borderRadius: 12, padding: 15,
     alignItems: 'center', marginBottom: 12,
   },
+  enrollBtnDisabled: { opacity: 0.65 },
   enrollBtnText: { color: '#378ADD', fontWeight: '600', fontSize: 15 },
 
   forgotBtn: { alignItems: 'center', marginBottom: 10 },

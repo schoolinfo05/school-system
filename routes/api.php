@@ -125,6 +125,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/marketplace/{item}/approve', [MarketplaceController::class, 'approve']);
     Route::post('/marketplace/{item}/reject', [MarketplaceController::class, 'reject']);
     Route::post('/marketplace/orders/{order}/mark-paid', [MarketplaceController::class, 'markOrderPaid']);
+    Route::post('/marketplace/orders/{order}/received', [MarketplaceController::class, 'markOrderReceived']);
     Route::post('/marketplace/orders/{order}/cancel', [MarketplaceController::class, 'cancelOrder']);
     Route::get('/marketplace/orders/{order}/receipt', [MarketplaceController::class, 'receipt']);
     Route::get('/marketplace',                 [MarketplaceController::class, 'index']);
@@ -150,8 +151,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/registrar/students/{student}/reset-password', [AdminStudentController::class, 'resetPassword']);
     Route::post('/registrar/students/{student}/subjects/{subject}/drop', [AdminStudentController::class, 'dropSubject']);
     Route::post('/registrar/students/{student}/subjects/{subject}/restore', [AdminStudentController::class, 'restoreSubject']);
-    Route::get('/registrar/academic-terms',             [AcademicTermController::class, 'index']);
-    Route::post('/registrar/academic-terms',            [AcademicTermController::class, 'upsert']);
     Route::get('/registrar/event-participations',       [RewardController::class, 'eventIndex']);
     Route::post('/registrar/event-participations/{participation}/approve', [RewardController::class, 'approveEvent']);
     Route::post('/registrar/event-participations/{participation}/reject', [RewardController::class, 'rejectEvent']);
