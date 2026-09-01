@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\AuthorizesPortal;
 use App\Models\EnrollmentApplication;
 use App\Models\Subject;
+use App\Services\PointsService;
 use Illuminate\Http\Request;
 
 class EnrollmentReviewController extends Controller
@@ -48,13 +49,33 @@ class EnrollmentReviewController extends Controller
         return view('registrar.enrollments.show', compact('application', 'selectedSubjects'));
     }
 
-    public function approve(Request $request, EnrollmentApplication $enrollment, ApiEnrollmentController $controller)
+    public function approve(Request $request, EnrollmentApplication $enrollment, ApiEnrollmentController $controller, PointsService $points)
     {
         $this->requireAnyRole($request, ['admin', 'registrar']);
 
-        $controller->approve($request, $enrollment->id);
+        $response = $controller->approve($request, $enrollment->id, $points);
 
-        return redirect()->route('registrar.enrollments.show', $enrollment)->with('status', 'Enrollment approved.');
+        if ($response->getStatusCode() >= 400) {
+            return redirect()
+                ->route('registrar.enrollments.show', $enrollment)
+                ->with('status', $this->responseMessage($response, 'Enrollment could not be approved.'));
+        }
+
+        $parentPassword = $this->responseValue($response, 'parent_default_password');
+        $status = $parentPassword
+            ? "Enrollment approved. Parent default password: {$parentPassword}"
+            : 'Enrollment approved.';
+
+        return redirect()->route('registrar.enrollments.show', $enrollment)->with('status', $status);
+    }
+
+    public function approveRequiresPost(Request $request, EnrollmentApplication $enrollment)
+    {
+        $this->requireAnyRole($request, ['admin', 'registrar']);
+
+        return redirect()
+            ->route('registrar.enrollments.show', $enrollment)
+            ->with('status', 'Use the approve button to submit this enrollment review.');
     }
 
     public function reject(Request $request, EnrollmentApplication $enrollment, ApiEnrollmentController $controller)
@@ -62,8 +83,41 @@ class EnrollmentReviewController extends Controller
         $this->requireAnyRole($request, ['admin', 'registrar']);
         $request->validate(['remarks' => ['required', 'string', 'max:500']]);
 
-        $controller->reject($request, $enrollment->id);
+        $response = $controller->reject($request, $enrollment->id);
+
+        if ($response->getStatusCode() >= 400) {
+            return redirect()
+                ->route('registrar.enrollments.show', $enrollment)
+                ->with('status', $this->responseMessage($response, 'Enrollment could not be rejected.'));
+        }
 
         return redirect()->route('registrar.enrollments.show', $enrollment)->with('status', 'Enrollment rejected.');
+    }
+
+    public function rejectRequiresPost(Request $request, EnrollmentApplication $enrollment)
+    {
+        $this->requireAnyRole($request, ['admin', 'registrar']);
+
+        return redirect()
+            ->route('registrar.enrollments.show', $enrollment)
+            ->with('status', 'Use the reject form to submit this enrollment review.');
+    }
+
+    private function responseMessage($response, string $fallback): string
+    {
+        $content = json_decode($response->getContent(), true);
+
+        return is_array($content) && isset($content['message'])
+            ? $content['message']
+            : $fallback;
+    }
+
+    private function responseValue($response, string $key): ?string
+    {
+        $content = json_decode($response->getContent(), true);
+
+        return is_array($content) && isset($content[$key])
+            ? (string) $content[$key]
+            : null;
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Registrar;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\AuthorizesPortal;
 use App\Models\Course;
+use App\Services\ArchiveService;
 use Illuminate\Http\Request;
 
 class CourseController extends Controller
@@ -56,5 +57,15 @@ class CourseController extends Controller
         $course->update([...$data, 'is_active' => (bool) ($data['is_active'] ?? false)]);
 
         return back()->with('status', 'Course updated.');
+    }
+
+    public function destroy(Request $request, Course $course)
+    {
+        $this->requireAnyRole($request, ['admin', 'registrar']);
+
+        ArchiveService::record($course, $request->user()?->id, 'web.courses');
+        $course->delete();
+
+        return back()->with('status', 'Course archived and removed.');
     }
 }

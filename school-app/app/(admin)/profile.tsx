@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import HeaderGradient from '../components/ui/HeaderGradient';
 import api, { removeToken } from '../../src/api';
 import { useTheme } from '../../src/theme-context';
+import ChangePasswordCard from '../components/ChangePasswordCard';
 
 export default function AdminProfile() {
   const router = useRouter();
@@ -201,6 +202,8 @@ export default function AdminProfile() {
           </View>
         ))}
       </View>
+
+      <ChangePasswordCard theme={theme} />
 
       <TouchableOpacity style={[s.logoutBtn, { backgroundColor: theme.dangerLight }]} onPress={handleLogout}>
         <Text style={[s.logoutText, { color: theme.danger }]}>Logout</Text>

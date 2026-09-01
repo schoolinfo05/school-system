@@ -77,6 +77,7 @@
                     <div><dt class="text-slate-500">Father's occupation</dt><dd class="font-bold text-slate-800">{{ $value($application->father_occupation) }}</dd></div>
                     <div><dt class="text-slate-500">Mother's name</dt><dd class="font-bold text-slate-800">{{ $value($application->mother_name) }}</dd></div>
                     <div><dt class="text-slate-500">Mother's occupation</dt><dd class="font-bold text-slate-800">{{ $value($application->mother_occupation) }}</dd></div>
+                    <div class="md:col-span-2"><dt class="text-slate-500">Parent email</dt><dd class="font-bold text-slate-800">{{ $value($application->parent_email) }}</dd></div>
                 </dl>
             </section>
 

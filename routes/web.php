@@ -13,6 +13,8 @@ use App\Http\Controllers\Registrar\PointsController;
 use App\Http\Controllers\Registrar\ProfileController as RegistrarProfileController;
 use App\Http\Controllers\Registrar\SectionController as RegistrarSectionController;
 use App\Http\Controllers\Registrar\SubjectController as RegistrarSubjectController;
+use App\Http\Controllers\ReportsController;
+use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\PropertyCustodian\DashboardController as PropertyCustodianDashboardController;
 use App\Http\Controllers\Teacher\DashboardController as TeacherDashboard;
 use App\Http\Controllers\Teacher\GradeEntryController;
@@ -102,16 +104,22 @@ Route::middleware(['auth', 'web.roles:admin'])->prefix('admin')->name('admin.')-
     Route::get('/controls', [SystemControlController::class, 'index'])->name('controls.index');
     Route::post('/controls', [SystemControlController::class, 'store'])->name('controls.store');
     Route::get('/activity', [ActivityLogController::class, 'index'])->name('activity.index');
+    Route::get('/reports', [ReportsController::class, 'admin'])->name('reports.index');
+    Route::get('/archive', [ArchiveController::class, 'index'])->name('archive.index');
+    Route::post('/archive/{archive}/restore', [ArchiveController::class, 'restore'])->name('archive.restore');
     Route::get('/users', [UserManageController::class, 'index'])->name('users.index');
     Route::post('/users', [UserManageController::class, 'store'])->name('users.store');
     Route::put('/users/{user}', [UserManageController::class, 'update'])->name('users.update');
+    Route::delete('/users/{user}', [UserManageController::class, 'destroy'])->name('users.destroy');
 });
 
 Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->name('registrar.')->group(function () {
     Route::get('/dashboard', [RegistrarDashboardController::class, 'index'])->name('dashboard');
     Route::get('/enrollments', [EnrollmentReviewController::class, 'index'])->name('enrollments.index');
     Route::get('/enrollments/{enrollment}', [EnrollmentReviewController::class, 'show'])->name('enrollments.show');
+    Route::get('/enrollments/{enrollment}/approve', [EnrollmentReviewController::class, 'approveRequiresPost'])->name('enrollments.approve.get');
     Route::post('/enrollments/{enrollment}/approve', [EnrollmentReviewController::class, 'approve'])->name('enrollments.approve');
+    Route::get('/enrollments/{enrollment}/reject', [EnrollmentReviewController::class, 'rejectRequiresPost'])->name('enrollments.reject.get');
     Route::post('/enrollments/{enrollment}/reject', [EnrollmentReviewController::class, 'reject'])->name('enrollments.reject');
     Route::get('/students', [StudentManageController::class, 'index'])->name('students.index');
     Route::get('/students/{student}', [StudentManageController::class, 'show'])->name('students.show');
@@ -121,14 +129,22 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::get('/courses', [RegistrarCourseController::class, 'index'])->name('courses.index');
     Route::post('/courses', [RegistrarCourseController::class, 'store'])->name('courses.store');
     Route::put('/courses/{course}', [RegistrarCourseController::class, 'update'])->name('courses.update');
+    Route::delete('/courses/{course}', [RegistrarCourseController::class, 'destroy'])->name('courses.destroy');
     Route::get('/subjects', [RegistrarSubjectController::class, 'index'])->name('subjects.index');
     Route::post('/subjects', [RegistrarSubjectController::class, 'store'])->name('subjects.store');
     Route::put('/subjects/{subject}', [RegistrarSubjectController::class, 'update'])->name('subjects.update');
+    Route::delete('/subjects/{subject}', [RegistrarSubjectController::class, 'destroy'])->name('subjects.destroy');
     Route::get('/sections', [RegistrarSectionController::class, 'index'])->name('sections.index');
     Route::post('/sections', [RegistrarSectionController::class, 'store'])->name('sections.store');
     Route::put('/sections/{section}', [RegistrarSectionController::class, 'update'])->name('sections.update');
+    Route::delete('/sections/{section}', [RegistrarSectionController::class, 'destroy'])->name('sections.destroy');
+    Route::post('/sections/{section}/subjects', [RegistrarSectionController::class, 'assignSubject'])->name('sections.subjects.store');
+    Route::delete('/sections/{section}/subjects/{sectionSubject}', [RegistrarSectionController::class, 'removeSubject'])->name('sections.subjects.destroy');
+    Route::post('/sections/{section}/students', [RegistrarSectionController::class, 'enrollStudent'])->name('sections.students.store');
+    Route::delete('/sections/{section}/students/{student}', [RegistrarSectionController::class, 'removeStudent'])->name('sections.students.destroy');
     Route::get('/points', [PointsController::class, 'index'])->name('points.index');
     Route::post('/points', [PointsController::class, 'store'])->name('points.store');
+    Route::get('/reports', [ReportsController::class, 'registrar'])->name('reports.index');
     Route::get('/profile', [RegistrarProfileController::class, 'show'])->name('profile.show');
 });
 
@@ -138,6 +154,7 @@ Route::middleware(['auth', 'web.roles:admin,faculty,teacher,head_teacher,dean'])
     Route::get('/assignments',                  [TeacherDashboard::class, 'assignments'])->name('assignments');
     Route::post('/assignments',                 [TeacherDashboard::class, 'storeAssignment'])->name('assignments.store');
     Route::get('/market',                       [TeacherDashboard::class, 'market'])->name('market');
+    Route::post('/market/{item}/buy',           [TeacherDashboard::class, 'buyMarketItem'])->name('market.buy');
     Route::get('/chat',                         [TeacherDashboard::class, 'chat'])->name('chat');
     Route::post('/chat',                        [TeacherDashboard::class, 'sendChat'])->name('chat.send');
     Route::get('/profile',                      [TeacherDashboard::class, 'profile'])->name('profile');

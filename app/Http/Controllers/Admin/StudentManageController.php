@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\EnrollmentApplication;
+use App\Models\Section;
 use App\Models\Student;
 use App\Models\Grade;
 use App\Models\Attendance;
 use App\Models\Fee;
+use App\Models\StudentSubject;
+use App\Models\Subject;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -47,9 +51,15 @@ class StudentManageController extends Controller
             ? round(($attendance->where('status', 'present')->count() / $attendance->count()) * 100, 1)
             : 0;
 
+        $application = EnrollmentApplication::query()
+            ->where('user_id', $student->user_id)
+            ->latest()
+            ->first();
+        $subjects = $this->subjectsForStudent($student, $application);
+
         $routePrefix = $request->routeIs('registrar.*') ? 'registrar' : 'admin';
 
-        return view('admin.students.show', compact('student', 'grades', 'fees', 'attendance', 'attendancePct', 'routePrefix'));
+        return view('admin.students.show', compact('student', 'grades', 'fees', 'attendance', 'attendancePct', 'routePrefix', 'subjects'));
     }
 
     public function updateParent(Request $request, Student $student)
@@ -139,5 +149,76 @@ class StudentManageController extends Controller
         }
 
         return back()->with('status', $status === 'paid' ? 'Fee marked as paid.' : 'Partial payment recorded.');
+    }
+
+    private function subjectsForStudent(Student $student, ?EnrollmentApplication $application): array
+    {
+        $overrides = StudentSubject::query()
+            ->where('user_id', $student->user_id)
+            ->get()
+            ->keyBy(fn (StudentSubject $record) => $this->subjectOverrideKey($record->section_id, $record->subject_id));
+
+        $sectionSubjects = Section::query()
+            ->whereHas('students', function ($query) use ($student) {
+                $query->where('users.id', $student->user_id)
+                    ->where('section_students.status', 'enrolled');
+            })
+            ->with(['sectionSubjects.subject', 'sectionSubjects.teacher:id,name'])
+            ->get()
+            ->flatMap(fn (Section $section) => $section->sectionSubjects->map(function ($sectionSubject) use ($section, $overrides) {
+                $override = $overrides->get($this->subjectOverrideKey($section->id, $sectionSubject->subject?->id));
+
+                return [
+                    'id' => $sectionSubject->subject?->id,
+                    'section_name' => $section->name,
+                    'code' => $sectionSubject->subject?->code,
+                    'name' => $sectionSubject->subject?->name,
+                    'units' => (int) ($sectionSubject->subject?->units_lec ?? 0) + (int) ($sectionSubject->subject?->units_lab ?? 0),
+                    'teacher' => $sectionSubject->teacher?->name,
+                    'schedule' => trim(collect([$sectionSubject->day, trim(($sectionSubject->time_start ?: '') . '-' . ($sectionSubject->time_end ?: '')), $sectionSubject->room])->filter()->join(' · ')),
+                    'source' => 'section',
+                    'status' => $override?->status ?? 'enrolled',
+                    'drop_reason' => $override?->drop_reason,
+                ];
+            }));
+
+        $sectionSubjectIds = $sectionSubjects->pluck('id')->filter()->unique()->all();
+        $directSubjectIds = collect($application?->subject_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0 && !in_array($id, $sectionSubjectIds, true))
+            ->unique()
+            ->values();
+
+        $directSubjects = Subject::query()
+            ->whereIn('id', $directSubjectIds)
+            ->orderBy('code')
+            ->get()
+            ->map(function (Subject $subject) use ($overrides) {
+                $override = $overrides->get($this->subjectOverrideKey(null, $subject->id));
+
+                return [
+                    'id' => $subject->id,
+                    'section_name' => 'Direct enrollment',
+                    'code' => $subject->code,
+                    'name' => $subject->name,
+                    'units' => (int) ($subject->units_lec ?? 0) + (int) ($subject->units_lab ?? 0),
+                    'teacher' => null,
+                    'schedule' => '',
+                    'source' => 'enrollment',
+                    'status' => $override?->status ?? 'enrolled',
+                    'drop_reason' => $override?->drop_reason,
+                ];
+            });
+
+        return $sectionSubjects
+            ->concat($directSubjects)
+            ->filter(fn ($subject) => $subject['id'])
+            ->values()
+            ->all();
+    }
+
+    private function subjectOverrideKey(?int $sectionId, ?int $subjectId): string
+    {
+        return ($sectionId ?? 'direct') . ':' . ($subjectId ?? 'none');
     }
 }

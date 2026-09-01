@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\User;
+use App\Services\ArchiveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -66,9 +67,10 @@ class AdminUserController extends Controller
             ->whereIn('role', $this->manageableRoles)
             ->when(in_array($role, $this->manageableRoles, true), fn ($query) => $query->where('role', $role))
             ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($inner) use ($search) {
-                    $inner->where('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%");
+                $escapedSearch = addcslashes($search, '%_');
+                $query->where(function ($inner) use ($escapedSearch) {
+                    $inner->where('name', 'like', "%{$escapedSearch}%")
+                        ->orWhere('email', 'like', "%{$escapedSearch}%");
                 });
             })
             ->orderBy('role')
@@ -171,6 +173,8 @@ class AdminUserController extends Controller
         if ($this->isLastAdmin($user)) {
             return response()->json(['message' => 'At least one admin account is required.'], 422);
         }
+
+        ArchiveService::record($user, $request->user()?->id, 'api.admin.users');
 
         $deleted = [
             'id' => $user->id,

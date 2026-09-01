@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course;
+use App\Services\ArchiveService;
 use Illuminate\Http\Request;
 
 class CourseController extends Controller
@@ -71,9 +72,10 @@ class CourseController extends Controller
         $this->authorizeRegistrar($request);
 
         $course = Course::findOrFail($id);
+        ArchiveService::record($course, $request->user()?->id, 'api.courses');
         $course->delete();
 
-        return response()->json(['message' => 'Course deleted successfully.']);
+        return response()->json(['message' => 'Course archived and removed.']);
     }
 
     private function authorizeRegistrar(Request $request)

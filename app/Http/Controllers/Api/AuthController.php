@@ -92,9 +92,9 @@ class AuthController extends Controller
             logger()->error('OTP email send failed: ' . $e->getMessage());
 
             if (app()->environment('local')) {
+                \Log::info('OTP for ' . $request->email . ': ' . $otp);
                 return response()->json([
                     'message' => 'OTP generated, but email sending failed in local environment.',
-                    'otp' => $otp,
                 ]);
             }
 
@@ -103,7 +103,7 @@ class AuthController extends Controller
 
         $responsePayload = ['message' => 'OTP sent to your email.'];
         if (app()->environment('local') && config('mail.default') === 'log') {
-            $responsePayload['otp'] = $otp;
+            \Log::info('OTP for ' . $request->email . ': ' . $otp);
             $responsePayload['note'] = 'Local dev: email is logged instead of delivered.';
         }
 
@@ -196,6 +196,33 @@ class AuthController extends Controller
             'message' => 'Profile photo updated.',
             'user' => $user->fresh(),
         ]);
+    }
+
+    public function updatePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+        ]);
+
+        $user = $request->user();
+
+        if (! Hash::check($request->current_password, $user->password)) {
+            return response()->json(['message' => 'Current password is incorrect.'], 422);
+        }
+
+        $user->forceFill([
+            'password' => Hash::make($request->password),
+            'remember_token' => Str::random(60),
+        ])->save();
+
+        ActivityLog::record($request, 'password_updated', "{$user->name} changed their password.", [
+            'user' => $user,
+            'subject_type' => User::class,
+            'subject_id' => $user->id,
+        ]);
+
+        return response()->json(['message' => 'Password updated.']);
     }
 
     private function normalizedRoleAndPosition(User $user): array

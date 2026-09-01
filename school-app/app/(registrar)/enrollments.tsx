@@ -102,7 +102,7 @@ export default function RegistrarEnrollments() {
     }
     setSubmitting(true);
     try {
-      await api.post(`/registrar/enrollments/${selected.id}/${actionType}`, { remarks });
+      const res = await api.post(`/registrar/enrollments/${selected.id}/${actionType}`, { remarks });
       const newStatus = actionType === 'approve' ? 'approved' : 'rejected';
       setApplications(prev =>
         prev.map(a => a.id === selected.id ? { ...a, status: newStatus } : a)
@@ -112,7 +112,9 @@ export default function RegistrarEnrollments() {
       Alert.alert(
         actionType === 'approve' ? '✅ Approved' : '❌ Rejected',
         actionType === 'approve'
-          ? `${selected.first_name}'s application has been approved. Their account has been created.`
+          ? res.data?.parent_default_password
+            ? `${selected.first_name}'s application has been approved. Parent default password: ${res.data.parent_default_password}`
+            : `${selected.first_name}'s application has been approved. Their account has been created.`
           : `${selected.first_name}'s application has been rejected.`
       );
     } catch (e) {
@@ -354,7 +356,7 @@ export default function RegistrarEnrollments() {
               )}
 
               {/* ── Parents / Guardian ── */}
-              {(selected.father_name || selected.mother_name) && (
+              {(selected.father_name || selected.mother_name || selected.parent_email) && (
                 <>
                   <SectionTitle>👨‍👩‍👧 Parents / Guardian</SectionTitle>
                   <View style={s.infoCard}>
@@ -362,6 +364,7 @@ export default function RegistrarEnrollments() {
                     <InfoRow label="Father's Occupation" value={selected.father_occupation} />
                     <InfoRow label="Mother's Name"       value={selected.mother_name} />
                     <InfoRow label="Mother's Occupation" value={selected.mother_occupation} />
+                    <InfoRow label="Parent Email"        value={selected.parent_email} />
                   </View>
                 </>
               )}

@@ -7,6 +7,8 @@ use App\Models\EnrollmentApplication;
 use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\SchoolNotification;
+use App\Models\Section;
+use App\Models\SectionSubject;
 use App\Models\Student;
 use App\Models\StudentSubject;
 use App\Models\Subject;
@@ -18,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 
 class EnrollmentController extends Controller
@@ -60,6 +63,7 @@ class EnrollmentController extends Controller
             'father_occupation'  => 'nullable|string|max:255',
             'mother_name'        => 'nullable|string|max:255',
             'mother_occupation'  => 'nullable|string|max:255',
+            'parent_email'       => ['nullable', 'email', 'max:255', 'different:email'],
 
             // Previous school
             'prev_school'         => 'nullable|string|max:255',
@@ -85,6 +89,8 @@ class EnrollmentController extends Controller
                 ? 'nullable|array'
                 : 'required|array|min:1',
             'subject_ids.*' => 'integer|exists:subjects,id',
+            'section_subject_ids'   => 'nullable|array',
+            'section_subject_ids.*' => 'integer|exists:section_subjects,id',
             'documents'     => 'nullable|array|max:10',
             'documents.*'   => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:5120',
 
@@ -136,6 +142,30 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
+        // Block exact name + birthdate duplicates (new students only)
+        if ($request->student_type !== 'old_student' && $request->filled('birthdate')) {
+            $nameMatch = EnrollmentApplication::query()
+                ->whereRaw('LOWER(first_name) = ?', [strtolower($request->first_name)])
+                ->whereRaw('LOWER(last_name) = ?', [strtolower($request->last_name)])
+                ->where('birthdate', $request->birthdate)
+                ->whereIn('status', ['pending', 'approved'])
+                ->exists();
+
+            if (! $nameMatch) {
+                $nameMatch = Student::query()
+                    ->whereRaw('LOWER(first_name) = ?', [strtolower($request->first_name)])
+                    ->whereRaw('LOWER(last_name) = ?', [strtolower($request->last_name)])
+                    ->where('birthdate', $request->birthdate)
+                    ->exists();
+            }
+
+            if ($nameMatch) {
+                return response()->json([
+                    'message' => 'A student with the same name and birthdate already exists. If this is you, please use the "Old Student" option instead.',
+                ], 422);
+            }
+        }
+
         if ($existingApplication && EnrollmentApplication::query()
             ->where('id_no', $request->id_no)
             ->where('school_year', $request->school_year)
@@ -168,7 +198,8 @@ class EnrollmentController extends Controller
             $hashedPassword = Hash::make($request->password);
         }
 
-        $subjectIds = $this->subjectIdsForApplication($request);
+        $sectionSubjectIds = $this->sectionSubjectIdsForApplication($request);
+        $subjectIds = $this->subjectIdsForApplication($request, $sectionSubjectIds);
         if ($request->academic_status === 'Regular' && empty($subjectIds)) {
             return response()->json([
                 'message' => 'No regular subjects are available for this program and semester.',
@@ -178,11 +209,12 @@ class EnrollmentController extends Controller
         $documentUrls = $this->storeDocuments($request);
 
         $application = EnrollmentApplication::create([
-            ...$request->except('password', 'password_confirmation', 'gender', 'course', 'subject_ids'),
+            ...$request->except('password', 'password_confirmation', 'gender', 'course', 'subject_ids', 'section_subject_ids'),
             'course'   => $request->filled('course_id')
                 ? Course::find($request->course_id)?->name
                 : $request->course,
             'subject_ids' => $subjectIds,
+            'section_subject_ids' => $sectionSubjectIds,
             'document_urls' => $documentUrls,
             'password' => $hashedPassword,
             'gender'   => $gender,
@@ -274,6 +306,7 @@ class EnrollmentController extends Controller
             'father_occupation'   => $app?->father_occupation,
             'mother_name'         => $app?->mother_name,
             'mother_occupation'   => $app?->mother_occupation,
+            'parent_email'        => $app?->parent_email,
             'prev_school'         => $app?->prev_school,
             'prev_school_address' => $app?->prev_school_address,
             'student_type'        => $app?->student_type,
@@ -300,9 +333,10 @@ class EnrollmentController extends Controller
         if ($request->filled('program_type')) $query->where('program_type', $request->program_type);
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
-                $q->where('first_name', 'like', "%{$request->search}%")
-                  ->orWhere('last_name',  'like', "%{$request->search}%")
-                  ->orWhere('email',      'like', "%{$request->search}%");
+                $search = addcslashes($request->search, '%_');
+                $q->where('first_name', 'like', "%{$search}%")
+                  ->orWhere('last_name',  'like', "%{$search}%")
+                  ->orWhere('email',      'like', "%{$search}%");
             });
         }
 
@@ -333,7 +367,16 @@ class EnrollmentController extends Controller
             return response()->json(['message' => $prerequisiteMessage], 422);
         }
 
-        DB::transaction(function () use ($app, $request, $points) {
+        if ($app->parent_email) {
+            $existingParentUser = User::where('email', $app->parent_email)->first();
+            if ($existingParentUser && $existingParentUser->role !== User::ROLE_PARENT && !$existingParentUser->hasRole(User::ROLE_PARENT)) {
+                return response()->json(['message' => 'Parent email is already used by a non-parent account.'], 422);
+            }
+        }
+
+        $parentDefaultPassword = null;
+
+        DB::transaction(function () use ($app, $request, $points, &$parentDefaultPassword) {
             // Reuse existing user account if one already exists for this email
             $user = User::where('email', $app->email)->first();
 
@@ -348,6 +391,25 @@ class EnrollmentController extends Controller
                 $user->assignRole('student');
             }
 
+            $parent = null;
+            if ($app->parent_email) {
+                $parent = User::where('email', $app->parent_email)->first();
+
+                if (!$parent) {
+                    $parentDefaultPassword = 'parent-' . Str::lower(Str::random(8));
+                    $parentName = $app->mother_name ?: $app->father_name ?: $app->parent_email;
+
+                    $parent = User::create([
+                        'name' => $parentName,
+                        'email' => $app->parent_email,
+                        'password' => Hash::make($parentDefaultPassword),
+                        'role' => User::ROLE_PARENT,
+                    ]);
+                    Role::findOrCreate(User::ROLE_PARENT, 'web');
+                    $parent->assignRole(User::ROLE_PARENT);
+                }
+            }
+
             $studentId = $app->id_no ?: self::generateStudentId($app->id);
 
             $app->update([
@@ -359,24 +421,38 @@ class EnrollmentController extends Controller
                 'id_no'       => $studentId,
             ]);
 
+            $section = $this->matchingSectionForApplication($app);
+
             // Sync to students table so grades/attendance/fees work
+            $studentValues = [
+                'student_id'  => $studentId,
+                'first_name'  => $app->first_name,
+                'last_name'   => $app->last_name,
+                'email'       => $app->email,
+                'phone'       => $app->contact_number,
+                'birthdate'   => $app->birthdate,
+                'gender'      => in_array($app->gender, ['male','female']) ? $app->gender : 'male',
+                'address'     => $app->address,
+                'grade_level' => $app->program_type === 'college' ? $app->year_level : $app->grade_level,
+                'section'     => $section?->name ?? 'TBA',
+                'school_year' => $app->school_year,
+                'status'      => 'active',
+            ];
+
+            if ($parent) {
+                $studentValues['parent_user_id'] = $parent->id;
+            }
+
             $student = Student::updateOrCreate(
                 ['user_id' => $user->id],
-                [
-                    'student_id'  => $studentId,
-                    'first_name'  => $app->first_name,
-                    'last_name'   => $app->last_name,
-                    'email'       => $app->email,
-                    'phone'       => $app->contact_number,
-                    'birthdate'   => $app->birthdate,
-                    'gender'      => in_array($app->gender, ['male','female']) ? $app->gender : 'male',
-                    'address'     => $app->address,
-                    'grade_level' => $app->program_type === 'college' ? $app->year_level : $app->grade_level,
-                    'section'     => 'TBA',
-                    'school_year' => $app->school_year,
-                    'status'      => 'active',
-                ]
+                $studentValues
             );
+
+            if ($section) {
+                $section->students()->syncWithoutDetaching([
+                    $user->id => ['status' => 'enrolled'],
+                ]);
+            }
 
             $this->activateStudentSubjects($app, $user->id);
             $this->awardEarlyEnrollmentIfEligible($app, $student, $points, $request->user());
@@ -392,7 +468,10 @@ class EnrollmentController extends Controller
         });
 
         return response()->json([
-            'message' => 'Application approved. Student account and record created.',
+            'message' => $parentDefaultPassword
+                ? 'Application approved. Student and parent accounts were created.'
+                : 'Application approved. Student account and record created.',
+            'parent_default_password' => $parentDefaultPassword,
         ]);
     }
 
@@ -451,6 +530,7 @@ class EnrollmentController extends Controller
             'father_occupation'  => 'nullable|string|max:255',
             'mother_name'        => 'nullable|string|max:255',
             'mother_occupation'  => 'nullable|string|max:255',
+            'parent_email'       => ['nullable', 'email', 'max:255', 'different:email'],
             'prev_school'         => 'nullable|string|max:255',
             'prev_school_address' => 'nullable|string|max:255',
             'student_type'    => 'nullable|in:new_student,old_student,transferee,returnee',
@@ -466,6 +546,8 @@ class EnrollmentController extends Controller
             'semester'        => 'required|in:1st,2nd,summer',
             'subject_ids'     => 'nullable|array',
             'subject_ids.*'   => 'integer|exists:subjects,id',
+            'section_subject_ids'   => 'nullable|array',
+            'section_subject_ids.*' => 'integer|exists:section_subjects,id',
             'documents'       => 'nullable|array|max:10',
             'documents.*'     => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:5120',
         ]);
@@ -477,7 +559,8 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
-        $subjectIds = $this->subjectIdsForApplication($request);
+        $sectionSubjectIds = $this->sectionSubjectIdsForApplication($request);
+        $subjectIds = $this->subjectIdsForApplication($request, $sectionSubjectIds);
         if ($request->academic_status === 'Regular' && empty($subjectIds)) {
             return response()->json([
                 'message' => 'No regular subjects are available for this program and semester.',
@@ -486,7 +569,16 @@ class EnrollmentController extends Controller
 
         $documentUrls = $this->storeDocuments($request);
 
-        DB::transaction(function () use ($request, $subjectIds, $documentUrls) {
+        if ($request->filled('parent_email')) {
+            $existingParentUser = User::where('email', $request->parent_email)->first();
+            if ($existingParentUser && $existingParentUser->role !== User::ROLE_PARENT && !$existingParentUser->hasRole(User::ROLE_PARENT)) {
+                return response()->json(['message' => 'Parent email is already used by a non-parent account.'], 422);
+            }
+        }
+
+        $parentDefaultPassword = null;
+
+        DB::transaction(function () use ($request, $subjectIds, $sectionSubjectIds, $documentUrls, &$parentDefaultPassword) {
             // Create user account
             $user = User::create([
                 'name'     => trim("{$request->first_name} {$request->last_name}"),
@@ -520,6 +612,7 @@ class EnrollmentController extends Controller
                 'father_occupation'  => $request->father_occupation,
                 'mother_name'        => $request->mother_name,
                 'mother_occupation'  => $request->mother_occupation,
+                'parent_email'       => $request->parent_email,
                 'prev_school'         => $request->prev_school,
                 'prev_school_address' => $request->prev_school_address,
                 'student_type'    => $request->student_type ?? 'new_student',
@@ -536,6 +629,7 @@ class EnrollmentController extends Controller
                 'school_year'     => $request->school_year,
                 'semester'        => $request->semester,
                 'subject_ids'     => $subjectIds,
+                'section_subject_ids' => $sectionSubjectIds,
                 'document_urls'   => $documentUrls,
                 // Pre-approved — no pending review needed
                 'status'      => 'approved',
@@ -550,28 +644,64 @@ class EnrollmentController extends Controller
                 $app->update(['id_no' => $studentId]);
             }
 
+            $parent = null;
+            if ($request->filled('parent_email')) {
+                $parent = User::where('email', $request->parent_email)->first();
+
+                if (!$parent) {
+                    $parentDefaultPassword = 'parent-' . Str::lower(Str::random(8));
+                    $parentName = $request->mother_name ?: $request->father_name ?: $request->parent_email;
+
+                    $parent = User::create([
+                        'name' => $parentName,
+                        'email' => $request->parent_email,
+                        'password' => Hash::make($parentDefaultPassword),
+                        'role' => User::ROLE_PARENT,
+                    ]);
+                    Role::findOrCreate(User::ROLE_PARENT, 'web');
+                    $parent->assignRole(User::ROLE_PARENT);
+                }
+            }
+
+            $section = $this->matchingSectionForApplication($app);
+
             // Sync to students table so grades/attendance/fees work
+            $studentValues = [
+                'student_id'  => $studentId,
+                'first_name'  => $request->first_name,
+                'last_name'   => $request->last_name,
+                'email'       => $request->email,
+                'phone'       => $request->contact_number,
+                'birthdate'   => $request->birthdate,
+                'gender'      => in_array($request->gender, ['male','female']) ? $request->gender : 'male',
+                'address'     => $request->address,
+                'grade_level' => $request->program_type === 'college' ? $request->year_level : $request->grade_level,
+                'section'     => $section?->name ?? 'TBA',
+                'school_year' => $request->school_year,
+                'status'      => 'active',
+            ];
+
+            if ($parent) {
+                $studentValues['parent_user_id'] = $parent->id;
+            }
+
             Student::updateOrCreate(
                 ['user_id' => $user->id],
-                [
-                    'student_id'  => $studentId,
-                    'first_name'  => $request->first_name,
-                    'last_name'   => $request->last_name,
-                    'email'       => $request->email,
-                    'phone'       => $request->contact_number,
-                    'birthdate'   => $request->birthdate,
-                    'gender'      => in_array($request->gender, ['male','female']) ? $request->gender : 'male',
-                    'address'     => $request->address,
-                    'grade_level' => $request->program_type === 'college' ? $request->year_level : $request->grade_level,
-                    'section'     => 'TBA',
-                    'school_year' => $request->school_year,
-                    'status'      => 'active',
-                ]
+                $studentValues
             );
+
+            if ($section) {
+                $section->students()->syncWithoutDetaching([
+                    $user->id => ['status' => 'enrolled'],
+                ]);
+            }
+
+            $this->activateStudentSubjects($app, $user->id);
         });
 
         return response()->json([
             'message' => 'Student created and enrolled successfully.',
+            'parent_default_password' => $parentDefaultPassword,
         ], 201);
     }
 
@@ -591,9 +721,30 @@ class EnrollmentController extends Controller
         return "{$prefix}-{$year}-{$seq}";
     }
 
-    private function subjectIdsForApplication(Request $request): array
+    private function sectionSubjectIdsForApplication(Request $request): array
+    {
+        return collect($request->section_subject_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function subjectIdsForApplication(Request $request, array $sectionSubjectIds = []): array
     {
         if ($request->academic_status !== 'Regular') {
+            if (!empty($sectionSubjectIds)) {
+                return SectionSubject::query()
+                    ->whereIn('id', $sectionSubjectIds)
+                    ->pluck('subject_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+            }
+
             return collect($request->subject_ids ?? [])
                 ->map(fn ($id) => (int) $id)
                 ->filter()
@@ -684,6 +835,36 @@ class EnrollmentController extends Controller
 
     private function activateStudentSubjects(EnrollmentApplication $app, int $userId): void
     {
+        $sectionSubjectIds = collect($app->section_subject_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (!empty($sectionSubjectIds)) {
+            SectionSubject::query()
+                ->whereIn('id', $sectionSubjectIds)
+                ->get()
+                ->each(function (SectionSubject $sectionSubject) use ($userId) {
+                    StudentSubject::updateOrCreate(
+                        [
+                            'user_id' => $userId,
+                            'subject_id' => (int) $sectionSubject->subject_id,
+                            'section_id' => (int) $sectionSubject->section_id,
+                        ],
+                        [
+                            'status' => 'enrolled',
+                            'drop_reason' => null,
+                            'dropped_at' => null,
+                            'dropped_by' => null,
+                        ]
+                    );
+                });
+
+            return;
+        }
+
         foreach (($app->subject_ids ?? []) as $subjectId) {
             StudentSubject::updateOrCreate(
                 [
@@ -699,6 +880,36 @@ class EnrollmentController extends Controller
                 ]
             );
         }
+    }
+
+    private function matchingSectionForApplication(EnrollmentApplication $app): ?Section
+    {
+        $sections = Section::query()
+            ->where('is_active', true)
+            ->where('program_type', $app->program_type)
+            ->where('school_year', $app->school_year)
+            ->where('semester', strtolower((string) $app->semester))
+            ->when($app->program_type === 'college', function ($query) use ($app) {
+                $query->where('year_level', $app->year_level)
+                    ->where(function ($courseQuery) use ($app) {
+                        $courseQuery->where('course', $app->course)
+                            ->orWhereNull('course')
+                            ->orWhere('course', '');
+                    });
+            })
+            ->when($app->program_type === 'shs', function ($query) use ($app) {
+                $query->where('year_level', $app->grade_level)
+                    ->where(function ($strandQuery) use ($app) {
+                        $strandQuery->where('strand', $app->strand)
+                            ->orWhereNull('strand')
+                            ->orWhere('strand', '');
+                    });
+            })
+            ->get()
+            ->filter(fn (Section $section) => $section->students()->wherePivot('status', 'enrolled')->count() < $section->max_students)
+            ->values();
+
+        return $sections->count() === 1 ? $sections->first() : null;
     }
 
     private function prerequisiteFailureMessage(EnrollmentApplication $app): ?string

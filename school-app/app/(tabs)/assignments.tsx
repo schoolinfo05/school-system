@@ -83,7 +83,7 @@ export default function StudentAssignments() {
     if (!selected || selected.type !== 'quiz') return undefined;
 
     const subscription = AppState.addEventListener('change', async (state) => {
-      if (state !== 'background' && state !== 'inactive') return;
+      if (state !== 'background') return;
 
       const violation = {
         type: 'app_switch',

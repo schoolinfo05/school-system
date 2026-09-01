@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
 import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
 import { useTheme } from '../../src/theme-context';
+import ChangePasswordCard from '../components/ChangePasswordCard';
 
 export default function Profile() {
   const router = useRouter();
@@ -143,6 +144,20 @@ export default function Profile() {
   const s        = data?.student;
   const profilePhotoUrl = s?.profile_photo_url || data?.user?.profile_photo_url;
   const initials = s ? `${s.first_name[0]}${s.last_name[0]}`.toUpperCase() : '??';
+  const enrollment = s?.enrollment;
+  const yearLevelLabel = (value) => {
+    const year = String(value || '').replace(/[^0-9]/g, '');
+    return year ? `${year}${year === '1' ? 'st' : year === '2' ? 'nd' : year === '3' ? 'rd' : 'th'} Year` : null;
+  };
+  const levelLabel = enrollment?.program_type === 'college'
+    ? yearLevelLabel(enrollment.year_level || s?.grade_level)
+    : s?.grade_level
+      ? `Grade ${s.grade_level}`
+      : null;
+  const gradeSection = [
+    levelLabel,
+    s?.section && s.section !== 'TBA' ? s.section : 'No section',
+  ].filter(Boolean).join(' - ');
   const allGrades = data?.grades ? Object.values(data.grades).flat() : [];
   const gwa = allGrades.length > 0
     ? (allGrades.reduce((sum, g) => sum + parseFloat(g.score), 0) / allGrades.length).toFixed(1)
@@ -226,7 +241,8 @@ export default function Profile() {
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Student Information</Text>
         {[
           ['School Year', s?.school_year],
-          ['Grade & Section', `Grade ${s?.grade_level} – ${s?.section}`],
+          [enrollment?.program_type === 'college' ? 'Year & Section' : 'Grade & Section', gradeSection],
+          ['Program', enrollment?.program_type === 'college' ? enrollment?.course : enrollment?.strand],
           ['Gender', s?.gender ? s.gender.charAt(0).toUpperCase() + s.gender.slice(1) : '—'],
           ['Status', s?.status ? s.status.charAt(0).toUpperCase() + s.status.slice(1) : '—'],
           ['Email', s?.email],
@@ -270,6 +286,8 @@ export default function Profile() {
       </View>
 
       {/* ── Logout ── */}
+      <ChangePasswordCard theme={theme} />
+
       <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.dangerLight, borderColor: theme.danger }]} onPress={handleLogout}>
         <Text style={[styles.logoutText, { color: theme.danger }]}>Logout</Text>
       </TouchableOpacity>

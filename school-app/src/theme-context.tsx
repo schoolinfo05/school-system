@@ -1,7 +1,24 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const THEME_KEY = 'appTheme';
+const LEGACY_THEME_KEY = 'appTheme';
+
+const themeKeyForUser = async () => {
+  const userJson = await AsyncStorage.getItem('user');
+  const role = await AsyncStorage.getItem('role');
+
+  if (!userJson) {
+    return `${LEGACY_THEME_KEY}:guest`;
+  }
+
+  try {
+    const user = JSON.parse(userJson);
+    const identity = user?.id || user?.email || role || 'guest';
+    return `${LEGACY_THEME_KEY}:${role || user?.role || 'user'}:${identity}`;
+  } catch {
+    return `${LEGACY_THEME_KEY}:${role || 'user'}`;
+  }
+};
 
 const THEMES = {
   blue: {
@@ -110,27 +127,33 @@ const ThemeContext = createContext({
   themeName: 'blue',
   theme: THEMES.blue,
   setThemeName: () => {},
+  reloadTheme: () => {},
   themes: THEMES,
 });
 
 export function ThemeProvider({ children }) {
   const [themeName, setThemeNameState] = useState('blue');
 
-  useEffect(() => {
-    AsyncStorage.getItem(THEME_KEY)
-      .then(value => {
-        if (value && THEMES[value]) {
-          setThemeNameState(value);
-        }
-      })
-      .catch(() => {});
+  const reloadTheme = useCallback(async () => {
+    try {
+      const key = await themeKeyForUser();
+      const value = await AsyncStorage.getItem(key);
+      setThemeNameState(value && THEMES[value] ? value : 'blue');
+    } catch {
+      setThemeNameState('blue');
+    }
   }, []);
+
+  useEffect(() => {
+    reloadTheme();
+  }, [reloadTheme]);
 
   const setThemeName = async (name) => {
     if (!THEMES[name]) return;
     setThemeNameState(name);
     try {
-      await AsyncStorage.setItem(THEME_KEY, name);
+      const key = await themeKeyForUser();
+      await AsyncStorage.setItem(key, name);
     } catch (error) {
       console.log('Theme save error:', error.message);
     }
@@ -139,7 +162,7 @@ export function ThemeProvider({ children }) {
   const theme = THEMES[themeName] || THEMES.blue;
 
   return (
-    <ThemeContext.Provider value={{ themeName, theme, setThemeName, themes: THEMES }}>
+    <ThemeContext.Provider value={{ themeName, theme, setThemeName, reloadTheme, themes: THEMES }}>
       {children}
     </ThemeContext.Provider>
   );

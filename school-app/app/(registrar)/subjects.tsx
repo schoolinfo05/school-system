@@ -73,6 +73,7 @@ export default function RegistrarSubjects() {
   const [courses, setCourses]       = useState([]);
   const [courseSearch, setCourseSearch]         = useState('');
   const [courseDropdownOpen, setCourseDropdownOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
 
   // ── FILTER STATE ──────────────────────────────────────────
   const [filterProgram, setFilterProgram]   = useState('');
@@ -187,14 +188,20 @@ export default function RegistrarSubjects() {
     } finally { setSaving(false); }
   };
 
-  const handleDelete = (sub) => {
-    Alert.alert('Delete Subject', `Remove ${sub.name}?`, [
+  const handleDelete = (sub = editing) => {
+    if (!sub?.id) return;
+    Alert.alert('Remove Subject', `Remove ${sub.name}? This will also remove it from assigned sections.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
+      { text: 'Remove', style: 'destructive', onPress: async () => {
         try {
           await api.delete(`/subjects/${sub.id}`);
           setSubjects(prev => prev.filter(s => s.id !== sub.id));
-        } catch { Alert.alert('Error', 'Could not delete subject.'); }
+          setShowModal(false);
+          setEditing(null);
+          Alert.alert('Removed', 'Subject removed successfully.');
+        } catch (e) {
+          Alert.alert('Error', e.response?.data?.message || 'Could not remove subject.');
+        }
       }},
     ]);
   };
@@ -350,51 +357,66 @@ export default function RegistrarSubjects() {
                 </TouchableOpacity>
               )}
             </View>
-          ) : subjects.map((sub, i) => (
-            <View key={i} style={s.subjectCard}>
+          ) : subjects.map((sub, i) => {
+            const isExpanded = expandedId === sub.id;
+            return (
+            <TouchableOpacity
+              key={i}
+              style={s.subjectCard}
+              activeOpacity={0.7}
+              onPress={() => setExpandedId(isExpanded ? null : sub.id)}
+            >
               <View style={s.subjectCardTop}>
                 <View style={s.codeTag}>
                   <Text style={s.codeTagText}>{sub.code}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.subjectName}>{sub.name}</Text>
+                  {!isExpanded && (
+                    <Text style={s.subjectMeta}>
+                      {(sub.course || sub.strand) ? (sub.course || sub.strand) : 'General'} · {sub.units_lec + sub.units_lab} units
+                    </Text>
+                  )}
+                </View>
+                <Text style={{ fontSize: 12, color: C.muted }}>{isExpanded ? '▲' : '▼'}</Text>
+              </View>
+
+              {isExpanded && (
+                <View style={{ marginTop: 8 }}>
                   <Text style={s.subjectMeta}>
                     {(sub.course || sub.strand) ? (sub.course || sub.strand) : 'General'} · Year {sub.year_level ?? '-'}
                   </Text>
                   {sub.semester ? (
                     <Text style={s.subjectMeta}>{sub.semester} Semester</Text>
                   ) : null}
-                </View>
-                <View style={s.unitsTag}>
-                  <Text style={s.unitsText}>{sub.units_lec + sub.units_lab} units</Text>
-                </View>
-              </View>
-              {sub.description ? (
-                <Text style={s.subjectDesc} numberOfLines={2}>{sub.description}</Text>
-              ) : null}
-              {sub.prerequisites?.length ? (
-                <View style={s.prereqGroup}>
-                  <Text style={s.prereqLabel}>Prerequisites:</Text>
-                  <View style={s.prereqList}>
-                    {sub.prerequisites.map(pr => (
-                      <Text key={pr.id} style={s.prereqChip}>{pr.code}</Text>
-                    ))}
+                  {sub.description ? (
+                    <Text style={[s.subjectDesc, { marginTop: 8 }]}>{sub.description}</Text>
+                  ) : null}
+                  {sub.prerequisites?.length ? (
+                    <View style={s.prereqGroup}>
+                      <Text style={s.prereqLabel}>Prerequisites:</Text>
+                      <View style={s.prereqList}>
+                        {sub.prerequisites.map(pr => (
+                          <Text key={pr.id} style={s.prereqChip}>{pr.code}</Text>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
+                  <View style={s.subjectActions}>
+                    <Text style={s.unitDetail}>Lec: {sub.units_lec}  Lab: {sub.units_lab}  ·  Total: {sub.units_lec + sub.units_lab} units</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity style={s.editBtn} onPress={() => openEdit(sub)}>
+                        <Text style={s.editBtnText}>✏️ Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={s.deleteBtn} onPress={() => handleDelete(sub)}>
+                        <Text style={s.deleteBtnText}>🗑</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
-              ) : null}
-              <View style={s.subjectActions}>
-                <Text style={s.unitDetail}>Lec: {sub.units_lec}  Lab: {sub.units_lab}</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <TouchableOpacity style={s.editBtn} onPress={() => openEdit(sub)}>
-                    <Text style={s.editBtnText}>✏️ Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.deleteBtn} onPress={() => handleDelete(sub)}>
-                    <Text style={s.deleteBtnText}>🗑</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          ))}
+              )}
+            </TouchableOpacity>
+          );})}
         </ScrollView>
       )}
 
@@ -538,6 +560,11 @@ export default function RegistrarSubjects() {
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={s.saveBtnText}>{editing ? 'Update Subject' : 'Create Subject'}</Text>}
             </TouchableOpacity>
+            {editing ? (
+              <TouchableOpacity style={s.removeSubjectBtn} onPress={() => handleDelete(editing)} disabled={saving}>
+                <Text style={s.removeSubjectText}>Remove Subject</Text>
+              </TouchableOpacity>
+            ) : null}
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>
@@ -634,4 +661,6 @@ const s = StyleSheet.create({
   chipTextActive: { color: C.blue, fontWeight: '700' },
   saveBtn: { backgroundColor: C.blue, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  removeSubjectBtn: { backgroundColor: C.dangerLight, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 12 },
+  removeSubjectText: { color: C.danger, fontWeight: '800', fontSize: 15 },
 });

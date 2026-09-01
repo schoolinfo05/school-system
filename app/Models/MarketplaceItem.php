@@ -29,7 +29,7 @@ class MarketplaceItem extends Model
 
     public function getImageUrlsAttribute($value): array
     {
-        $urls = json_decode($value ?: '[]', true);
+        $urls = is_string($value) ? json_decode($value, true) : $value;
 
         if (!is_array($urls)) {
             return [];

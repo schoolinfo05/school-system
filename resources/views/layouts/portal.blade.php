@@ -9,6 +9,8 @@
             ['label' => 'Users', 'route' => 'admin.users.index', 'match' => 'admin/users*', 'roles' => ['admin']],
             ['label' => 'Controls', 'route' => 'admin.controls.index', 'match' => 'admin/controls*', 'roles' => ['admin']],
             ['label' => 'Activity Logs', 'route' => 'admin.activity.index', 'match' => 'admin/activity*', 'roles' => ['admin']],
+            ['label' => 'Reports', 'route' => 'admin.reports.index', 'match' => 'admin/reports*', 'roles' => ['admin']],
+            ['label' => 'Archive', 'route' => 'admin.archive.index', 'match' => 'admin/archive*', 'roles' => ['admin']],
         ],
         'Registrar' => [
             ['label' => 'Dashboard', 'route' => 'registrar.dashboard', 'match' => 'registrar/dashboard', 'roles' => ['admin', 'registrar']],
@@ -18,6 +20,7 @@
             ['label' => 'Subjects', 'route' => 'registrar.subjects.index', 'match' => 'registrar/subjects*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Sections', 'route' => 'registrar.sections.index', 'match' => 'registrar/sections*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Points', 'route' => 'registrar.points.index', 'match' => 'registrar/points*', 'roles' => ['admin', 'registrar']],
+            ['label' => 'Reports', 'route' => 'registrar.reports.index', 'match' => 'registrar/reports*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Profile', 'route' => 'registrar.profile.show', 'match' => 'registrar/profile*', 'roles' => ['admin', 'registrar']],
         ],
         'Teacher' => [

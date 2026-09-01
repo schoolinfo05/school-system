@@ -9,6 +9,7 @@ use App\Models\Grade;
 use App\Models\Student;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ParentController extends Controller
 {
@@ -23,6 +24,8 @@ class ParentController extends Controller
             ->orderBy('last_name')
             ->get()
             ->map(function (Student $student) use ($points) {
+                $this->applyDisplaySection($student);
+
                 $grades = Grade::where('student_id', $student->id)
                     ->with('schoolClass')
                     ->get()
@@ -53,4 +56,22 @@ class ParentController extends Controller
         ]);
     }
 
+    private function applyDisplaySection(Student $student): void
+    {
+        $section = DB::table('section_students')
+            ->join('sections', 'sections.id', '=', 'section_students.section_id')
+            ->where('section_students.user_id', $student->user_id)
+            ->where('section_students.status', 'enrolled')
+            ->select('sections.name', 'sections.year_level', 'sections.school_year')
+            ->latest('section_students.created_at')
+            ->first();
+
+        if (!$section) {
+            return;
+        }
+
+        $student->setAttribute('section', $section->name ?: $student->section);
+        $student->setAttribute('grade_level', $section->year_level ?: $student->grade_level);
+        $student->setAttribute('school_year', $section->school_year ?: $student->school_year);
+    }
 }

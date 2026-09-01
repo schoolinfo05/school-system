@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import api, { removeToken } from '../../src/api';
 import { useTheme } from '../../src/theme-context';
 
 const MORE_ROUTES = [
@@ -14,7 +16,24 @@ const MORE_ROUTES = [
 
 export default function More() {
   const router = useRouter();
-  const { theme } = useTheme();
+  const { theme, reloadTheme } = useTheme();
+
+  const handleLogout = () => {
+    Alert.alert('Logout', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          await api.post('/logout').catch(() => {});
+          await AsyncStorage.multiRemove(['token', 'role', 'position', 'user']);
+          removeToken();
+          await reloadTheme();
+          router.replace('/login');
+        },
+      },
+    ]);
+  };
 
   return (
     <ScrollView
@@ -42,6 +61,17 @@ export default function More() {
           </TouchableOpacity>
         ))}
       </View>
+
+      <TouchableOpacity
+        style={[styles.logoutBtn, { backgroundColor: theme.dangerLight, borderColor: theme.danger }]}
+        onPress={handleLogout}
+        activeOpacity={0.75}
+      >
+        <View style={[styles.iconWrap, { backgroundColor: '#FFFFFF' }]}>
+          <Ionicons name="log-out-outline" size={22} color={theme.danger} />
+        </View>
+        <Text style={[styles.logoutText, { color: theme.danger }]}>Logout</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -69,4 +99,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardText: { flex: 1, fontSize: 15, fontWeight: '700' },
+  logoutBtn: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    marginTop: 18,
+  },
+  logoutText: { flex: 1, fontSize: 15, fontWeight: '800' },
 });

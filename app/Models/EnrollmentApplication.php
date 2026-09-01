@@ -18,7 +18,7 @@ class EnrollmentApplication extends Model
 
         // Family
         'father_name', 'father_occupation',
-        'mother_name', 'mother_occupation',
+        'mother_name', 'mother_occupation', 'parent_email',
 
         // Previous school
         'prev_school', 'prev_school_address',
@@ -33,7 +33,7 @@ class EnrollmentApplication extends Model
 
         // Enrollment period
         'school_year', 'semester',
-        'subject_ids', 'document_urls',
+        'subject_ids', 'section_subject_ids', 'document_urls',
 
         // Review
         'status', 'remarks', 'user_id',
@@ -47,6 +47,7 @@ class EnrollmentApplication extends Model
         'reviewed_at' => 'datetime',
         'course_id'   => 'integer',
         'subject_ids' => 'array',
+        'section_subject_ids' => 'array',
         'document_urls' => 'array',
     ];
 

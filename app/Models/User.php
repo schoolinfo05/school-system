@@ -100,4 +100,24 @@ class User extends Authenticatable
             ? url('storage/' . ltrim($this->profile_photo_path, '/'))
             : null;
     }
+
+    public function student()
+    {
+        return $this->hasOne(Student::class);
+    }
+
+    public function grades()
+    {
+        return $this->hasManyThrough(Grade::class, Student::class, 'user_id', 'student_id');
+    }
+
+    public function teacherSections()
+    {
+        return $this->hasMany(SectionSubject::class, 'teacher_id');
+    }
+
+    public function teacherClasses()
+    {
+        return $this->hasMany(SchoolClass::class, 'teacher_id');
+    }
 }

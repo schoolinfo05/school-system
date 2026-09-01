@@ -31,10 +31,13 @@ class MarketplaceController extends Controller
             ->when($request->category, fn($q) =>
                 $q->where('category', $request->category)
             )
-            ->when($request->search, fn($q) =>
-                $q->where('title', 'like', "%{$request->search}%")
-                  ->orWhere('description', 'like', "%{$request->search}%")
-            )
+            ->when($request->search, function($q) use ($request) {
+                $search = addcslashes($request->search, '%_');
+                $q->where(function($sub) use ($search) {
+                    $sub->where('title', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%");
+                });
+            })
             ->latest()
             ->get();
 
@@ -740,6 +743,16 @@ class MarketplaceController extends Controller
     // POST /api/paymongo/webhook — PayMongo payment confirmation
     public function paymongoWebhook(Request $request)
     {
+        // TODO: Add your PayMongo webhook signing secret to config/services.php as 'paymongo.webhook_secret'
+        $secret = config('services.paymongo.webhook_secret');
+        if ($secret) {
+            $signature = $request->header('Paymongo-Signature');
+            // Verify HMAC signature
+            if (!$signature || !hash_equals(hash_hmac('sha256', $request->getContent(), $secret), $signature)) {
+                return response()->json(['error' => 'Invalid signature'], 403);
+            }
+        }
+
         $payload        = $request->all();
         $attributes     = $payload['data']['attributes'] ?? [];
         $eventType      = $attributes['type'] ?? null;

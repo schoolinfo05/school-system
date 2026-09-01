@@ -10,6 +10,7 @@ use App\Models\StudentReward;
 use App\Models\StudentSubject;
 use App\Models\Subject;
 use App\Models\User;
+use App\Services\ArchiveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -205,8 +206,10 @@ class AdminStudentController extends Controller
         $this->authorizeAdmin($request);
 
         $user = $student->user;
+        ArchiveService::record($student, $request->user()?->id, 'api.admin.students');
 
         if ($user) {
+            ArchiveService::record($user, $request->user()?->id, 'api.admin.students.linked_user');
             $user->delete();
         } else {
             $student->delete();
@@ -308,6 +311,35 @@ class AdminStudentController extends Controller
             }));
 
         $sectionSubjectIds = $sectionSubjects->pluck('id')->filter()->unique()->all();
+        $directSectionSubjects = StudentSubject::query()
+            ->where('user_id', $student->user_id)
+            ->whereNotNull('section_id')
+            ->with(['subject', 'section.sectionSubjects.teacher:id,name'])
+            ->get()
+            ->reject(fn (StudentSubject $record) => in_array((int) $record->subject_id, $sectionSubjectIds, true))
+            ->map(function (StudentSubject $record) {
+                $offering = $record->section?->sectionSubjects
+                    ->first(fn ($sectionSubject) => (int) $sectionSubject->subject_id === (int) $record->subject_id);
+
+                return [
+                    'id'          => $record->subject?->id,
+                    'section_id'  => $record->section_id,
+                    'code'        => $record->subject?->code,
+                    'name'        => $record->subject?->name,
+                    'units_lec'   => $record->subject?->units_lec,
+                    'units_lab'   => $record->subject?->units_lab,
+                    'teacher'     => $offering?->teacher?->name,
+                    'day'         => $offering?->day,
+                    'time_start'  => $offering?->time_start,
+                    'time_end'    => $offering?->time_end,
+                    'room'        => $offering?->room,
+                    'source'      => 'irregular',
+                    'status'      => $record->status ?? 'enrolled',
+                    'drop_reason' => $record->drop_reason,
+                    'dropped_at'  => $record->dropped_at,
+                ];
+            });
+
         $directSubjectIds = collect($application?->subject_ids ?? [])
             ->map(fn ($id) => (int) $id)
             ->filter(fn ($id) => $id > 0 && !in_array($id, $sectionSubjectIds, true))
@@ -340,6 +372,7 @@ class AdminStudentController extends Controller
             });
 
         return $sectionSubjects
+            ->concat($directSectionSubjects)
             ->concat($directSubjects)
             ->filter(fn ($subject) => $subject['id'])
             ->values()

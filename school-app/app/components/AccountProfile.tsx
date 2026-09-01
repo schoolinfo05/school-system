@@ -5,6 +5,7 @@ import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } f
 import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
 import { useTheme } from '../../src/theme-context';
+import ChangePasswordCard from './ChangePasswordCard';
 
 const ROLE_LABELS = {
   parent: 'Parent',
@@ -20,7 +21,7 @@ const POSITION_LABELS = {
 
 export default function AccountProfile() {
   const router = useRouter();
-  const { theme, themeName, setThemeName, themes } = useTheme();
+  const { theme, themeName, setThemeName, reloadTheme, themes } = useTheme();
   const [user, setUser] = useState(null);
   const [notificationPrefs, setNotificationPrefs] = useState([]);
 
@@ -58,6 +59,7 @@ export default function AccountProfile() {
           await api.post('/logout').catch(() => {});
           await AsyncStorage.multiRemove(['token', 'role', 'position', 'user']);
           removeToken();
+          await reloadTheme();
           router.replace('/login');
         },
       },
@@ -122,6 +124,8 @@ export default function AccountProfile() {
           </View>
         ))}
       </View>
+
+      <ChangePasswordCard theme={theme} />
 
       <TouchableOpacity style={[s.logoutBtn, { backgroundColor: theme.dangerLight, borderColor: theme.danger }]} onPress={handleLogout}>
         <Text style={[s.logoutText, { color: theme.danger }]}>Logout</Text>

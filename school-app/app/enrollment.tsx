@@ -83,8 +83,10 @@ export default function EnrollmentScreen() {
     prev_school: '', prev_school_address: '',
     father_name: '', father_occupation: '',
     mother_name: '', mother_occupation: '',
+    parent_email: '',
     email: '', password: '', password_confirmation: '',
     subject_ids: [],
+    section_subject_ids: [],
   });
   const [existingStudent, setExistingStudent] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -192,6 +194,7 @@ export default function EnrollmentScreen() {
       father_occupation: student.father_occupation || prev.father_occupation,
       mother_name: student.mother_name || prev.mother_name,
       mother_occupation: student.mother_occupation || prev.mother_occupation,
+      parent_email: student.parent_email || prev.parent_email,
       prev_school: student.prev_school || prev.prev_school,
       prev_school_address: student.prev_school_address || prev.prev_school_address,
       student_type: student.student_type || prev.student_type,
@@ -282,7 +285,6 @@ export default function EnrollmentScreen() {
         const params = { program_type: form.program_type, semester: form.semester.toLowerCase() };
 
         if (form.program_type === 'college') {
-          if (!form.course_id) { setSubjects([]); return; }
           params.course = form.course_program;
           if (form.year_level) params.year_level = form.year_level.replace(/[^0-9]/g, '');
         } else {
@@ -291,8 +293,49 @@ export default function EnrollmentScreen() {
           if (form.year_level) params.year_level = form.year_level.replace(/[^0-9]/g, '');
         }
 
-        const res = await api.get('/subjects', { params });
-        setSubjects(res.data || []);
+        if (form.academic_status === 'Irregular') {
+          const sectionParams = {
+            school_year: form.school_year,
+            semester: form.semester.toLowerCase(),
+          };
+          const res = await api.get('/sections', { params: sectionParams });
+          const offerings = (res.data || [])
+            .filter(section => section.program_type === form.program_type)
+            .filter(section => {
+              if (form.program_type !== 'college' || !form.course_program) return true;
+              return !section.course || section.course === form.course_program;
+            })
+            .filter(section => form.program_type !== 'shs' || !form.strand || !section.strand || section.strand === form.strand)
+            .filter(section => {
+              const level = form.year_level?.replace(/[^0-9]/g, '');
+              return !level || String(section.year_level || '') === level;
+            })
+            .flatMap(section => (section.section_subjects || []).map(offering => ({
+              ...offering.subject,
+              offering_id: offering.id,
+              section_id: section.id,
+              section_name: section.name,
+              teacher: offering.teacher?.name,
+              days: offering.day,
+              time: [offering.time_start, offering.time_end].filter(Boolean).join('-'),
+              time_start: offering.time_start,
+              time_end: offering.time_end,
+              room: offering.room,
+            })))
+            .filter(subject => {
+              if (!subject?.id) return false;
+              if (subject.program_type && subject.program_type !== form.program_type) return false;
+              if (subject.semester && subject.semester !== form.semester.toLowerCase()) return false;
+              if (form.program_type === 'college' && form.course_program && subject.course && subject.course !== form.course_program) return false;
+              if (form.program_type === 'shs' && form.strand && subject.strand && subject.strand !== form.strand) return false;
+              return true;
+            })
+            .filter(subject => subject?.id);
+          setSubjects(offerings);
+        } else {
+          const res = await api.get('/subjects', { params });
+          setSubjects(res.data || []);
+        }
       } catch {
         console.log('Failed to load subjects');
       } finally {
@@ -317,27 +360,34 @@ export default function EnrollmentScreen() {
 
     loadSubjects();
     loadCourses();
-  }, [form.program_type, form.course_id, form.course_program, form.strand, form.year_level, form.semester, courseSearch]);
+  }, [form.program_type, form.course_id, form.course_program, form.strand, form.year_level, form.semester, form.school_year, form.academic_status, courseSearch]);
 
   useEffect(() => {
     if (form.academic_status === 'Regular') {
-      setForm(prev => ({ ...prev, subject_ids: subjects.map(subject => subject.id) }));
+      setForm(prev => ({ ...prev, subject_ids: subjects.map(subject => subject.id), section_subject_ids: [] }));
     }
   }, [form.academic_status, subjects]);
 
   useEffect(() => {
     if (form.academic_status === 'Irregular') {
-      setForm(prev => ({ ...prev, subject_ids: [] }));
+      setForm(prev => ({ ...prev, subject_ids: [], section_subject_ids: [] }));
     }
   }, [form.academic_status]);
 
-  const toggleSubject = useCallback((id) => {
+  const toggleSubject = useCallback((subject) => {
     if (form.academic_status === 'Regular') return;
+    const offeringId = subject.offering_id;
+    const subjectId = subject.id;
     setForm(prev => ({
       ...prev,
-      subject_ids: prev.subject_ids.includes(id)
-        ? prev.subject_ids.filter(sid => sid !== id)
-        : [...prev.subject_ids, id],
+      subject_ids: prev.subject_ids.includes(subjectId)
+        ? prev.subject_ids.filter(sid => sid !== subjectId)
+        : [...prev.subject_ids, subjectId],
+      section_subject_ids: offeringId
+        ? (prev.section_subject_ids.includes(offeringId)
+            ? prev.section_subject_ids.filter(id => id !== offeringId)
+            : [...prev.section_subject_ids, offeringId])
+        : prev.section_subject_ids,
     }));
   }, [form.academic_status]);
 
@@ -388,7 +438,9 @@ export default function EnrollmentScreen() {
       father_occupation: form.father_occupation,
       mother_name: form.mother_name,
       mother_occupation: form.mother_occupation,
+      parent_email: form.parent_email,
       subject_ids: form.subject_ids,
+      section_subject_ids: form.section_subject_ids,
       school_year: form.school_year,
       semester: form.semester.toLowerCase(),
       id_no: form.id_no,
@@ -482,7 +534,9 @@ export default function EnrollmentScreen() {
   );
 
   const totalUnits = subjects
-    .filter(sub => form.subject_ids.includes(sub.id))
+    .filter(sub => form.academic_status === 'Irregular'
+      ? form.section_subject_ids.includes(sub.offering_id)
+      : form.subject_ids.includes(sub.id))
     .reduce((acc, sub) => acc + (sub.units_lab || 0) + (sub.units_lec || 0), 0);
 
   const isSHS = form.program_type === 'shs';
@@ -810,6 +864,13 @@ export default function EnrollmentScreen() {
               {inp('mother_occupation')}
             </View>
           </View>
+          <Field label="Parent Email">
+            {inp('parent_email', {
+              keyboardType: 'email-address',
+              autoCapitalize: 'none',
+              placeholder: 'parent@example.com',
+            })}
+          </Field>
         </View>
 
         {/* ── Subjects Table ── */}
@@ -818,7 +879,7 @@ export default function EnrollmentScreen() {
           <Text style={s.sectionSubtitle}>
             {form.academic_status === 'Regular'
               ? `Regular load for ${form.semester} Semester, A.Y. ${form.school_year}`
-              : `Select subjects for ${form.semester} Semester, A.Y. ${form.school_year}`}
+              : `Select subject offerings from available sections for ${form.semester} Semester, A.Y. ${form.school_year}`}
           </Text>
 
           <View style={s.tableHeader}>
@@ -829,6 +890,7 @@ export default function EnrollmentScreen() {
             <Text style={[s.thCell, { flex: 1.2 }]}>Days</Text>
             <Text style={[s.thCell, { flex: 1.2 }]}>Time</Text>
             <Text style={[s.thCell, { flex: 1 }]}>Room</Text>
+            {form.academic_status === 'Irregular' && <Text style={[s.thCell, { flex: 1.2 }]}>Section</Text>}
           </View>
 
           {loadingSubjects ? (
@@ -836,12 +898,14 @@ export default function EnrollmentScreen() {
           ) : subjects.length > 0 ? (
             <>
               {subjects.map(subject => {
-                const active = form.subject_ids.includes(subject.id);
+                const active = form.academic_status === 'Irregular'
+                  ? form.section_subject_ids.includes(subject.offering_id)
+                  : form.subject_ids.includes(subject.id);
                 return (
                   <TouchableOpacity
-                    key={subject.id}
+                    key={subject.offering_id || subject.id}
                     style={[s.tableRow, active && s.tableRowActive]}
-                    onPress={() => toggleSubject(subject.id)}
+                    onPress={() => toggleSubject(subject)}
                     disabled={form.academic_status === 'Regular'}
                   >
                     <View style={[s.checkBox, { marginRight: 6 }, active && s.checkBoxActive]}>
@@ -854,6 +918,7 @@ export default function EnrollmentScreen() {
                     <Text style={[s.tdCell, { flex: 1.2 }]}>{subject.days ?? '-'}</Text>
                     <Text style={[s.tdCell, { flex: 1.2 }]}>{subject.time ?? '-'}</Text>
                     <Text style={[s.tdCell, { flex: 1 }]}>{subject.room ?? '-'}</Text>
+                    {form.academic_status === 'Irregular' && <Text style={[s.tdCell, { flex: 1.2 }]}>{subject.section_name ?? '-'}</Text>}
                   </TouchableOpacity>
                 );
               })}

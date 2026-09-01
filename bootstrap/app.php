@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'web.roles' => \App\Http\Middleware\EnsureWebPortalRole::class,
+            'role' => \App\Http\Middleware\EnsureApiRole::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

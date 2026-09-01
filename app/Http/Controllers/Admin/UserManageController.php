@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\AuthorizesPortal;
 use App\Models\User;
+use App\Services\ArchiveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -87,5 +88,24 @@ class UserManageController extends Controller
         $user->syncRoles([$data['role']]);
 
         return redirect()->route('admin.users.index')->with('status', 'User updated.');
+    }
+
+    public function destroy(Request $request, User $user)
+    {
+        $this->requireAnyRole($request, ['admin']);
+
+        if ($user->id === $request->user()->id) {
+            return back()->withErrors(['user' => 'You cannot delete your own account.']);
+        }
+
+        if (($user->role === User::ROLE_ADMIN || $user->hasRole(User::ROLE_ADMIN))
+            && User::query()->where('role', User::ROLE_ADMIN)->count() <= 1) {
+            return back()->withErrors(['user' => 'At least one admin account is required.']);
+        }
+
+        ArchiveService::record($user, $request->user()?->id, 'web.admin.users');
+        $user->delete();
+
+        return redirect()->route('admin.users.index')->with('status', 'User archived and removed.');
     }
 }

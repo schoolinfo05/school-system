@@ -164,6 +164,7 @@ function buildMarketplaceReceiptHtml(receipt) {
 }
 
 const SCHOOL_MANAGEMENT_ROLES = ['admin', 'registrar', 'school_management'];
+const MARKET_BUYER_ROLES = ['student', 'faculty', 'teacher', 'head_teacher', 'dean'];
 const DEFAULT_PAYMENT_OPTIONS = {
   qrph: {
     enabled: true,
@@ -177,6 +178,7 @@ const DEFAULT_PAYMENT_OPTIONS = {
 export default function Market() {
   const { theme } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const isWeb = Platform.OS === 'web';
   const isWideWeb = Platform.OS === 'web' && windowWidth >= 900;
   const galleryWidth = isWideWeb ? Math.min(windowWidth, 760) : windowWidth;
   const [role, setRole]             = useState(null);
@@ -234,7 +236,7 @@ export default function Market() {
   const canManageListings = SCHOOL_MANAGEMENT_ROLES.includes(role)
     || role === 'property_custodian'
     || (role === 'staff' && position === 'property_custodian');
-  const canBuyItems = role === 'student';
+  const canBuyItems = MARKET_BUYER_ROLES.includes(role);
   const activeCheckoutCount = orders.filter(order => !['completed', 'cancelled'].includes(order.status)).length;
   const headerStats = canManageListings
     ? [
@@ -635,11 +637,13 @@ export default function Market() {
       Alert.alert('Reference required', 'Enter the payment reference number after sending payment.');
       return;
     }
-    if (redeemPoints > 0 && redeemPoints < 50) {
+    const checkoutRedeemPoints = role === 'student' ? redeemPoints : 0;
+
+    if (checkoutRedeemPoints > 0 && checkoutRedeemPoints < 50) {
       Alert.alert('Minimum redemption', 'Redeem at least 50 points or leave it at 0.');
       return;
     }
-    if (redeemPoints > maxRedeemPoints) {
+    if (checkoutRedeemPoints > maxRedeemPoints) {
       Alert.alert('Too many points', `You can redeem up to ${maxRedeemPoints} points for this checkout.`);
       return;
     }
@@ -650,7 +654,7 @@ export default function Market() {
         payment_method:   paymentMethod,
         quantity,
         gcash_reference: ['gcash', 'qrph'].includes(paymentMethod) ? paymentReference.trim() : null,
-        points_to_redeem: redeemPoints,
+        points_to_redeem: checkoutRedeemPoints,
       });
       const updated = res.data.item;
       const order   = res.data.order;
@@ -991,10 +995,10 @@ export default function Market() {
     const firstImage    = item.image_urls?.[0] ?? null;
 
     return (
-      <View key={i} style={[s.itemCard, isWideWeb ? s.itemCardWeb : s.itemCardMobile, isUnavailable && !isMine && s.itemCardDimmed]}>
+      <View key={i} style={[s.itemCard, isWeb ? s.itemCardWeb : s.itemCardMobile, isUnavailable && !isMine && s.itemCardDimmed]}>
 
         {/* Image thumbnail */}
-        <View style={s.itemImg}>
+        <View style={[s.itemImg, isWeb && s.itemImgWeb]}>
           {firstImage ? (
             <Image
               source={{ uri: firstImage }}
@@ -1015,7 +1019,7 @@ export default function Market() {
         </View>
 
         {/* Body */}
-        <View style={s.itemBody}>
+        <View style={[s.itemBody, isWeb && s.itemBodyWeb]}>
           <Text
             style={[s.itemTitle, isUnavailable && !isMine && s.textDimmed]}
             numberOfLines={2}
@@ -1129,6 +1133,7 @@ export default function Market() {
         }
         initials="MK"
         stats={headerStats}
+        compact={isWeb}
       >
         <SearchBar
           value={search}
@@ -1137,7 +1142,7 @@ export default function Market() {
           onSubmitEditing={fetchItems}
         />
       </HeaderGradient>
-      <View style={[s.contentShell, { backgroundColor: theme.card, borderBottomColor: theme.border }, isWideWeb && s.contentShellWeb]}>
+      <View style={[s.contentShell, { backgroundColor: theme.card, borderBottomColor: theme.border }, isWeb && s.contentShellWeb]}>
         <View style={[s.toggleRow, { backgroundColor: theme.primaryLight, borderColor: theme.border }]}>
           <TouchableOpacity
             style={[s.toggleBtn, viewMode === 'browse' && [s.toggleBtnActive, { backgroundColor: theme.card }]]}
@@ -1186,7 +1191,7 @@ export default function Market() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[s.catScroll, isWideWeb && s.catScrollWeb]}
+            contentContainerStyle={[s.catScroll, isWeb && s.catScrollWeb]}
           >
             {CATEGORIES.map(cat => {
               const active = category === cat.key;
@@ -1245,7 +1250,7 @@ export default function Market() {
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={[s.grid, isWideWeb && s.gridWeb]}
+          contentContainerStyle={[s.grid, isWeb && s.gridWeb]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -2051,7 +2056,7 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
   },
   contentShellWeb: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 14,
     alignItems: 'center',
   },
   toggleRow: {
@@ -2061,10 +2066,10 @@ const s = StyleSheet.create({
     marginBottom: 8,
     gap: 3,
     width: '100%',
-    maxWidth: 1180,
+    maxWidth: 880,
     borderWidth: 1,
   },
-  toggleBtn:           { flex: 1, paddingVertical: 7, borderRadius: 9, alignItems: 'center' },
+  toggleBtn:           { flex: 1, paddingVertical: 6, borderRadius: 9, alignItems: 'center' },
   toggleBtnActive:     {
     shadowColor: '#000',
     shadowOpacity: 0.06,
@@ -2072,7 +2077,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  toggleBtnText:       { fontSize: 12, fontWeight: '700' },
+  toggleBtnText:       { fontSize: 11, fontWeight: '700' },
 
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   searchBox: {
@@ -2094,15 +2099,15 @@ const s = StyleSheet.create({
     borderBottomColor: C.border,
   },
   catScroll:      { paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
-  catScrollWeb:   { width: '100%', maxWidth: 1180, alignSelf: 'center', paddingHorizontal: 24 },
+  catScrollWeb:   { width: '100%', maxWidth: 880, alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 6 },
   catTab:         {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 14, paddingVertical: 7,
+    paddingHorizontal: 11, paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
   },
-  catEmoji:       { fontSize: 14 },
-  catLabel:       { fontSize: 12, fontWeight: '600' },
+  catEmoji:       { fontSize: 12 },
+  catLabel:       { fontSize: 11, fontWeight: '600' },
 
   summaryBar: {
     flexDirection: 'row',
@@ -2137,12 +2142,12 @@ const s = StyleSheet.create({
   },
   gridWeb: {
     width: '100%',
-    maxWidth: 1040,
+    maxWidth: 880,
     alignSelf: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    gap: 14,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    gap: 10,
   },
   itemCard: {
     width: '47.5%',
@@ -2158,7 +2163,7 @@ const s = StyleSheet.create({
     elevation: 2,
   },
   itemCardMobile: { width: '47.5%' },
-  itemCardWeb: { width: 224, borderRadius: 12 },
+  itemCardWeb: { width: 168, borderRadius: 10 },
   orderCard: {
     width: '100%',
     backgroundColor: C.card,
@@ -2250,6 +2255,9 @@ const s = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
+  itemImgWeb: {
+    height: 78,
+  },
   itemImgEmoji: { fontSize: 40 },
 
   statusBadge: {
@@ -2272,6 +2280,7 @@ const s = StyleSheet.create({
   photoCountText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 
   itemBody:      { padding: 9 },
+  itemBodyWeb:   { padding: 7 },
   itemTitle:     { fontSize: 12, fontWeight: '700', color: C.text, marginBottom: 4, lineHeight: 17 },
   itemPrice:     { fontSize: 16, fontWeight: '800', color: C.blue, marginBottom: 7 },
   itemPriceSold: { textDecorationLine: 'line-through', color: C.muted, fontSize: 14, fontWeight: '500' },

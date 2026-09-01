@@ -12,6 +12,7 @@ use App\Models\Subject;
 use App\Models\Section;
 use App\Models\SectionSubject;
 use App\Models\User;
+use App\Services\ArchiveService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -133,8 +134,18 @@ class SubjectSectionController extends Controller
     public function subjectDestroy(Request $request, $id)
     {
         $this->authorizeRegistrar($request);
-        Subject::findOrFail($id)->delete();
-        return response()->json(['message' => 'Subject deleted.']);
+        $subject = Subject::findOrFail($id);
+        ArchiveService::record($subject, $request->user()?->id, 'api.subjects');
+
+        if ($subject->sectionSubjects()->exists()) {
+            $subject->sectionSubjects()->delete();
+        }
+
+        $subject->prerequisites()->detach();
+        $subject->requiredBy()->detach();
+        $subject->delete();
+
+        return response()->json(['message' => 'Subject removed.']);
     }
 
     // GET /api/subjects/{id}/prerequisites
@@ -327,15 +338,22 @@ class SubjectSectionController extends Controller
         $request->validate([
             'subject_id' => 'required|exists:subjects,id',
             'teacher_id' => 'nullable|exists:users,id',
-            'day'        => 'nullable|string|max:20',
+            'day'        => 'nullable|string|max:100',
+            'days'       => 'nullable|array',
+            'days.*'     => 'string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
             'time_start' => 'nullable|string|max:10',
             'time_end'   => 'nullable|string|max:10',
             'room'       => 'nullable|string|max:50',
         ]);
 
+        $data = $request->only(['teacher_id', 'day', 'time_start', 'time_end', 'room']);
+        if ($request->filled('days')) {
+            $data['day'] = implode(', ', $request->days);
+        }
+
         $sectionSubject = SectionSubject::updateOrCreate(
             ['section_id' => $id, 'subject_id' => $request->subject_id],
-            $request->only(['teacher_id', 'day', 'time_start', 'time_end', 'room'])
+            $data
         );
 
         return response()->json($sectionSubject->load('subject', 'teacher'), 201);
@@ -346,9 +364,24 @@ class SubjectSectionController extends Controller
     {
         $this->authorizeRegistrar($request);
         SectionSubject::where('section_id', $id)
-                      ->where('subject_id', $subjectId)
-                      ->delete();
+            ->where('subject_id', $subjectId)
+            ->get()
+            ->each(function (SectionSubject $sectionSubject) use ($request) {
+                ArchiveService::record($sectionSubject, $request->user()?->id, 'api.sections.subjects');
+                $sectionSubject->delete();
+            });
         return response()->json(['message' => 'Subject removed from section.']);
+    }
+
+    public function sectionDestroy(Request $request, $id)
+    {
+        $this->authorizeRegistrar($request);
+
+        $section = Section::findOrFail($id);
+        ArchiveService::record($section, $request->user()?->id, 'api.sections');
+        $section->delete();
+
+        return response()->json(['message' => 'Section archived and removed.']);
     }
 
     // POST /api/sections/{id}/students — enroll student in section
@@ -465,6 +498,37 @@ class SubjectSectionController extends Controller
         );
 
         $sectionSubjectIds = $subjects->pluck('subject_id')->unique()->all();
+        $directSectionSubjects = StudentSubject::query()
+            ->where('user_id', $user->id)
+            ->whereNotNull('section_id')
+            ->with(['subject', 'section.sectionSubjects.teacher:id,name'])
+            ->get()
+            ->reject(fn (StudentSubject $record) => in_array((int) $record->subject_id, $sectionSubjectIds, true))
+            ->filter(fn (StudentSubject $record) => $record->status !== 'dropped')
+            ->map(function (StudentSubject $record) {
+                $offering = $record->section?->sectionSubjects
+                    ->first(fn ($sectionSubject) => (int) $sectionSubject->subject_id === (int) $record->subject_id);
+
+                return [
+                    'section_id'   => $record->section_id,
+                    'section_name' => $record->section?->name ?? 'Irregular enrollment',
+                    'subject_id'   => $record->subject?->id,
+                    'code'         => $record->subject?->code,
+                    'name'         => $record->subject?->name,
+                    'units_lec'    => $record->subject?->units_lec,
+                    'units_lab'    => $record->subject?->units_lab,
+                    'day'          => $offering?->day,
+                    'time_start'   => $offering?->time_start,
+                    'time_end'     => $offering?->time_end,
+                    'room'         => $offering?->room,
+                    'teacher'      => $offering?->teacher?->name,
+                ];
+            });
+
+        if ($directSectionSubjects->isNotEmpty()) {
+            $subjects = $subjects->concat($directSectionSubjects);
+            $sectionSubjectIds = $subjects->pluck('subject_id')->unique()->all();
+        }
 
         $application = EnrollmentApplication::where('user_id', $user->id)
             ->where('status', 'approved')

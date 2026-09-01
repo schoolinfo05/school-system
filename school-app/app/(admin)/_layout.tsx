@@ -55,6 +55,7 @@ export default function AdminLayout() {
       <Tabs.Screen name="users" options={{ title: 'Users', tabBarIcon: ({ focused, color }) => <Icon label="US" focused={focused} color={color} /> }} />
       <Tabs.Screen name="students" options={{ title: 'Students', tabBarIcon: ({ focused, color }) => <Icon label="ST" focused={focused} color={color} /> }} />
       <Tabs.Screen name="activity" options={{ title: 'Activity', tabBarIcon: ({ focused, color }) => <Icon label="AL" focused={focused} color={color} /> }} />
+      <Tabs.Screen name="reports" options={{ title: 'Reports', tabBarIcon: ({ focused, color }) => <Icon label="RP" focused={focused} color={color} /> }} />
       <Tabs.Screen name="market" options={{ title: 'Market', tabBarIcon: ({ focused, color }) => <Icon label="MK" focused={focused} color={color} /> }} />
       <Tabs.Screen name="controls" options={{ title: 'Controls', tabBarIcon: ({ focused, color }) => <Icon label="CT" focused={focused} color={color} /> }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ focused, color }) => <Icon label="ME" focused={focused} color={color} /> }} />

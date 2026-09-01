@@ -8,11 +8,13 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { setToken } from '../src/api';
+import { useTheme } from '../src/theme-context';
 
 const CLOSED_MESSAGE = 'Sorry, enrollment is temporarily closed.';
 
 export default function Login() {
   const router = useRouter();
+  const { reloadTheme } = useTheme();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]     = useState(false);
@@ -34,6 +36,7 @@ export default function Login() {
       }
       await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
       setToken(token);
+      await reloadTheme();
 
       const pendingEnrollmentId = await AsyncStorage.getItem('pendingEnrollmentId');
 

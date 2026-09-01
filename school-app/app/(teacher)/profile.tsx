@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
 import { useTheme } from '../../src/theme-context';
+import ChangePasswordCard from '../components/ChangePasswordCard';
 
 export default function TeacherProfile() {
   const router = useRouter();
@@ -104,6 +105,8 @@ export default function TeacherProfile() {
           : <Text style={styles.empty}>No classes assigned yet.</Text>
         }
       </View>
+
+      <ChangePasswordCard theme={theme} />
 
       <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.dangerLight }]} onPress={handleLogout}>
         <Text style={[styles.logoutText, { color: theme.danger }]}>Logout</Text>

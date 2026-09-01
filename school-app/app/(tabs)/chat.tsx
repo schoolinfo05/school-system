@@ -82,8 +82,15 @@ export default function Chat() {
     useCallback(() => {
       setLoading(true);
       loadCurrentUser();
-      if (isThread) loadMessages();
-      else loadContacts();
+      if (isThread) {
+        loadMessages();
+        const timer = setInterval(() => {
+          loadMessages();
+        }, 8000);
+        return () => clearInterval(timer);
+      } else {
+        loadContacts();
+      }
     }, [isThread, loadContacts, loadCurrentUser, loadMessages])
   );
 

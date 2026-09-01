@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Student;
+use App\Models\EnrollmentApplication;
 use App\Models\Grade;
 use App\Models\Attendance;
 use App\Models\Fee;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class StudentController extends Controller
 {
@@ -61,7 +63,27 @@ class StudentController extends Controller
             return response()->json(['message' => 'Student not found'], 404);
         }
 
+        $this->applyDisplaySection($student);
         $student->setAttribute('profile_photo_url', $user->profile_photo_url);
+
+        $application = EnrollmentApplication::query()
+            ->where('user_id', $student->user_id)
+            ->where('status', 'approved')
+            ->latest()
+            ->first();
+
+        if ($application) {
+            $student->setAttribute('enrollment', [
+                'id' => $application->id,
+                'program_type' => $application->program_type,
+                'course' => $application->course,
+                'strand' => $application->strand,
+                'year_level' => $application->year_level,
+                'grade_level' => $application->grade_level,
+                'semester' => $application->semester,
+                'academic_status' => $application->academic_status,
+            ]);
+        }
 
         $grades = Grade::where('student_id', $student->id)
             ->with('schoolClass')
@@ -87,5 +109,24 @@ class StudentController extends Controller
             'pending_fees'   => $fees,
             'reward_summary' => $points->summaryFor($student, $student->school_year),
         ]);
+    }
+
+    private function applyDisplaySection(Student $student): void
+    {
+        $section = DB::table('section_students')
+            ->join('sections', 'sections.id', '=', 'section_students.section_id')
+            ->where('section_students.user_id', $student->user_id)
+            ->where('section_students.status', 'enrolled')
+            ->select('sections.name', 'sections.year_level', 'sections.school_year')
+            ->latest('section_students.created_at')
+            ->first();
+
+        if (!$section) {
+            return;
+        }
+
+        $student->setAttribute('section', $section->name ?: $student->section);
+        $student->setAttribute('grade_level', $section->year_level ?: $student->grade_level);
+        $student->setAttribute('school_year', $section->school_year ?: $student->school_year);
     }
 }

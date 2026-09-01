@@ -100,6 +100,21 @@ export default function Today() {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const recentNotifications = notifications?.notifications?.slice(0, 3) ?? [];
   const unreadCount = notifications?.unread_count ?? 0;
+  const enrollment = student?.enrollment;
+  const yearLevelLabel = (value) => {
+    const year = String(value || '').replace(/[^0-9]/g, '');
+    return year ? `${year}${year === '1' ? 'st' : year === '2' ? 'nd' : year === '3' ? 'rd' : 'th'} Year` : null;
+  };
+  const levelLabel = enrollment?.program_type === 'college'
+    ? yearLevelLabel(enrollment.year_level || student?.grade_level)
+    : student?.grade_level
+      ? `Grade ${student.grade_level}`
+      : null;
+  const sectionLabel = [
+    levelLabel,
+    student?.section && student.section !== 'TBA' ? student.section : 'No section',
+    student?.school_year,
+  ].filter(Boolean).join(' - ');
 
   return (
     <ScrollView
@@ -119,7 +134,7 @@ export default function Today() {
               {student?.first_name} {student?.last_name}
             </Text>
             <Text style={styles.section}>
-              Grade {student?.grade_level} - {student?.section} - {student?.school_year}
+              {sectionLabel}
             </Text>
           </View>
           <TouchableOpacity

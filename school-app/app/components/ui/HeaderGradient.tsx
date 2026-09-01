@@ -18,13 +18,14 @@ type Props = {
   initials: string;
   stats: StatItem[];
   children?: ReactNode;
+  compact?: boolean;
 };
 
 const HEADER_TOP = Platform.OS === 'android'
   ? (StatusBar.currentHeight ?? 24) + 18
   : 56;
 
-export default function HeaderGradient({ title, subtitle, stats, children }: Props) {
+export default function HeaderGradient({ title, subtitle, stats, children, compact = false }: Props) {
   const { theme } = useTheme();
   const router = useRouter();
   const segments = useSegments();
@@ -63,15 +64,15 @@ export default function HeaderGradient({ title, subtitle, stats, children }: Pro
   );
 
   return (
-    <LinearGradient colors={[theme.primary, theme.primary]} style={styles.container}>
+    <LinearGradient colors={[theme.primary, theme.primary]} style={[styles.container, compact && styles.containerCompact]}>
       <View style={styles.topRow}>
         <View style={styles.textGroup}>
-          <Text style={styles.greeting}>Welcome back</Text>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Text style={[styles.greeting, compact && styles.greetingCompact]}>Welcome back</Text>
+          <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
+          <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>{subtitle}</Text>
         </View>
         <TouchableOpacity
-          style={styles.avatar}
+          style={[styles.avatar, compact && styles.avatarCompact]}
           onPress={() => router.push(profileRoute)}
           activeOpacity={0.75}
           accessibilityRole="button"
@@ -80,21 +81,21 @@ export default function HeaderGradient({ title, subtitle, stats, children }: Pro
           {profilePhotoUrl ? (
             <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
           ) : (
-            <Ionicons name="person-circle" size={42} color="#FFFFFF" />
+            <Ionicons name="person-circle" size={compact ? 30 : 42} color="#FFFFFF" />
           )}
         </TouchableOpacity>
       </View>
 
-      <View style={styles.statsRow}>
+      <View style={[styles.statsRow, compact && styles.statsRowCompact]}>
         {stats.map(item => (
-          <View key={item.label} style={styles.statCard}>
-            <Text style={[styles.statValue, { color: item.accent }]}>{item.value}</Text>
-            <Text style={styles.statLabel}>{item.label}</Text>
+          <View key={item.label} style={[styles.statCard, compact && styles.statCardCompact]}>
+            <Text style={[styles.statValue, compact && styles.statValueCompact, { color: item.accent }]}>{item.value}</Text>
+            <Text style={[styles.statLabel, compact && styles.statLabelCompact]}>{item.label}</Text>
           </View>
         ))}
       </View>
 
-      {children ? <View style={styles.children}>{children}</View> : null}
+      {children ? <View style={[styles.children, compact && styles.childrenCompact]}>{children}</View> : null}
     </LinearGradient>
   );
 }
@@ -136,6 +137,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: 'hidden',
   },
+  containerCompact: {
+    borderRadius: 12,
+    padding: 14,
+    paddingTop: Platform.OS === 'web' ? 14 : HEADER_TOP,
+    marginBottom: 6,
+  },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -150,16 +157,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 6,
   },
+  greetingCompact: {
+    fontSize: 11,
+    marginBottom: 3,
+  },
   title: {
     color: '#FFFFFF',
     fontSize: 24,
     fontWeight: '900',
     marginBottom: 4,
   },
+  titleCompact: {
+    fontSize: 18,
+    marginBottom: 2,
+  },
   subtitle: {
     color: 'rgba(255,255,255,0.88)',
     fontSize: 14,
     lineHeight: 20,
+  },
+  subtitleCompact: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   avatar: {
     width: 60,
@@ -169,6 +188,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  avatarCompact: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
   avatarImage: {
     width: '100%',
@@ -181,6 +205,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
+  statsRowCompact: {
+    marginTop: 8,
+    gap: 6,
+  },
   statCard: {
     flex: 1,
     backgroundColor: 'rgba(255,255,255,0.18)',
@@ -190,9 +218,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
   },
+  statCardCompact: {
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+  },
   statValue: {
     fontSize: 14,
     fontWeight: '900',
+  },
+  statValueCompact: {
+    fontSize: 12,
   },
   statLabel: {
     marginTop: 3,
@@ -200,7 +236,14 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
   },
+  statLabelCompact: {
+    marginTop: 1,
+    fontSize: 8,
+  },
   children: {
     marginTop: 18,
+  },
+  childrenCompact: {
+    marginTop: 10,
   },
 });

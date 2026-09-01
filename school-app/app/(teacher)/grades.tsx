@@ -9,15 +9,37 @@ const QUARTERS = ['1','2','3','4'];
 export default function TeacherGrades() {
   const { classId, subject } = useLocalSearchParams();
   const router = useRouter();
+  const [classes, setClasses] = useState([]);
+  const [selectedClass, setSelectedClass] = useState(null);
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [quarter, setQuarter] = useState('1');
   const [scores, setScores]   = useState({});
+  const activeClassId = classId || selectedClass?.id;
+  const activeSubject = subject || selectedClass?.subject;
 
   useEffect(() => {
-    if (!classId) { setLoading(false); return; }
-    api.get(`/teacher/class/${classId}/students`).then(res => {
+    if (classId) return;
+
+    api.get('/teacher/classes').then(res => {
+      const list = res.data ?? [];
+      setClasses(list);
+      if (list.length > 0) {
+        setSelectedClass(list[0]);
+      } else {
+        setLoading(false);
+      }
+    }).catch(e => {
+      console.log('Teacher classes error:', e.message);
+      setLoading(false);
+    });
+  }, [classId]);
+
+  useEffect(() => {
+    if (!activeClassId) { setLoading(false); return; }
+    setLoading(true);
+    api.get(`/teacher/class/${activeClassId}/students`).then(res => {
       setData(res.data);
       const initial = {};
       res.data.students.forEach(s => {
@@ -27,7 +49,7 @@ export default function TeacherGrades() {
       setScores(initial);
     }).catch(e => console.log('Error:', e.message))
     .finally(() => setLoading(false));
-  }, [classId]);
+  }, [activeClassId]);
 
   useEffect(() => {
     if (!data) return;
@@ -55,7 +77,7 @@ export default function TeacherGrades() {
         return;
       }
 
-      await api.post(`/teacher/class/${classId}/grades`, { grades });
+      await api.post(`/teacher/class/${activeClassId}/grades`, { grades });
       Alert.alert('✓ Saved!', `Grades for Q${quarter} saved successfully!`);
     } catch (e) {
       Alert.alert('Error', 'Could not save grades. Please try again.');
@@ -65,10 +87,10 @@ export default function TeacherGrades() {
     }
   };
 
-  if (!classId) return (
+  if (!activeClassId) return (
     <View style={styles.center}>
       <Text style={styles.noClass}>No class selected</Text>
-      <TouchableOpacity onPress={() => router.back()}>
+      <TouchableOpacity onPress={() => router.push('/(teacher)/classes')}>
         <Text style={styles.backLink}>← Go to Classes</Text>
       </TouchableOpacity>
     </View>
@@ -87,8 +109,25 @@ export default function TeacherGrades() {
           <Text style={styles.backBtnText}>← Classes</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Enter grades</Text>
-        <Text style={styles.sub}>{subject}</Text>
+        <Text style={styles.sub}>{activeSubject}</Text>
       </View>
+
+      {classes.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          style={styles.classRow} contentContainerStyle={{ paddingHorizontal:12, gap:8 }}>
+          {classes.map(cls => (
+            <TouchableOpacity
+              key={String(cls.id)}
+              style={[styles.classTab, String(selectedClass?.id) === String(cls.id) && styles.classTabActive]}
+              onPress={() => setSelectedClass(cls)}
+            >
+              <Text style={[styles.classTabText, String(selectedClass?.id) === String(cls.id) && styles.classTabTextActive]}>
+                {cls.subject?.split(' ')[0] || 'Class'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
 
       <View style={styles.quarterRow}>
         {QUARTERS.map(q => (
@@ -152,6 +191,11 @@ const styles = StyleSheet.create({
   backBtnText:     { color:'rgba(255,255,255,0.8)', fontSize:13 },
   title:           { color:'#fff', fontSize:20, fontWeight:'600' },
   sub:             { color:'rgba(255,255,255,0.8)', fontSize:13, marginTop:3 },
+  classRow:        { maxHeight:52, backgroundColor:'#fff', borderBottomWidth:0.5, borderColor:'#eee' },
+  classTab:        { paddingHorizontal:16, paddingVertical:12, borderBottomWidth:2, borderBottomColor:'transparent' },
+  classTabActive:  { borderBottomColor:'#378ADD' },
+  classTabText:    { fontSize:13, color:'#888' },
+  classTabTextActive:{ color:'#378ADD', fontWeight:'600' },
   quarterRow:      { flexDirection:'row', padding:12, gap:8, backgroundColor:'#fff', borderBottomWidth:0.5, borderColor:'#eee' },
   qBtn:            { flex:1, paddingVertical:8, borderRadius:10, alignItems:'center', backgroundColor:'#f5f5f5' },
   qBtnActive:      { backgroundColor:'#378ADD' },

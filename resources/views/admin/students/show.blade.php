@@ -54,6 +54,50 @@
     </form>
 </section>
 
+<section class="mt-6 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="font-black text-slate-800">Subjects</h2>
+        <p class="text-xs font-black uppercase text-slate-400">{{ count($subjects) }} enrolled</p>
+    </div>
+
+    <div class="divide-y divide-slate-100">
+        @forelse($subjects as $subject)
+            @php
+                $statusClass = match ($subject['status']) {
+                    'completed' => 'bg-emerald-100 text-emerald-700',
+                    'dropped' => 'bg-red-100 text-red-700',
+                    default => 'bg-blue-100 text-blue-700',
+                };
+            @endphp
+            <div class="py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div class="min-w-0">
+                    <p class="font-bold text-slate-900">
+                        {{ $subject['code'] }}{{ $subject['code'] ? ' · ' : '' }}{{ $subject['name'] }}
+                    </p>
+                    <p class="mt-1 text-xs text-slate-500">
+                        {{ $subject['section_name'] }}
+                        @if($subject['teacher'])
+                            · {{ $subject['teacher'] }}
+                        @endif
+                        @if($subject['schedule'])
+                            · {{ $subject['schedule'] }}
+                        @endif
+                    </p>
+                    @if($subject['status'] === 'dropped' && $subject['drop_reason'])
+                        <p class="mt-1 text-xs font-semibold text-red-600">Dropped: {{ $subject['drop_reason'] }}</p>
+                    @endif
+                </div>
+                <div class="flex shrink-0 items-center gap-2">
+                    <span class="rounded-full px-3 py-1 text-xs font-black {{ $statusClass }}">{{ ucfirst($subject['status']) }}</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{{ $subject['units'] }}u</span>
+                </div>
+            </div>
+        @empty
+            <p class="text-sm text-slate-500">No subjects found for this student.</p>
+        @endforelse
+    </div>
+</section>
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
     <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <h2 class="font-black text-slate-800 mb-4">Grades</h2>

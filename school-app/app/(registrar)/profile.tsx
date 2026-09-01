@@ -7,9 +7,12 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import api, { removeToken } from '../../src/api';
+import { useTheme } from '../../src/theme-context';
+import ChangePasswordCard from '../components/ChangePasswordCard';
 
 export default function RegistrarProfile() {
   const router = useRouter();
+  const { theme } = useTheme();
   const [user, setUser] = useState(null);
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -140,6 +143,8 @@ export default function RegistrarProfile() {
           </View>
         ))}
       </View>
+
+      <ChangePasswordCard theme={theme} />
 
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
         <Text style={s.logoutText}>Logout</Text>

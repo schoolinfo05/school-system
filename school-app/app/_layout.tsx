@@ -12,6 +12,9 @@ export default function RootLayout() {
         <Stack.Screen name="(admin)" />
         <Stack.Screen name="(parent)" />
         <Stack.Screen name="(staff)" />
+        <Stack.Screen name="(registrar)" />
+        <Stack.Screen name="forgot-password" />
+        <Stack.Screen name="reset-password" />
 
         {/* Enrollment screens — public, no login required */}
         <Stack.Screen name="enrollment" />

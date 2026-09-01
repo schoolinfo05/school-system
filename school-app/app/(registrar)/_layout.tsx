@@ -66,12 +66,6 @@ export default function RegistrarLayout() {
         options={{ title: 'Courses', tabBarIcon: ({ focused, color }) => <Icon emoji="🎒" focused={focused} color={color} /> }}
       />
       <Tabs.Screen
-        name="market"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="students"
         options={{
           title: 'Students',
@@ -82,6 +76,20 @@ export default function RegistrarLayout() {
         name="controls"
         options={{
           href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="subject-requests"
+        options={{
+          title: 'Requests',
+          tabBarIcon: ({ focused, color }) => <Icon emoji="RQ" focused={focused} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="reports"
+        options={{
+          title: 'Reports',
+          tabBarIcon: ({ focused, color }) => <Icon emoji="RP" focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen

@@ -67,8 +67,15 @@ export default function TeacherChat() {
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
-      if (isThread) loadMessages();
-      else loadContacts();
+      if (isThread) {
+        loadMessages();
+        const timer = setInterval(() => {
+          loadMessages();
+        }, 8000);
+        return () => clearInterval(timer);
+      } else {
+        loadContacts();
+      }
     }, [isThread, loadContacts, loadMessages])
   );
 

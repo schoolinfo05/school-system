@@ -42,6 +42,11 @@ const EMPTY_ASSIGNMENT = {
   room: '',
 };
 
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const HOURS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+const MINUTES = ['00', '15', '30', '45'];
+const PERIODS = ['AM', 'PM'];
+
 function Field({ label, children }) {
   return (
     <View style={s.field}>
@@ -56,7 +61,8 @@ function ChipGroup({ options, value, onSelect }) {
     <View style={s.chipRow}>
       {options.map(opt => {
         const key = opt.key ?? opt;
-        const active = value === key;
+        const selectedValues = String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+        const active = value === key || selectedValues.includes(key);
         return (
           <TouchableOpacity
             key={key}
@@ -67,6 +73,79 @@ function ChipGroup({ options, value, onSelect }) {
           </TouchableOpacity>
         );
       })}
+    </View>
+  );
+}
+
+function normalizeValue(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function toggleListValue(currentValue, option) {
+  const values = String(currentValue || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const next = values.includes(option)
+    ? values.filter(value => value !== option)
+    : [...values, option];
+  return next.join(', ');
+}
+
+function formatTimeLabel(value) {
+  if (!value) return 'Set time';
+  const [hourValue, minute = '00'] = String(value).split(':');
+  const hour = Number(hourValue);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute} ${period}`;
+}
+
+function timeParts(value) {
+  const [hourValue, minuteValue = '00'] = String(value || '08:00').split(':');
+  const hour24 = Number(hourValue);
+  return {
+    hour: String(hour24 % 12 || 12),
+    minute: MINUTES.includes(minuteValue) ? minuteValue : '00',
+    period: hour24 >= 12 ? 'PM' : 'AM',
+  };
+}
+
+function buildTimeValue(currentValue, key, value) {
+  const parts = { ...timeParts(currentValue), [key]: value };
+  let hour = Number(parts.hour);
+  if (parts.period === 'PM' && hour !== 12) hour += 12;
+  if (parts.period === 'AM' && hour === 12) hour = 0;
+  return `${String(hour).padStart(2, '0')}:${parts.minute}`;
+}
+
+function TimePicker({ label, value, onChange }) {
+  const parts = timeParts(value);
+
+  return (
+    <View style={s.clockBox}>
+      <View style={s.clockHeader}>
+        <Text style={s.clockLabel}>{label}</Text>
+        <Text style={s.clockValue}>{formatTimeLabel(value)}</Text>
+      </View>
+      <Text style={s.clockSubLabel}>Hour</Text>
+      <ChipGroup
+        value={parts.hour}
+        onSelect={hour => onChange(buildTimeValue(value, 'hour', hour))}
+        options={HOURS}
+      />
+      <Text style={s.clockSubLabel}>Minute</Text>
+      <ChipGroup
+        value={parts.minute}
+        onSelect={minute => onChange(buildTimeValue(value, 'minute', minute))}
+        options={MINUTES}
+      />
+      <Text style={s.clockSubLabel}>AM / PM</Text>
+      <ChipGroup
+        value={parts.period}
+        onSelect={period => onChange(buildTimeValue(value, 'period', period))}
+        options={PERIODS}
+      />
     </View>
   );
 }
@@ -211,11 +290,11 @@ export default function Sections() {
     const assignedIds = assignedSubjects.map(item => item.subject_id);
     return subjects.filter(subject => {
       const sameProgram = subject.program_type === editing.program_type;
-      const sameYear = !subject.year_level || !editing.year_level || String(subject.year_level) === String(editing.year_level);
-      const courseMatch = editing.program_type === 'college'
-        ? !subject.course || subject.course === editing.course
-        : !subject.strand || subject.strand === editing.strand;
-      return sameProgram && sameYear && courseMatch && !assignedIds.includes(subject.id);
+      const sameYear = normalizeValue(subject.year_level) === normalizeValue(editing.year_level);
+      const sameTrack = editing.program_type === 'college'
+        ? normalizeValue(subject.course) === normalizeValue(editing.course)
+        : normalizeValue(subject.strand) === normalizeValue(editing.strand);
+      return sameProgram && sameYear && sameTrack && !assignedIds.includes(subject.id);
     });
   }, [assignedSubjects, editing, subjects]);
 
@@ -760,7 +839,14 @@ export default function Sections() {
                   <View style={s.twoCol}>
                     <View style={{ flex: 1 }}>
                       <Field label="Days">
-                        <TextInput style={s.input} value={assignment.day} onChangeText={v => setSchedule('day', v)} placeholder="e.g. MWF" placeholderTextColor={C.muted} />
+                        <ChipGroup
+                          value={assignment.day}
+                          onSelect={v => setSchedule('day', toggleListValue(assignment.day, v))}
+                          options={DAYS.map(day => ({
+                            key: day,
+                            label: assignment.day.split(',').map(value => value.trim()).includes(day) ? `[x] ${day}` : `[ ] ${day}`,
+                          }))}
+                        />
                       </Field>
                     </View>
                     <View style={{ flex: 1 }}>
@@ -771,14 +857,18 @@ export default function Sections() {
                   </View>
                   <View style={s.twoCol}>
                     <View style={{ flex: 1 }}>
-                      <Field label="Start">
-                        <TextInput style={s.input} value={assignment.time_start} onChangeText={v => setSchedule('time_start', v)} placeholder="08:00" placeholderTextColor={C.muted} />
-                      </Field>
+                      <TimePicker
+                        label="Start"
+                        value={assignment.time_start}
+                        onChange={value => setSchedule('time_start', value)}
+                      />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Field label="End">
-                        <TextInput style={s.input} value={assignment.time_end} onChangeText={v => setSchedule('time_end', v)} placeholder="09:00" placeholderTextColor={C.muted} />
-                      </Field>
+                      <TimePicker
+                        label="End"
+                        value={assignment.time_end}
+                        onChange={value => setSchedule('time_end', value)}
+                      />
                     </View>
                   </View>
                   <Field label="Teacher">
@@ -998,6 +1088,11 @@ const s = StyleSheet.create({
   subjectChoiceText: { color: C.sub, fontSize: 12, fontWeight: '700' },
   subjectChoiceTextActive: { color: C.blue },
   twoCol: { flexDirection: 'row', gap: 10 },
+  clockBox: { borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: '#fff', padding: 10, marginBottom: 14 },
+  clockHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 },
+  clockLabel: { color: C.sub, fontSize: 12, fontWeight: '900' },
+  clockValue: { color: C.blue, fontSize: 13, fontWeight: '900' },
+  clockSubLabel: { color: C.muted, fontSize: 10, fontWeight: '900', marginBottom: 6, marginTop: 8, textTransform: 'uppercase' },
   studentPicker: { maxHeight: 260, marginBottom: 12 },
   studentOption: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10, marginBottom: 8 },
   studentOptionActive: { borderColor: C.blue, backgroundColor: C.blueLight },

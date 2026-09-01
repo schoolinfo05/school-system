@@ -35,7 +35,7 @@
 
         <div class="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-sm">
             @foreach($courses as $course)
-                <form method="POST" action="{{ route('registrar.courses.update', $course) }}" class="grid grid-cols-1 gap-3 p-4 md:grid-cols-[1fr_140px_120px_auto] md:items-center">
+                <form method="POST" action="{{ route('registrar.courses.update', $course) }}" class="grid grid-cols-1 gap-3 p-4 md:grid-cols-[1fr_140px_120px_auto_auto] md:items-center">
                     @csrf
                     @method('PUT')
                     <input name="name" value="{{ $course->name }}" class="rounded-lg border-slate-300 text-sm">
@@ -45,7 +45,19 @@
                     </select>
                     <label class="flex items-center gap-2 text-sm font-bold text-slate-700"><input type="checkbox" name="is_active" value="1" @checked($course->is_active) class="rounded border-slate-300"> Active</label>
                     <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white">Save</button>
-                    <textarea name="description" class="rounded-lg border-slate-300 text-sm md:col-span-4" rows="2">{{ $course->description }}</textarea>
+                    <button
+                        type="submit"
+                        form="delete-course-{{ $course->id }}"
+                        class="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white"
+                        onclick="return confirm('Archive and remove {{ addslashes($course->name) }}?');"
+                    >
+                        Remove
+                    </button>
+                    <textarea name="description" class="rounded-lg border-slate-300 text-sm md:col-span-5" rows="2">{{ $course->description }}</textarea>
+                </form>
+                <form id="delete-course-{{ $course->id }}" method="POST" action="{{ route('registrar.courses.destroy', $course) }}" class="hidden">
+                    @csrf
+                    @method('DELETE')
                 </form>
             @endforeach
             <div class="p-4">{{ $courses->links() }}</div>

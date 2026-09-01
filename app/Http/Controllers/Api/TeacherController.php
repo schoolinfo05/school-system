@@ -23,16 +23,21 @@ class TeacherController extends Controller
         $sectionSubjects = SectionSubject::where('teacher_id', $teacher->id)
             ->with(['section.students', 'subject'])
             ->get();
-        $classes = $sectionSubjects->map(fn($sectionSubject) => $this->sectionSubjectClassPayload($sectionSubject));
+        $sectionSchoolClassIds = $sectionSubjects
+            ->map(fn($sectionSubject) => $this->schoolClassForSectionSubject($sectionSubject)->id)
+            ->values();
 
-        $totalStudents = $sectionSubjects
-            ->flatMap(fn($sectionSubject) => $sectionSubject->section?->students ?? collect())
-            ->pluck('id')
-            ->unique()
+        $classes = $sectionSubjects
+            ->map(fn($sectionSubject) => $this->sectionSubjectClassPayload($sectionSubject))
+            ->concat($this->legacyClasses($teacher->id, $sectionSchoolClassIds->all()));
+
+        $totalStudents = Student::query()
+            ->whereIn('user_id', $classes->flatMap(fn($class) => $this->userIdsForClassPayload($class))->unique())
             ->count();
 
-        $schoolClassIds = $sectionSubjects
-            ->map(fn($sectionSubject) => $this->schoolClassForSectionSubject($sectionSubject)->id)
+        $schoolClassIds = $sectionSchoolClassIds
+            ->concat($this->legacyClasses($teacher->id, $sectionSchoolClassIds->all())->pluck('school_class_id'))
+            ->unique()
             ->values();
 
         $todayAttendance = Attendance::whereIn('school_class_id', $schoolClassIds)
@@ -59,17 +64,24 @@ class TeacherController extends Controller
     {
         $classes = SectionSubject::where('teacher_id', $request->user()->id)
             ->with(['section.students', 'subject'])
-            ->get()
-            ->map(fn($sectionSubject) => $this->sectionSubjectClassPayload($sectionSubject));
+            ->get();
+        $sectionSchoolClassIds = $classes
+            ->map(fn($sectionSubject) => $this->schoolClassForSectionSubject($sectionSubject)->id)
+            ->values();
+
+        $classes = $classes
+            ->map(fn($sectionSubject) => $this->sectionSubjectClassPayload($sectionSubject))
+            ->concat($this->legacyClasses($request->user()->id, $sectionSchoolClassIds->all()));
 
         return response()->json($classes);
     }
 
     public function classStudents(Request $request, $class)
     {
-        $sectionSubject = $this->teacherSectionSubject($request, $class);
-        $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
-        $userIds = $this->enrolledUserIdsForSectionSubject($sectionSubject);
+        [$sectionSubject, $schoolClass] = $this->resolveTeacherClass($request, $class);
+        $userIds = $sectionSubject
+            ? $this->enrolledUserIdsForSectionSubject($sectionSubject)
+            : $this->enrolledUserIdsForSchoolClass($schoolClass);
 
         $students = Student::whereIn('user_id', $userIds)
             ->orderBy('last_name')
@@ -84,7 +96,7 @@ class TeacherController extends Controller
             ->groupBy('student_id');
 
         return response()->json([
-            'class'    => $this->sectionSubjectClassPayload($sectionSubject),
+            'class'    => $sectionSubject ? $this->sectionSubjectClassPayload($sectionSubject) : $this->legacyClassPayload($schoolClass),
             'students' => $students,
             'grades'   => $grades,
         ]);
@@ -92,8 +104,7 @@ class TeacherController extends Controller
 
     public function saveGrades(Request $request, $class, PointsService $points)
     {
-        $sectionSubject = $this->teacherSectionSubject($request, $class);
-        $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
+        [$sectionSubject, $schoolClass] = $this->resolveTeacherClass($request, $class);
 
         $request->validate([
             'grades'              => 'required|array',
@@ -102,7 +113,7 @@ class TeacherController extends Controller
             'grades.*.score'      => 'required|numeric|min:0|max:100',
         ]);
 
-        if ($message = $this->gradeDeadlineMessage($schoolClass->school_year, $sectionSubject->section?->semester)) {
+        if ($message = $this->gradeDeadlineMessage($schoolClass->school_year, $sectionSubject?->section?->semester)) {
             return response()->json(['message' => $message], 422);
         }
 
@@ -126,7 +137,7 @@ class TeacherController extends Controller
                     "grade:{$student->id}:{$schoolClass->id}:{$g['quarter']}:{$schoolClass->school_year}",
                     $request->user(),
                     $schoolClass->school_year,
-                    $sectionSubject->section?->semester,
+                    $sectionSubject?->section?->semester,
                     ['grade_id' => $grade->id, 'school_class_id' => $schoolClass->id, 'quarter' => $g['quarter']]
                 );
                 $this->notifyParentGradePosted($student, $grade);
@@ -138,8 +149,7 @@ class TeacherController extends Controller
 
     public function saveAttendance(Request $request, $class, PointsService $points)
     {
-        $sectionSubject = $this->teacherSectionSubject($request, $class);
-        $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
+        [$sectionSubject, $schoolClass] = $this->resolveTeacherClass($request, $class);
 
         $request->validate([
             'date'                       => 'required|date',
@@ -166,7 +176,7 @@ class TeacherController extends Controller
                     "attendance-daily:{$student->id}:{$schoolClass->id}:{$request->date}",
                     $request->user(),
                     $schoolClass->school_year,
-                    $sectionSubject->section?->semester,
+                    $sectionSubject?->section?->semester,
                     ['attendance_id' => $attendance->id, 'school_class_id' => $schoolClass->id, 'date' => $request->date]
                 );
                 $points->syncMonthlyPerfectAttendance(
@@ -174,7 +184,7 @@ class TeacherController extends Controller
                     $request->date,
                     $request->user(),
                     $schoolClass->school_year,
-                    $sectionSubject->section?->semester
+                    $sectionSubject?->section?->semester
                 );
                 $this->notifyParentAttendance($student, $attendance);
             }
@@ -185,8 +195,7 @@ class TeacherController extends Controller
 
     public function getAttendance(Request $request, $class)
     {
-        $sectionSubject = $this->teacherSectionSubject($request, $class);
-        $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
+        [, $schoolClass] = $this->resolveTeacherClass($request, $class);
         $date = $request->date ?? today()->toDateString();
 
         $attendance = Attendance::where('school_class_id', $schoolClass->id)
@@ -202,9 +211,10 @@ class TeacherController extends Controller
 
     public function classPerformance(Request $request, $class)
     {
-        $sectionSubject = $this->teacherSectionSubject($request, $class);
-        $schoolClass = $this->schoolClassForSectionSubject($sectionSubject);
-        $userIds = $this->enrolledUserIdsForSectionSubject($sectionSubject);
+        [$sectionSubject, $schoolClass] = $this->resolveTeacherClass($request, $class);
+        $userIds = $sectionSubject
+            ? $this->enrolledUserIdsForSectionSubject($sectionSubject)
+            : $this->enrolledUserIdsForSchoolClass($schoolClass);
 
         $students = Student::whereIn('user_id', $userIds)->orderBy('last_name')->get();
 
@@ -234,9 +244,24 @@ class TeacherController extends Controller
         });
 
         return response()->json([
-            'class'       => $this->sectionSubjectClassPayload($sectionSubject),
+            'class'       => $sectionSubject ? $this->sectionSubjectClassPayload($sectionSubject) : $this->legacyClassPayload($schoolClass),
             'performance' => $performance,
         ]);
+    }
+
+    private function resolveTeacherClass(Request $request, $id): array
+    {
+        if (is_string($id) && str_starts_with($id, 'legacy-')) {
+            return [
+                null,
+                SchoolClass::where('teacher_id', $request->user()->id)
+                    ->findOrFail((int) substr($id, 7)),
+            ];
+        }
+
+        $sectionSubject = $this->teacherSectionSubject($request, $id);
+
+        return [$sectionSubject, $this->schoolClassForSectionSubject($sectionSubject)];
     }
 
     private function teacherSectionSubject(Request $request, $id): SectionSubject
@@ -272,6 +297,48 @@ class TeacherController extends Controller
         ];
     }
 
+    private function legacyClasses(int $teacherId, array $excludeIds = [])
+    {
+        return SchoolClass::where('teacher_id', $teacherId)
+            ->when($excludeIds, fn($query) => $query->whereNotIn('id', $excludeIds))
+            ->orderBy('subject')
+            ->get()
+            ->map(fn(SchoolClass $schoolClass) => $this->legacyClassPayload($schoolClass));
+    }
+
+    private function legacyClassPayload(SchoolClass $schoolClass): array
+    {
+        return [
+            'id' => 'legacy-' . $schoolClass->id,
+            'school_class_id' => $schoolClass->id,
+            'source' => 'legacy',
+            'subject' => $schoolClass->subject,
+            'section' => $schoolClass->section,
+            'section_id' => null,
+            'grade_level' => $schoolClass->grade_level,
+            'course' => null,
+            'strand' => null,
+            'school_year' => $schoolClass->school_year,
+            'semester' => null,
+            'room' => $schoolClass->room,
+            'schedule' => $schoolClass->schedule ?: 'No schedule',
+            'students_count' => $this->enrolledUserIdsForSchoolClass($schoolClass)->count(),
+        ];
+    }
+
+    private function userIdsForClassPayload(array $class)
+    {
+        if (($class['source'] ?? null) === 'legacy') {
+            return $this->enrolledUserIdsForSchoolClass(
+                SchoolClass::find($class['school_class_id'])
+            );
+        }
+
+        return $this->enrolledUserIdsForSectionSubject(
+            SectionSubject::with(['section.students', 'subject'])->find($class['id'])
+        );
+    }
+
     private function enrolledUserIdsForSectionSubject(SectionSubject $sectionSubject)
     {
         $userIds = $sectionSubject->section->students()
@@ -285,6 +352,21 @@ class TeacherController extends Controller
             ->pluck('user_id');
 
         return $userIds->diff($droppedUserIds)->values();
+    }
+
+    private function enrolledUserIdsForSchoolClass(?SchoolClass $schoolClass)
+    {
+        if (!$schoolClass) {
+            return collect();
+        }
+
+        return Student::query()
+            ->where('grade_level', $schoolClass->grade_level)
+            ->where('section', $schoolClass->section)
+            ->where('school_year', $schoolClass->school_year)
+            ->whereNotNull('user_id')
+            ->pluck('user_id')
+            ->values();
     }
 
     private function schoolClassForSectionSubject(SectionSubject $sectionSubject): SchoolClass

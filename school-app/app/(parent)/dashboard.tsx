@@ -50,21 +50,27 @@ export default function ParentDashboard() {
               <Text style={[s.title, { color: theme.text }]}>No linked students</Text>
               <Text style={[s.sub, { color: theme.textSub }]}>Ask an administrator to link this parent account to a student profile.</Text>
             </View>
-          ) : children.map((child, index) => (
-            <View key={child.student?.id ?? index} style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[s.title, { color: theme.text }]}>{child.student?.first_name} {child.student?.last_name}</Text>
-              <Text style={[s.sub, { color: theme.textSub }]}>
-                {child.student?.student_id} · Grade/Year {child.student?.grade_level} · {child.student?.section}
-              </Text>
-              <View style={s.grid}>
-                <Metric label="Attendance" value={`${child.attendance_pct ?? 0}%`} theme={theme} />
-                <Metric label="Balance" value={`PHP ${Number(child.fee_summary?.balance || 0).toFixed(2)}`} theme={theme} />
-                <Metric label="Points" value={child.reward_summary?.points ?? 0} theme={theme} />
-                <Metric label="Point value" value={`PHP ${Number(child.reward_summary?.peso_value || 0).toFixed(2)}`} theme={theme} />
+          ) : children.map((child, index) => {
+            const section = child.student?.section && child.student.section !== 'TBA'
+              ? child.student.section
+              : 'No section';
+
+            return (
+              <View key={child.student?.id ?? index} style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <Text style={[s.title, { color: theme.text }]}>{child.student?.first_name} {child.student?.last_name}</Text>
+                <Text style={[s.sub, { color: theme.textSub }]}>
+                  {child.student?.student_id} - Grade/Year {child.student?.grade_level || '-'} - {section}
+                </Text>
+                <View style={s.grid}>
+                  <Metric label="Attendance" value={`${child.attendance_pct ?? 0}%`} theme={theme} />
+                  <Metric label="Balance" value={`PHP ${Number(child.fee_summary?.balance || 0).toFixed(2)}`} theme={theme} />
+                  <Metric label="Points" value={child.reward_summary?.points ?? 0} theme={theme} />
+                  <Metric label="Point value" value={`PHP ${Number(child.reward_summary?.peso_value || 0).toFixed(2)}`} theme={theme} />
+                </View>
+                <GradesList grades={child.grades} theme={theme} />
               </View>
-              <GradesList grades={child.grades} theme={theme} />
-            </View>
-          ))}
+            );
+          })}
         </ScrollView>
       )}
     </View>
