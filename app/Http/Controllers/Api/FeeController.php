@@ -126,7 +126,16 @@ class FeeController extends Controller
 
     public function mine(Request $request)
     {
-        $student = Student::where('user_id', $request->user()->id)->firstOrFail();
+        $student = Student::where('user_id', $request->user()->id)->first();
+
+        if (!$student) {
+            return response()->json([
+                'fees' => [],
+                'total_due' => 0,
+                'total_paid' => 0,
+            ]);
+        }
+
         return $this->byStudent($student);
     }
 

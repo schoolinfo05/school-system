@@ -26,9 +26,9 @@ use App\Http\Controllers\Api\AcademicTermController;
 
 // ── Public routes (no login required) ────────────────────────────
 Route::post('/login',            [AuthController::class, 'login'])->middleware('throttle:5,1');
+Route::post('/register',         [AuthController::class, 'register'])->middleware('throttle:5,1');
 Route::post('/forgot-password',  [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
 Route::post('/reset-password',   [AuthController::class, 'resetPassword']);
-Route::post('/enrollment',       [EnrollmentController::class, 'store']);
 Route::get('/enrollment/status', [EnrollmentController::class, 'status']);
 Route::get('/enrollment/lookup', [EnrollmentController::class, 'lookup']);
 Route::get('/enrollment/settings', [AcademicTermController::class, 'current']);
@@ -43,6 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me',      [AuthController::class, 'me']);
+    Route::post('/enrollment', [EnrollmentController::class, 'store']);
     Route::post('/me/profile-photo', [AuthController::class, 'updateProfilePhoto']);
     Route::put('/me/password', [AuthController::class, 'updatePassword']);
 

@@ -58,9 +58,21 @@ class StudentController extends Controller
     {
         $user = $request->user();
         $student = Student::where('user_id', $user->id)->first();
+        $latestApplication = EnrollmentApplication::query()
+            ->where('user_id', $user->id)
+            ->latest()
+            ->first();
 
         if (!$student) {
-            return response()->json(['message' => 'Student not found'], 404);
+            return response()->json([
+                'student' => null,
+                'user' => $user,
+                'enrollment_application' => $latestApplication,
+                'grades' => (object) [],
+                'attendance_pct' => 0,
+                'pending_fees' => [],
+                'reward_summary' => $this->emptyRewardSummary(),
+            ]);
         }
 
         $this->applyDisplaySection($student);
@@ -104,6 +116,7 @@ class StudentController extends Controller
         return response()->json([
             'student'        => $student,
             'user'           => $user,
+            'enrollment_application' => $latestApplication,
             'grades'         => $grades,
             'attendance_pct' => $attendancePct,
             'pending_fees'   => $fees,
@@ -128,5 +141,25 @@ class StudentController extends Controller
         $student->setAttribute('section', $section->name ?: $student->section);
         $student->setAttribute('grade_level', $section->year_level ?: $student->grade_level);
         $student->setAttribute('school_year', $section->school_year ?: $student->school_year);
+    }
+
+    private function emptyRewardSummary(): array
+    {
+        return [
+            'points' => 0,
+            'earned_points' => 0,
+            'redeemable_points' => 0,
+            'redemption_cap' => PointsService::REDEMPTION_CAP,
+            'peso_value' => 0,
+            'level' => 1,
+            'current_level_points' => 0,
+            'next_level_at' => 100,
+            'points_to_next_level' => 100,
+            'semester_cap' => PointsService::SEMESTER_CAP,
+            'semester_cap_remaining' => PointsService::SEMESTER_CAP,
+            'redemption_cap_remaining' => PointsService::REDEMPTION_CAP,
+            'rewards_count' => 0,
+            'by_source' => [],
+        ];
     }
 }

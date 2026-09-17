@@ -54,6 +54,16 @@ const Field = ({ label, required, children }) => (
   </View>
 );
 
+const namePartsFromUser = (user) => {
+  const parts = (user?.name || '').trim().split(/\s+/).filter(Boolean);
+
+  return {
+    first_name: user?.first_name || parts[0] || '',
+    middle_name: user?.middle_name || (parts.length > 2 ? parts.slice(1, -1).join(' ') : ''),
+    surname: user?.last_name || (parts.length > 1 ? parts[parts.length - 1] : ''),
+  };
+};
+
 export default function EnrollmentScreen() {
   const router = useRouter();
   const [loading, setLoading]           = useState(false);
@@ -62,9 +72,11 @@ export default function EnrollmentScreen() {
   const [enrollmentSettings, setEnrollmentSettings] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [subjects, setSubjects]         = useState([]);
+  const [sections, setSections]         = useState([]);
   const [courses, setCourses]           = useState([]);
   const [courseSearch, setCourseSearch] = useState('');
   const [courseDropdownOpen, setCourseDropdownOpen] = useState(false);
+  const [sectionDropdownOpen, setSectionDropdownOpen] = useState(false);
   const [authenticatedUser, setAuthenticatedUser] = useState(null);
 
   const [form, setForm] = useState({
@@ -73,6 +85,7 @@ export default function EnrollmentScreen() {
     id_no: '',
     academic_status: '',
     year_level: '', course_program: '', course_id: null,
+    section_id: null, section_name: '',
     strand: '',
     semester: '1st', school_year: CURRENT_SY,
     program_type: 'college',
@@ -124,14 +137,29 @@ export default function EnrollmentScreen() {
   useEffect(() => {
     const loadAuthenticatedStudent = async () => {
       const token = await AsyncStorage.getItem('token');
-      if (!token) return;
+      if (!token) {
+        Alert.alert(
+          'Account required',
+          'Please register or log in before enrolling.',
+          [{ text: 'Register', onPress: () => router.replace('/register') }]
+        );
+        return;
+      }
 
       setToken(token);
       try {
         const res = await api.get('/me');
         const user = res.data?.user || res.data;
         if (user?.role === 'student') {
+          const registeredName = namePartsFromUser(user);
           setAuthenticatedUser(user);
+          setForm(prev => ({
+            ...prev,
+            email: user.email || prev.email,
+            first_name: prev.first_name || registeredName.first_name,
+            middle_name: prev.middle_name || registeredName.middle_name,
+            surname: prev.surname || registeredName.surname,
+          }));
 
           const pendingId = await AsyncStorage.getItem('pendingEnrollmentId');
           if (pendingId) {
@@ -146,9 +174,13 @@ export default function EnrollmentScreen() {
               await lookupExistingStudent(studentId, user);
             }
           }
+        } else {
+          Alert.alert('Student account required', 'Please use a student account to submit enrollment.');
+          router.replace('/login');
         }
       } catch {
         await AsyncStorage.removeItem('pendingEnrollmentId');
+        router.replace('/login');
       }
     };
 
@@ -274,54 +306,66 @@ export default function EnrollmentScreen() {
 
   // Reset course/strand when switching program type
   useEffect(() => {
-    setForm(p => ({ ...p, course_id: null, course_program: '', strand: '', year_level: '' }));
+    setForm(p => ({ ...p, course_id: null, course_program: '', strand: '', year_level: '', section_id: null, section_name: '' }));
     setSubjects([]);
+    setSections([]);
   }, [form.program_type]);
 
   useEffect(() => {
+    const sectionMatchesSelection = (section) => {
+      if (section.program_type !== form.program_type) return false;
+      if (form.program_type === 'college') {
+        if (form.course_program && section.course && section.course !== form.course_program) return false;
+      } else if (form.strand && section.strand && section.strand !== form.strand) {
+        return false;
+      }
+
+      const level = form.year_level?.replace(/[^0-9]/g, '');
+      return !level || String(section.year_level || '') === level;
+    };
+
+    const offeringFromSection = (section) => (offering) => ({
+      ...offering.subject,
+      offering_id: offering.id,
+      section_id: section.id,
+      section_name: section.name,
+      teacher: offering.teacher?.name,
+      days: offering.day,
+      time: [offering.time_start, offering.time_end].filter(Boolean).join('-'),
+      time_start: offering.time_start,
+      time_end: offering.time_end,
+      room: offering.room,
+    });
+
     const loadSubjects = async () => {
       setLoadingSubjects(true);
       try {
-        const params = { program_type: form.program_type, semester: form.semester.toLowerCase() };
+        const sectionParams = {
+          school_year: form.school_year,
+          semester: form.semester.toLowerCase(),
+        };
+        const res = await api.get('/sections', { params: sectionParams });
+        const matchingSections = (res.data || []).filter(sectionMatchesSelection);
+        setSections(matchingSections);
 
-        if (form.program_type === 'college') {
-          params.course = form.course_program;
-          if (form.year_level) params.year_level = form.year_level.replace(/[^0-9]/g, '');
-        } else {
-          if (!form.strand) { setSubjects([]); return; }
-          params.strand = form.strand;
-          if (form.year_level) params.year_level = form.year_level.replace(/[^0-9]/g, '');
-        }
+        if (form.academic_status === 'Regular') {
+          const selectedSection = matchingSections.find(section => section.id === form.section_id);
 
-        if (form.academic_status === 'Irregular') {
-          const sectionParams = {
-            school_year: form.school_year,
-            semester: form.semester.toLowerCase(),
-          };
-          const res = await api.get('/sections', { params: sectionParams });
-          const offerings = (res.data || [])
-            .filter(section => section.program_type === form.program_type)
-            .filter(section => {
-              if (form.program_type !== 'college' || !form.course_program) return true;
-              return !section.course || section.course === form.course_program;
-            })
-            .filter(section => form.program_type !== 'shs' || !form.strand || !section.strand || section.strand === form.strand)
-            .filter(section => {
-              const level = form.year_level?.replace(/[^0-9]/g, '');
-              return !level || String(section.year_level || '') === level;
-            })
-            .flatMap(section => (section.section_subjects || []).map(offering => ({
-              ...offering.subject,
-              offering_id: offering.id,
-              section_id: section.id,
-              section_name: section.name,
-              teacher: offering.teacher?.name,
-              days: offering.day,
-              time: [offering.time_start, offering.time_end].filter(Boolean).join('-'),
-              time_start: offering.time_start,
-              time_end: offering.time_end,
-              room: offering.room,
-            })))
+          if (!selectedSection) {
+            setSubjects([]);
+            setForm(prev => prev.section_id
+              ? { ...prev, section_id: null, section_name: '', subject_ids: [], section_subject_ids: [] }
+              : prev
+            );
+            return;
+          }
+
+          setSubjects((selectedSection.section_subjects || [])
+            .map(offeringFromSection(selectedSection))
+            .filter(subject => subject?.id));
+        } else if (form.academic_status === 'Irregular') {
+          const offerings = matchingSections
+            .flatMap(section => (section.section_subjects || []).map(offeringFromSection(section)))
             .filter(subject => {
               if (!subject?.id) return false;
               if (subject.program_type && subject.program_type !== form.program_type) return false;
@@ -333,8 +377,7 @@ export default function EnrollmentScreen() {
             .filter(subject => subject?.id);
           setSubjects(offerings);
         } else {
-          const res = await api.get('/subjects', { params });
-          setSubjects(res.data || []);
+          setSubjects([]);
         }
       } catch {
         console.log('Failed to load subjects');
@@ -360,17 +403,21 @@ export default function EnrollmentScreen() {
 
     loadSubjects();
     loadCourses();
-  }, [form.program_type, form.course_id, form.course_program, form.strand, form.year_level, form.semester, form.school_year, form.academic_status, courseSearch]);
+  }, [form.program_type, form.course_id, form.course_program, form.strand, form.year_level, form.semester, form.school_year, form.academic_status, form.section_id, courseSearch]);
 
   useEffect(() => {
     if (form.academic_status === 'Regular') {
-      setForm(prev => ({ ...prev, subject_ids: subjects.map(subject => subject.id), section_subject_ids: [] }));
+      setForm(prev => ({
+        ...prev,
+        subject_ids: subjects.map(subject => subject.id),
+        section_subject_ids: subjects.map(subject => subject.offering_id).filter(Boolean),
+      }));
     }
   }, [form.academic_status, subjects]);
 
   useEffect(() => {
     if (form.academic_status === 'Irregular') {
-      setForm(prev => ({ ...prev, subject_ids: [], section_subject_ids: [] }));
+      setForm(prev => ({ ...prev, section_id: null, section_name: '', subject_ids: [], section_subject_ids: [] }));
     }
   }, [form.academic_status]);
 
@@ -396,24 +443,19 @@ export default function EnrollmentScreen() {
       return Alert.alert('Enrollment closed', enrollmentSettings?.message || CLOSED_MESSAGE);
     }
 
-    if (!form.email.trim())                           return Alert.alert('Required', 'Email is required.');
-    if (!existingStudent && form.password.length < 8) return Alert.alert('Required', 'Password must be at least 8 characters.');
-    if (!existingStudent && form.password !== form.password_confirmation) return Alert.alert('Error', 'Passwords do not match.');
+    if (!authenticatedUser)                           return Alert.alert('Account required', 'Please register or log in before enrolling.');
     if (!form.surname.trim() || !form.first_name.trim()) return Alert.alert('Required', 'Full name is required.');
     if (!form.student_type)                           return Alert.alert('Required', 'Please select a student type.');
     if (!form.academic_status)                        return Alert.alert('Required', 'Please select Regular or Irregular.');
     if (form.student_type === 'old_student' && !form.id_no.trim()) return Alert.alert('Required', 'Enter your student ID number for old-student enrollment.');
     if (form.program_type === 'college' && !form.course_id) return Alert.alert('Required', 'Please select a college course from the list.');
     if (form.program_type === 'shs' && !form.strand)  return Alert.alert('Required', 'Please select a strand.');
+    if (form.academic_status === 'Regular' && !form.section_id) return Alert.alert('Required', 'Please select a section.');
     if (form.academic_status === 'Irregular' && !form.subject_ids.length) return Alert.alert('Required', 'Please select at least one subject.');
-    if (form.academic_status === 'Regular' && !subjects.length) return Alert.alert('Required', 'No regular subjects are available for this program and semester.');
+    if (form.academic_status === 'Regular' && !form.section_subject_ids.length) return Alert.alert('Required', 'The selected section has no subjects assigned.');
 
     const payload = {
-      email: form.email,
-      ...(existingStudent ? {} : {
-        password: form.password,
-        password_confirmation: form.password_confirmation,
-      }),
+      email: authenticatedUser.email,
       first_name: form.first_name,
       last_name: form.surname,
       middle_name: form.middle_name,
@@ -469,7 +511,7 @@ export default function EnrollmentScreen() {
       });
       Alert.alert(
         '🎉 Application Submitted!',
-        `Your registration has been submitted.\nTrack using: ${form.email}`,
+        `Your registration has been submitted.\nTrack using: ${authenticatedUser.email}`,
         [{ text: 'OK', onPress: () => router.replace('/enrollment-status') }]
       );
     } catch (e) {
@@ -697,7 +739,9 @@ export default function EnrollmentScreen() {
               >
                 <View style={s.dropdownLabelGroup}>
                   <Text style={s.dropdownLabel}>
-                    {form.course_id ? courseCodeFromName(form.course_program) : 'Select course'}
+                    {form.course_id
+                      ? (courses.find(course => course.id === form.course_id)?.acronym || courseCodeFromName(form.course_program))
+                      : 'Select course'}
                   </Text>
                   <Text style={s.dropdownValue} numberOfLines={1}>
                     {form.course_program || 'Tap to choose from the list'}
@@ -737,11 +781,11 @@ export default function EnrollmentScreen() {
                         >
                           <View style={s.courseOptionLeft}>
                             <View style={s.courseCodeBadge}>
-                              <Text style={s.courseCodeText}>{courseCodeFromName(course.name)}</Text>
+                              <Text style={s.courseCodeText}>{course.acronym || courseCodeFromName(course.name)}</Text>
                             </View>
                             <View style={s.courseOptionText}>
                               <Text style={s.courseOptionName}>{course.name}</Text>
-                              <Text style={s.courseOptionMeta}>College</Text>
+                              <Text style={s.courseOptionMeta}>{course.acronym ? `College • ${course.acronym}` : 'College'}</Text>
                             </View>
                           </View>
                         </TouchableOpacity>
@@ -759,6 +803,97 @@ export default function EnrollmentScreen() {
           <Field label="School Year">
             {inp('school_year', { placeholder: 'e.g. 2024-2025' })}
           </Field>
+
+          {form.academic_status === 'Regular' && (
+            <Field label="Section *">
+              <TouchableOpacity
+                style={[s.dropdown, form.section_id && s.dropdownActive]}
+                onPress={() => setSectionDropdownOpen(open => !open)}
+              >
+                <View style={s.dropdownLabelGroup}>
+                  <Text style={s.dropdownLabel}>
+                    {form.section_name || 'Select section'}
+                  </Text>
+                  <Text style={s.dropdownValue} numberOfLines={1}>
+                    {form.section_id
+                      ? 'Regular subjects will be loaded from this section'
+                      : 'Choose an available section for your regular load'}
+                  </Text>
+                </View>
+                <Text style={s.dropdownArrow}>{sectionDropdownOpen ? '^' : 'v'}</Text>
+              </TouchableOpacity>
+
+              {sectionDropdownOpen && (
+                <View style={s.dropdownPanel}>
+                  {loadingSubjects ? (
+                    <ActivityIndicator size="small" color={C.primary} />
+                  ) : sections.length ? (
+                    <ScrollView
+                      style={s.dropdownScroll}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator
+                    >
+                      {sections.map(section => {
+                        const maxStudents = Number(section.max_students || 0);
+                        const full = maxStudents > 0 && Number(section.student_count || 0) >= maxStudents;
+                        return (
+                          <TouchableOpacity
+                            key={section.id}
+                            style={[s.courseOption, form.section_id === section.id && s.courseOptionActive, full && s.optionDisabled]}
+                            disabled={full}
+                            onPress={() => {
+                              const sectionSubjects = (section.section_subjects || [])
+                                .map(offering => ({
+                                  ...offering.subject,
+                                  offering_id: offering.id,
+                                  section_id: section.id,
+                                  section_name: section.name,
+                                  teacher: offering.teacher?.name,
+                                  days: offering.day,
+                                  time: [offering.time_start, offering.time_end].filter(Boolean).join('-'),
+                                  time_start: offering.time_start,
+                                  time_end: offering.time_end,
+                                  room: offering.room,
+                                }))
+                                .filter(subject => subject?.id);
+
+                              setSubjects(sectionSubjects);
+                              setForm(prev => ({
+                                ...prev,
+                                section_id: section.id,
+                                section_name: section.name,
+                                subject_ids: sectionSubjects.map(subject => subject.id),
+                                section_subject_ids: sectionSubjects.map(subject => subject.offering_id).filter(Boolean),
+                              }));
+                              setSectionDropdownOpen(false);
+                            }}
+                          >
+                            <View style={s.courseOptionLeft}>
+                              <View style={s.courseCodeBadge}>
+                                <Text style={s.courseCodeText}>{section.name?.slice(0, 4) || 'SEC'}</Text>
+                              </View>
+                              <View style={s.courseOptionText}>
+                                <Text style={s.courseOptionName}>{section.name}</Text>
+                                <Text style={s.courseOptionMeta}>
+                                  {maxStudents > 0
+                                    ? `${Number(section.student_count || 0)}/${maxStudents} students`
+                                    : `${Number(section.student_count || 0)} students`}
+                                  {full ? ' - Full' : ''}
+                                </Text>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  ) : (
+                    <Text style={s.helperText}>No available sections match this program, level, term, and course/strand.</Text>
+                  )}
+                </View>
+              )}
+            </Field>
+          )}
         </View>
 
         {/* ── Personal Information ── */}
@@ -938,19 +1073,18 @@ export default function EnrollmentScreen() {
           )}
         </View>
 
-        {/* ── Account Credentials ── */}
+        {/* ── Account ── */}
         <View style={s.card}>
-          <Text style={s.sectionTitle}>Account Credentials</Text>
-          <Text style={s.sectionSubtitle}>Used for login after approval</Text>
+          <Text style={s.sectionTitle}>Account</Text>
+          <Text style={s.sectionSubtitle}>This enrollment will be submitted using your registered account.</Text>
 
           <Field label="Email Address *">
             <TextInput
               style={s.input}
-              value={form.email}
-              onChangeText={v => set('email', v)}
+              value={authenticatedUser?.email || form.email}
               keyboardType="email-address"
               autoCapitalize="none"
-              editable={!existingStudent}
+              editable={false}
             />
           </Field>
           {existingStudent ? (
@@ -958,14 +1092,9 @@ export default function EnrollmentScreen() {
               Existing student account found. Login email will be linked to the current student record.
             </Text>
           ) : (
-            <>
-              <Field label="Password *">
-                {inp('password', { secureTextEntry: true })}
-              </Field>
-              <Field label="Confirm Password *">
-                {inp('password_confirmation', { secureTextEntry: true })}
-              </Field>
-            </>
+            <Text style={s.helperText}>
+              Account credentials are managed from registration and profile settings.
+            </Text>
           )}
         </View>
 
@@ -1080,6 +1209,7 @@ const s = StyleSheet.create({
   dropdownScroll: { maxHeight: 220 },
   courseOption:   { paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#F0EDE6' },
   courseOptionActive: { backgroundColor: '#EEF4FF' },
+  optionDisabled: { opacity: 0.45 },
   courseOptionLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   courseCodeBadge: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E8F0FF', justifyContent: 'center', alignItems: 'center' },
   courseCodeText:  { fontSize: 13, fontWeight: '700', color: C.blue },

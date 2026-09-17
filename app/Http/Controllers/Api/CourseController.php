@@ -18,7 +18,10 @@ class CourseController extends Controller
         }
 
         if ($request->filled('search')) {
-            $query->where('name', 'like', "%{$request->search}%");
+            $query->where(function ($query) use ($request) {
+                $query->where('name', 'like', "%{$request->search}%")
+                    ->orWhere('acronym', 'like', "%{$request->search}%");
+            });
         }
 
         return response()->json($query->orderBy('name')->get());
@@ -30,6 +33,7 @@ class CourseController extends Controller
 
         $data = $request->validate([
             'name'         => 'required|string|max:255',
+            'acronym'      => 'nullable|string|max:20',
             'description'  => 'nullable|string|max:1000',
             'program_type' => 'required|in:shs,college',
             'is_active'    => 'nullable|boolean',
@@ -37,6 +41,7 @@ class CourseController extends Controller
 
         $course = Course::create([
             'name'         => $data['name'],
+            'acronym'      => isset($data['acronym']) ? strtoupper(trim($data['acronym'])) : null,
             'description'  => $data['description'] ?? null,
             'program_type' => $data['program_type'],
             'is_active'    => $data['is_active'] ?? true,
@@ -52,6 +57,7 @@ class CourseController extends Controller
         $course = Course::findOrFail($id);
         $data = $request->validate([
             'name'         => 'required|string|max:255',
+            'acronym'      => 'nullable|string|max:20',
             'description'  => 'nullable|string|max:1000',
             'program_type' => 'required|in:shs,college',
             'is_active'    => 'nullable|boolean',
@@ -59,6 +65,7 @@ class CourseController extends Controller
 
         $course->update([
             'name'         => $data['name'],
+            'acronym'      => isset($data['acronym']) ? strtoupper(trim($data['acronym'])) : null,
             'description'  => $data['description'] ?? null,
             'program_type' => $data['program_type'],
             'is_active'    => $data['is_active'] ?? true,

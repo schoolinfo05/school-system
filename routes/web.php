@@ -13,6 +13,7 @@ use App\Http\Controllers\Registrar\PointsController;
 use App\Http\Controllers\Registrar\ProfileController as RegistrarProfileController;
 use App\Http\Controllers\Registrar\SectionController as RegistrarSectionController;
 use App\Http\Controllers\Registrar\SubjectController as RegistrarSubjectController;
+use App\Http\Controllers\Registrar\SubjectChangeRequestController as RegistrarSubjectChangeRequestController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\PropertyCustodian\DashboardController as PropertyCustodianDashboardController;
@@ -98,6 +99,7 @@ Route::middleware(['auth', 'web.roles:admin'])->prefix('admin')->name('admin.')-
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/students', [StudentManageController::class, 'index'])->name('students.index');
     Route::get('/students/{student}', [StudentManageController::class, 'show'])->name('students.show');
+    Route::put('/students/{student}', [StudentManageController::class, 'update'])->name('students.update');
     Route::put('/students/{student}/parent', [StudentManageController::class, 'updateParent'])->name('students.parent.update');
     Route::post('/students/{student}/fees', [StudentManageController::class, 'storeFee'])->name('students.fees.store');
     Route::post('/students/{student}/fees/{fee}/pay', [StudentManageController::class, 'markFeePaid'])->name('students.fees.pay');
@@ -123,6 +125,7 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::post('/enrollments/{enrollment}/reject', [EnrollmentReviewController::class, 'reject'])->name('enrollments.reject');
     Route::get('/students', [StudentManageController::class, 'index'])->name('students.index');
     Route::get('/students/{student}', [StudentManageController::class, 'show'])->name('students.show');
+    Route::put('/students/{student}', [StudentManageController::class, 'update'])->name('students.update');
     Route::put('/students/{student}/parent', [StudentManageController::class, 'updateParent'])->name('students.parent.update');
     Route::post('/students/{student}/fees', [StudentManageController::class, 'storeFee'])->name('students.fees.store');
     Route::post('/students/{student}/fees/{fee}/pay', [StudentManageController::class, 'markFeePaid'])->name('students.fees.pay');
@@ -134,6 +137,9 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::post('/subjects', [RegistrarSubjectController::class, 'store'])->name('subjects.store');
     Route::put('/subjects/{subject}', [RegistrarSubjectController::class, 'update'])->name('subjects.update');
     Route::delete('/subjects/{subject}', [RegistrarSubjectController::class, 'destroy'])->name('subjects.destroy');
+    Route::get('/subject-requests', [RegistrarSubjectChangeRequestController::class, 'index'])->name('subject-requests.index');
+    Route::post('/subject-requests/{subjectRequest}/approve', [RegistrarSubjectChangeRequestController::class, 'approve'])->name('subject-requests.approve');
+    Route::post('/subject-requests/{subjectRequest}/reject', [RegistrarSubjectChangeRequestController::class, 'reject'])->name('subject-requests.reject');
     Route::get('/sections', [RegistrarSectionController::class, 'index'])->name('sections.index');
     Route::post('/sections', [RegistrarSectionController::class, 'store'])->name('sections.store');
     Route::put('/sections/{section}', [RegistrarSectionController::class, 'update'])->name('sections.update');

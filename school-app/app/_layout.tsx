@@ -7,6 +7,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="login" />
+        <Stack.Screen name="register" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(teacher)" />
         <Stack.Screen name="(admin)" />
@@ -16,7 +17,7 @@ export default function RootLayout() {
         <Stack.Screen name="forgot-password" />
         <Stack.Screen name="reset-password" />
 
-        {/* Enrollment screens — public, no login required */}
+        {/* Enrollment form requires a registered student account */}
         <Stack.Screen name="enrollment" />
         <Stack.Screen name="enrollment-status" />
       </Stack>

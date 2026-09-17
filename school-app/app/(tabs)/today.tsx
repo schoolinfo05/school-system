@@ -100,6 +100,7 @@ export default function Today() {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const recentNotifications = notifications?.notifications?.slice(0, 3) ?? [];
   const unreadCount = notifications?.unread_count ?? 0;
+  const enrollmentApplication = data?.enrollment_application;
   const enrollment = student?.enrollment;
   const yearLevelLabel = (value) => {
     const year = String(value || '').replace(/[^0-9]/g, '');
@@ -115,6 +116,117 @@ export default function Today() {
     student?.section && student.section !== 'TBA' ? student.section : 'No section',
     student?.school_year,
   ].filter(Boolean).join(' - ');
+
+  if (!student) {
+    const displayName = user?.name || data?.user?.name || 'Student';
+    const hasApplication = !!enrollmentApplication;
+    const status = enrollmentApplication?.status || 'pending';
+    const statusLabel = status === 'approved'
+      ? 'Enrollment approved'
+      : status === 'rejected'
+        ? 'Enrollment rejected'
+        : 'Enrollment pending';
+    const statusText = status === 'approved'
+      ? 'Your application has been approved. Your student dashboard will update once your student record is ready.'
+      : status === 'rejected'
+        ? (enrollmentApplication?.remarks || 'Your application was not approved. You may review your status and submit again if needed.')
+        : 'Your application has been submitted and is waiting for registrar review.';
+
+    return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: theme.bg }]}
+        contentContainerStyle={{ paddingBottom: 24 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchDashboard(); }} />
+        }
+      >
+        <View style={[styles.header, { backgroundColor: theme.primary }]}>
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.greeting}>{greeting}</Text>
+              <Text style={styles.name}>{displayName}</Text>
+              <Text style={styles.section}>Account registered</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.profileBtn}
+              onPress={() => router.push('/(tabs)/profile')}
+              accessibilityLabel="Open profile"
+            >
+              {user?.profile_photo_url ? (
+                <Image source={{ uri: user.profile_photo_url }} style={styles.profileImage} />
+              ) : (
+                <Text style={styles.profileInitials}>
+                  {displayName.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'ME'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={[styles.emptyStateCard, { backgroundColor: theme.card }]}>
+          <Text style={[styles.emptyStateTitle, { color: theme.text }]}>
+            {hasApplication ? statusLabel : 'No enrollment yet'}
+          </Text>
+          <Text style={[styles.emptyStateText, { color: theme.textSub }]}>
+            {hasApplication
+              ? statusText
+              : 'Your account is active. When you are ready to apply for enrollment, start the form here.'}
+          </Text>
+          {hasApplication ? (
+            <View style={[styles.enrollmentSummary, { borderColor: theme.border, backgroundColor: theme.bg }]}>
+              <Text style={[styles.enrollmentSummaryText, { color: theme.text }]}>
+                {enrollmentApplication.program_type === 'college'
+                  ? enrollmentApplication.course
+                  : enrollmentApplication.strand}
+              </Text>
+              <Text style={[styles.enrollmentSummaryMeta, { color: theme.textSub }]}>
+                {enrollmentApplication.semester?.toUpperCase()} Semester - A.Y. {enrollmentApplication.school_year}
+              </Text>
+            </View>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.emptyStateAction, { backgroundColor: theme.primary }]}
+            onPress={() => router.push(hasApplication ? '/enrollment-status' : '/enrollment')}
+          >
+            <Text style={styles.emptyStateActionText}>
+              {hasApplication ? 'View Status' : 'Start Enrollment'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: theme.card }]}>
+          <View style={styles.cardHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cardTitle, { color: theme.text }]}>Notifications</Text>
+              {unreadCount > 0 ? (
+                <Text style={[styles.notificationMeta, { color: theme.primary }]}>{unreadCount} unread</Text>
+              ) : null}
+            </View>
+          </View>
+          {recentNotifications.length > 0 ? (
+            recentNotifications.map(item => (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.notificationRow, { borderColor: theme.border }]}
+                activeOpacity={0.75}
+                onPress={() => openNotification(item)}
+              >
+                <View style={[styles.notificationDot, { backgroundColor: item.read_at ? theme.textMuted : theme.primary }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.notificationTitle, { color: theme.text }]}>{item.title}</Text>
+                  <Text style={[styles.notificationBody, { color: theme.textSub }]}>{item.body || item.type}</Text>
+                  <Text style={[styles.notificationDate, { color: theme.textMuted }]}>{new Date(item.created_at).toLocaleString()}</Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <Text style={[styles.empty, { color: theme.textMuted }]}>No notifications yet.</Text>
+          )}
+        </View>
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView
@@ -516,6 +628,49 @@ const styles = StyleSheet.create({
   quickLabel:  { fontSize: Font.xs, fontWeight: '600' },
 
   empty:       { fontSize: Font.sm, color: Colors.textMuted, textAlign: 'center', paddingVertical: 16 },
+  emptyStateCard: {
+    marginHorizontal: 16,
+    marginTop: -16,
+    marginBottom: 14,
+    padding: 18,
+    borderRadius: Radius.lg,
+    ...Shadow.card,
+  },
+  emptyStateTitle: {
+    fontSize: Font.lg,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: Font.sm,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  emptyStateAction: {
+    borderRadius: Radius.full,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  emptyStateActionText: {
+    color: '#fff',
+    fontSize: Font.sm,
+    fontWeight: '800',
+  },
+  enrollmentSummary: {
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    padding: 12,
+    marginBottom: 16,
+  },
+  enrollmentSummaryText: {
+    fontSize: Font.sm,
+    fontWeight: '800',
+  },
+  enrollmentSummaryMeta: {
+    fontSize: Font.xs,
+    fontWeight: '600',
+    marginTop: 4,
+  },
 });
 
 

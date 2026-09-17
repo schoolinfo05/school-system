@@ -17,6 +17,63 @@ use Spatie\Permission\Models\Role;
 
 class AuthController extends Controller
 {
+    public function register(Request $request)
+    {
+        $request->validate([
+            'first_name' => ['required', 'string', 'max:255'],
+            'middle_name' => ['nullable', 'string', 'max:255'],
+            'last_name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+        ]);
+
+        $firstName = trim($request->first_name);
+        $middleName = trim((string) $request->middle_name) ?: null;
+        $lastName = trim($request->last_name);
+        $name = collect([$firstName, $middleName, $lastName])
+            ->filter()
+            ->implode(' ');
+
+        $user = User::create([
+            'name' => $name,
+            'first_name' => $firstName,
+            'middle_name' => $middleName,
+            'last_name' => $lastName,
+            'email' => strtolower(trim($request->email)),
+            'password' => Hash::make($request->password),
+            'role' => User::ROLE_STUDENT,
+        ]);
+
+        Role::findOrCreate(User::ROLE_STUDENT, 'web');
+        $user->assignRole(User::ROLE_STUDENT);
+
+        $token = $user->createToken('school-app')->plainTextToken;
+
+        ActivityLog::record($request, 'register', "{$user->name} registered a student account.", [
+            'user' => $user,
+            'subject_type' => User::class,
+            'subject_id' => $user->id,
+            'meta' => ['role' => User::ROLE_STUDENT],
+        ]);
+
+        return response()->json([
+            'message' => 'Account created successfully.',
+            'token' => $token,
+            'role' => User::ROLE_STUDENT,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'first_name' => $user->first_name,
+                'middle_name' => $user->middle_name,
+                'last_name' => $user->last_name,
+                'email' => $user->email,
+                'role' => User::ROLE_STUDENT,
+                'position' => $user->position,
+                'profile_photo_url' => $user->profile_photo_url,
+            ],
+        ], 201);
+    }
+
     public function login(Request $request)
     {
         $request->validate([
@@ -57,6 +114,9 @@ class AuthController extends Controller
             'user'  => [
                 'id'    => $user->id,
                 'name'  => $user->name,
+                'first_name' => $user->first_name,
+                'middle_name' => $user->middle_name,
+                'last_name' => $user->last_name,
                 'email' => $user->email,
                 'role'  => $role,
                 'position' => $position,

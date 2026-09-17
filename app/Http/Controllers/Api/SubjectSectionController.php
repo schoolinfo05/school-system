@@ -469,6 +469,13 @@ class SubjectSectionController extends Controller
             ->where('user_id', $user->id)
             ->get()
             ->keyBy(fn (StudentSubject $record) => $this->subjectOverrideKey($record->section_id, $record->subject_id));
+        $droppedSubjectIds = StudentSubject::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'dropped')
+            ->pluck('subject_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
 
         $sections = Section::whereHas('students', fn($q) =>
                         $q->where('user_id', $user->id)->where('status', 'enrolled')
@@ -480,7 +487,8 @@ class SubjectSectionController extends Controller
 
         $subjects = $sections->flatMap(fn($section) =>
             $section->sectionSubjects
-            ->filter(fn($ss) => ($overrides->get($this->subjectOverrideKey($section->id, $ss->subject->id))?->status ?? 'enrolled') !== 'dropped')
+            ->filter(fn($ss) => ($overrides->get($this->subjectOverrideKey($section->id, $ss->subject->id))?->status ?? 'enrolled') !== 'dropped'
+                && ($overrides->get($this->subjectOverrideKey(null, $ss->subject->id))?->status ?? 'enrolled') !== 'dropped')
             ->map(fn($ss) => [
                 'section_id'   => $section->id,
                 'section_name' => $section->name,
@@ -539,6 +547,7 @@ class SubjectSectionController extends Controller
             ->map(fn($id) => (int) $id)
             ->filter()
             ->diff($sectionSubjectIds)
+            ->diff($droppedSubjectIds)
             ->filter(fn($id) => ($overrides->get($this->subjectOverrideKey(null, $id))?->status ?? 'enrolled') !== 'dropped')
             ->values()
             ->all();

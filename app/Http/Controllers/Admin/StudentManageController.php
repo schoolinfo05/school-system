@@ -14,6 +14,7 @@ use App\Models\Subject;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
 use App\Models\User;
+use Illuminate\Validation\Rule;
 
 class StudentManageController extends Controller
 {
@@ -60,6 +61,67 @@ class StudentManageController extends Controller
         $routePrefix = $request->routeIs('registrar.*') ? 'registrar' : 'admin';
 
         return view('admin.students.show', compact('student', 'grades', 'fees', 'attendance', 'attendancePct', 'routePrefix', 'subjects'));
+    }
+
+    public function update(Request $request, Student $student)
+    {
+        $data = $request->validate([
+            'student_id' => ['required', 'string', 'max:255', Rule::unique('students', 'student_id')->ignore($student->id)],
+            'first_name' => ['required', 'string', 'max:255'],
+            'last_name' => ['required', 'string', 'max:255'],
+            'email' => [
+                'required',
+                'email',
+                'max:255',
+                Rule::unique('students', 'email')->ignore($student->id),
+                Rule::unique('users', 'email')->ignore($student->user_id),
+            ],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'birthdate' => ['nullable', 'date'],
+            'gender' => ['required', 'in:male,female'],
+            'address' => ['nullable', 'string', 'max:500'],
+            'father_name' => ['nullable', 'string', 'max:255'],
+            'father_occupation' => ['nullable', 'string', 'max:255'],
+            'mother_name' => ['nullable', 'string', 'max:255'],
+            'mother_occupation' => ['nullable', 'string', 'max:255'],
+            'prev_school' => ['nullable', 'string', 'max:255'],
+            'prev_school_address' => ['nullable', 'string', 'max:255'],
+            'student_type' => ['nullable', 'in:new_student,old_student,transferee,returnee'],
+            'academic_status' => ['nullable', 'in:Regular,Irregular'],
+            'grade_level' => ['required', 'string', 'max:255'],
+            'section' => ['required', 'string', 'max:255'],
+            'school_year' => ['required', 'string', 'max:255'],
+            'status' => ['required', 'in:active,inactive,graduated'],
+        ]);
+
+        $student->update($data);
+
+        $application = EnrollmentApplication::query()
+            ->where('user_id', $student->user_id)
+            ->latest()
+            ->first();
+
+        if ($application) {
+            $application->update(collect($data)->only([
+                'father_name',
+                'father_occupation',
+                'mother_name',
+                'mother_occupation',
+                'prev_school',
+                'prev_school_address',
+                'student_type',
+                'academic_status',
+            ])->all());
+        }
+
+        if ($student->user) {
+            $student->user->update([
+                'name' => trim($data['first_name'] . ' ' . $data['last_name']),
+                'email' => $data['email'],
+            ]);
+        }
+
+        return back()->with('status', 'Student information updated.');
     }
 
     public function updateParent(Request $request, Student $student)
@@ -157,6 +219,13 @@ class StudentManageController extends Controller
             ->where('user_id', $student->user_id)
             ->get()
             ->keyBy(fn (StudentSubject $record) => $this->subjectOverrideKey($record->section_id, $record->subject_id));
+        $droppedSubjectIds = StudentSubject::query()
+            ->where('user_id', $student->user_id)
+            ->where('status', 'dropped')
+            ->pluck('subject_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
 
         $sectionSubjects = Section::query()
             ->whereHas('students', function ($query) use ($student) {
@@ -165,7 +234,10 @@ class StudentManageController extends Controller
             })
             ->with(['sectionSubjects.subject', 'sectionSubjects.teacher:id,name'])
             ->get()
-            ->flatMap(fn (Section $section) => $section->sectionSubjects->map(function ($sectionSubject) use ($section, $overrides) {
+            ->flatMap(fn (Section $section) => $section->sectionSubjects
+                ->filter(fn ($sectionSubject) => ($overrides->get($this->subjectOverrideKey($section->id, $sectionSubject->subject?->id))?->status ?? 'enrolled') !== 'dropped'
+                    && ($overrides->get($this->subjectOverrideKey(null, $sectionSubject->subject?->id))?->status ?? 'enrolled') !== 'dropped')
+                ->map(function ($sectionSubject) use ($section, $overrides) {
                 $override = $overrides->get($this->subjectOverrideKey($section->id, $sectionSubject->subject?->id));
 
                 return [
@@ -186,6 +258,7 @@ class StudentManageController extends Controller
         $directSubjectIds = collect($application?->subject_ids ?? [])
             ->map(fn ($id) => (int) $id)
             ->filter(fn ($id) => $id > 0 && !in_array($id, $sectionSubjectIds, true))
+            ->diff($droppedSubjectIds)
             ->unique()
             ->values();
 

@@ -30,6 +30,15 @@ class EnrollmentController extends Controller
     // POST /api/enrollment
     public function store(Request $request)
     {
+        $studentUser = $request->user();
+        if (! $studentUser) {
+            return response()->json(['message' => 'Please register or log in before enrolling.'], 401);
+        }
+
+        $request->merge([
+            'email' => $studentUser->email,
+        ]);
+
         $existingApplication = null;
 
         // For old students, find their most recent approved application
@@ -42,9 +51,7 @@ class EnrollmentController extends Controller
 
         $rules = [
             // Account
-            'email'                 => ['required', 'email', 'unique:enrollment_applications,email'],
-            'password'              => ['nullable', 'string', 'min:8', 'confirmed'],
-            'password_confirmation' => 'nullable|string|min:8',
+            'email'                 => ['required', 'email'],
 
             // Personal
             'first_name'     => 'required|string|max:100',
@@ -112,26 +119,6 @@ class EnrollmentController extends Controller
                     }
                 },
             ];
-            // Password optional — existing account will be reused
-            $rules['password'] = ['nullable', 'string', 'min:8', 'confirmed'];
-        } else {
-            // New/transferee/returnee — password required
-            $rules['password']              = ['required', 'string', 'min:8', 'confirmed'];
-            $rules['password_confirmation'] = 'required|string|min:8';
-        }
-
-        // Email uniqueness — ignore old student's existing user email
-        if ($existingApplication && $existingApplication->user_id) {
-            $rules['email'] = [
-                'required', 'email',
-                Rule::unique('users', 'email')->ignore($existingApplication->user_id),
-            ];
-        } else {
-            $rules['email'] = [
-                'required', 'email',
-                'unique:enrollment_applications,email',
-                'unique:users,email',
-            ];
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -178,6 +165,18 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
+        if (EnrollmentApplication::query()
+            ->where('user_id', $studentUser->id)
+            ->where('school_year', $request->school_year)
+            ->where('semester', strtolower($request->semester))
+            ->where('status', 'pending')
+            ->exists()
+        ) {
+            return response()->json([
+                'message' => 'You already have a pending enrollment application for this term.',
+            ], 422);
+        }
+
         if ($message = $this->enrollmentWindowMessage($request->school_year, strtolower($request->semester))) {
             return response()->json(['message' => $message], 422);
         }
@@ -189,14 +188,7 @@ class EnrollmentController extends Controller
         ];
         $gender = $genderMap[strtolower($request->gender ?? '')] ?? 'other';
 
-        // Resolve password — reuse existing user's hashed password for old students
-        $hashedPassword = null;
-        if ($existingApplication && $existingApplication->user_id) {
-            $existingUser   = User::find($existingApplication->user_id);
-            $hashedPassword = $existingUser?->password ?? Hash::make($request->password);
-        } else {
-            $hashedPassword = Hash::make($request->password);
-        }
+        $hashedPassword = $studentUser->password;
 
         $sectionSubjectIds = $this->sectionSubjectIdsForApplication($request);
         $subjectIds = $this->subjectIdsForApplication($request, $sectionSubjectIds);
@@ -219,7 +211,7 @@ class EnrollmentController extends Controller
             'password' => $hashedPassword,
             'gender'   => $gender,
             'status'   => 'pending',
-            'user_id'  => $existingApplication?->user_id,
+            'user_id'  => $studentUser->id,
         ]);
 
         return response()->json([
@@ -433,6 +425,14 @@ class EnrollmentController extends Controller
                 'birthdate'   => $app->birthdate,
                 'gender'      => in_array($app->gender, ['male','female']) ? $app->gender : 'male',
                 'address'     => $app->address,
+                'father_name' => $app->father_name,
+                'father_occupation' => $app->father_occupation,
+                'mother_name' => $app->mother_name,
+                'mother_occupation' => $app->mother_occupation,
+                'prev_school' => $app->prev_school,
+                'prev_school_address' => $app->prev_school_address,
+                'student_type' => $app->student_type,
+                'academic_status' => $app->academic_status,
                 'grade_level' => $app->program_type === 'college' ? $app->year_level : $app->grade_level,
                 'section'     => $section?->name ?? 'TBA',
                 'school_year' => $app->school_year,
@@ -733,6 +733,17 @@ class EnrollmentController extends Controller
 
     private function subjectIdsForApplication(Request $request, array $sectionSubjectIds = []): array
     {
+        if ($request->academic_status === 'Regular' && !empty($sectionSubjectIds)) {
+            return SectionSubject::query()
+                ->whereIn('id', $sectionSubjectIds)
+                ->pluck('subject_id')
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        }
+
         if ($request->academic_status !== 'Regular') {
             if (!empty($sectionSubjectIds)) {
                 return SectionSubject::query()
@@ -884,6 +895,35 @@ class EnrollmentController extends Controller
 
     private function matchingSectionForApplication(EnrollmentApplication $app): ?Section
     {
+        if ($app->academic_status !== 'Regular') {
+            return null;
+        }
+
+        $sectionSubjectIds = collect($app->section_subject_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values()
+            ->all();
+
+        if (!empty($sectionSubjectIds)) {
+            $selectedSectionIds = SectionSubject::query()
+                ->whereIn('id', $sectionSubjectIds)
+                ->pluck('section_id')
+                ->unique()
+                ->values();
+            $selectedSectionId = $selectedSectionIds->count() === 1 ? $selectedSectionIds->first() : null;
+
+            if ($selectedSectionId) {
+                $section = Section::query()
+                    ->where('is_active', true)
+                    ->find($selectedSectionId);
+
+                if ($section && (!$section->max_students || $section->students()->wherePivot('status', 'enrolled')->count() < $section->max_students)) {
+                    return $section;
+                }
+            }
+        }
+
         $sections = Section::query()
             ->where('is_active', true)
             ->where('program_type', $app->program_type)

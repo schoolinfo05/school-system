@@ -174,6 +174,10 @@ class AssignmentController extends Controller
     {
         $student = $this->studentFor($request->user());
 
+        if (!$student) {
+            return response()->json([]);
+        }
+
         $sectionSubjectIds = DB::table('section_students')
             ->join('section_subjects', 'section_students.section_id', '=', 'section_subjects.section_id')
             ->where('section_students.user_id', $request->user()->id)
@@ -445,9 +449,9 @@ class AssignmentController extends Controller
             ->exists();
     }
 
-    private function studentFor(User $user): Student
+    private function studentFor(User $user): ?Student
     {
-        return Student::where('user_id', $user->id)->firstOrFail();
+        return Student::where('user_id', $user->id)->first();
     }
 
     private function authorizeFaculty(?User $user): void

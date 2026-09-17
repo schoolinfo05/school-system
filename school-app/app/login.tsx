@@ -10,15 +10,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { setToken } from '../src/api';
 import { useTheme } from '../src/theme-context';
 
-const CLOSED_MESSAGE = 'Sorry, enrollment is temporarily closed.';
-
 export default function Login() {
   const router = useRouter();
   const { reloadTheme } = useTheme();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]     = useState(false);
-  const [checkingEnrollment, setCheckingEnrollment] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
@@ -62,22 +59,6 @@ export default function Login() {
       Alert.alert('Login failed', message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleOpenEnrollment = async () => {
-    setCheckingEnrollment(true);
-    try {
-      const res = await api.get('/enrollment/settings');
-      if (!res.data?.enrollment_open) {
-        return Alert.alert('Enrollment closed', CLOSED_MESSAGE);
-      }
-
-      router.push('/enrollment');
-    } catch {
-      Alert.alert('Enrollment closed', CLOSED_MESSAGE);
-    } finally {
-      setCheckingEnrollment(false);
     }
   };
 
@@ -138,7 +119,6 @@ export default function Login() {
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Sign in</Text>}
         </TouchableOpacity>
 
-        {/* ── Enrollment CTA ── */}
         <View style={styles.dividerRow}>
           <View style={styles.dividerLine} />
           <Text style={styles.dividerText}>New student?</Text>
@@ -146,14 +126,10 @@ export default function Login() {
         </View>
 
         <TouchableOpacity
-          style={[styles.enrollBtn, checkingEnrollment && styles.enrollBtnDisabled]}
-          onPress={handleOpenEnrollment}
-          disabled={checkingEnrollment}
+          style={styles.enrollBtn}
+          onPress={() => router.push('/register')}
         >
-          {checkingEnrollment
-            ? <ActivityIndicator color="#378ADD" />
-            : <Text style={styles.enrollBtnText}>📋  Apply for Enrollment</Text>
-          }
+          <Text style={styles.enrollBtnText}>Register</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -200,7 +176,6 @@ const styles = StyleSheet.create({
     borderRadius: 12, padding: 15,
     alignItems: 'center', marginBottom: 12,
   },
-  enrollBtnDisabled: { opacity: 0.65 },
   enrollBtnText: { color: '#378ADD', fontWeight: '600', fontSize: 15 },
 
   forgotBtn: { alignItems: 'center', marginBottom: 10 },

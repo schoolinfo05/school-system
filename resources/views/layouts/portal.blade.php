@@ -18,6 +18,7 @@
             ['label' => 'Students', 'route' => 'registrar.students.index', 'match' => 'registrar/students*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Courses', 'route' => 'registrar.courses.index', 'match' => 'registrar/courses*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Subjects', 'route' => 'registrar.subjects.index', 'match' => 'registrar/subjects*', 'roles' => ['admin', 'registrar']],
+            ['label' => 'Requests', 'route' => 'registrar.subject-requests.index', 'match' => 'registrar/subject-requests*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Sections', 'route' => 'registrar.sections.index', 'match' => 'registrar/sections*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Points', 'route' => 'registrar.points.index', 'match' => 'registrar/points*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Reports', 'route' => 'registrar.reports.index', 'match' => 'registrar/reports*', 'roles' => ['admin', 'registrar']],

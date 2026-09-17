@@ -17,7 +17,11 @@ class RewardController extends Controller
         $student = Student::where('user_id', $request->user()->id)->first();
 
         if (!$student) {
-            return response()->json(['message' => 'Student not found.'], 404);
+            return response()->json([
+                'summary' => $this->emptyRewardSummary(),
+                'rewards' => [],
+                'rules' => $this->rewardRules(),
+            ]);
         }
 
         return response()->json($this->rewardPayload($student, $points));
@@ -188,22 +192,47 @@ class RewardController extends Controller
                 ->latest()
                 ->limit(100)
                 ->get(),
-            'rules' => [
-                'redemption_rate' => '1 point = PHP 0.50',
-                'semester_cap' => PointsService::SEMESTER_CAP,
-                'redemption_cap' => PointsService::REDEMPTION_CAP,
-                'grade_cap' => PointsService::GRADE_CAP,
-                'attendance_cap' => PointsService::ATTENDANCE_CAP,
-                'event_cap' => PointsService::EVENT_CAP,
-                'allowed_sources' => [
-                    'grades',
-                    'attendance',
-                    'donations',
-                    'events',
-                    'early_enrollment',
-                    'early_payment',
-                ],
+            'rules' => $this->rewardRules(),
+        ];
+    }
+
+    private function rewardRules(): array
+    {
+        return [
+            'redemption_rate' => '1 point = PHP 0.50',
+            'semester_cap' => PointsService::SEMESTER_CAP,
+            'redemption_cap' => PointsService::REDEMPTION_CAP,
+            'grade_cap' => PointsService::GRADE_CAP,
+            'attendance_cap' => PointsService::ATTENDANCE_CAP,
+            'event_cap' => PointsService::EVENT_CAP,
+            'allowed_sources' => [
+                'grades',
+                'attendance',
+                'donations',
+                'events',
+                'early_enrollment',
+                'early_payment',
             ],
+        ];
+    }
+
+    private function emptyRewardSummary(): array
+    {
+        return [
+            'points' => 0,
+            'earned_points' => 0,
+            'redeemable_points' => 0,
+            'redemption_cap' => PointsService::REDEMPTION_CAP,
+            'peso_value' => 0,
+            'level' => 1,
+            'current_level_points' => 0,
+            'next_level_at' => 100,
+            'points_to_next_level' => 100,
+            'semester_cap' => PointsService::SEMESTER_CAP,
+            'semester_cap_remaining' => PointsService::SEMESTER_CAP,
+            'redemption_cap_remaining' => PointsService::REDEMPTION_CAP,
+            'rewards_count' => 0,
+            'by_source' => [],
         ];
     }
 

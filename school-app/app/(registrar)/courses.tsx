@@ -21,7 +21,7 @@ const C = {
 const HEADER_TOP = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 10 : 52;
 
 const EMPTY_FORM = {
-  name: '', description: '', program_type: 'college', is_active: true,
+  name: '', acronym: '', description: '', program_type: 'college', is_active: true,
 };
 
 function Field({ label, children }) {
@@ -97,6 +97,7 @@ export default function RegistrarCourses() {
     setEditing(course);
     setForm({
       name: course.name,
+      acronym: course.acronym ?? '',
       description: course.description ?? '',
       program_type: course.program_type,
       is_active: course.is_active,
@@ -114,6 +115,7 @@ export default function RegistrarCourses() {
     try {
       const payload = {
         name: form.name.trim(),
+        acronym: form.acronym.trim().toUpperCase() || null,
         description: form.description.trim() || null,
         program_type: form.program_type,
         is_active: form.is_active,
@@ -193,7 +195,10 @@ export default function RegistrarCourses() {
             <View key={course.id} style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}> 
               <View style={s.cardRow}>
                 <View style={s.cardInfo}>
-                  <Text style={[s.courseName, { color: theme.text }]}>{course.name}</Text>
+                  <View style={s.courseTitleRow}>
+                    <Text style={[s.courseName, { color: theme.text }]}>{course.name}</Text>
+                    {course.acronym ? <Text style={s.acronymBadge}>{course.acronym}</Text> : null}
+                  </View>
                   <Text style={s.courseMeta}>{course.program_type === 'shs' ? 'SHS' : 'College'} • {course.is_active ? 'Active' : 'Inactive'}</Text>
                 </View>
                 <View style={s.actionsRow}>
@@ -222,6 +227,9 @@ export default function RegistrarCourses() {
           <ScrollView contentContainerStyle={s.modalBody} keyboardShouldPersistTaps="handled">
             <Field label="Course Name *">
               <Input value={form.name} onChangeText={v => set('name', v)} placeholder="e.g. BS Information Technology" />
+            </Field>
+            <Field label="Acronym">
+              <Input value={form.acronym} onChangeText={v => set('acronym', v)} placeholder="e.g. BSIT" />
             </Field>
             <Field label="Description">
               <Input value={form.description} onChangeText={v => set('description', v)} placeholder="Optional description" multiline />
@@ -273,7 +281,9 @@ const s = StyleSheet.create({
   card: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 14 },
   cardRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   cardInfo: { flex: 1, marginRight: 12 },
+  courseTitleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   courseName: { fontSize: 16, fontWeight: '700', color: C.text },
+  acronymBadge: { overflow: 'hidden', borderRadius: 8, backgroundColor: C.blueLight, color: C.blue, fontSize: 11, fontWeight: '900', paddingHorizontal: 8, paddingVertical: 3 },
   courseMeta: { fontSize: 12, color: C.sub, marginTop: 4 },
   courseDesc: { color: C.sub, marginTop: 10, fontSize: 13, lineHeight: 18 },
   actionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

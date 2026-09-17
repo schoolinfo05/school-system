@@ -18,7 +18,10 @@ class CourseController extends Controller
 
         $courses = Course::query()
             ->when($request->program_type, fn ($query) => $query->where('program_type', $request->program_type))
-            ->when($request->search, fn ($query) => $query->where('name', 'like', "%{$request->search}%"))
+            ->when($request->search, fn ($query) => $query->where(function ($searchQuery) use ($request) {
+                $searchQuery->where('name', 'like', "%{$request->search}%")
+                    ->orWhere('acronym', 'like', "%{$request->search}%");
+            }))
             ->orderBy('program_type')
             ->orderBy('name')
             ->paginate(15)
@@ -33,10 +36,13 @@ class CourseController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'acronym' => ['nullable', 'string', 'max:20'],
             'description' => ['nullable', 'string', 'max:1000'],
             'program_type' => ['required', 'in:shs,college'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        $data['acronym'] = isset($data['acronym']) ? strtoupper(trim($data['acronym'])) : null;
 
         Course::create([...$data, 'is_active' => (bool) ($data['is_active'] ?? false)]);
 
@@ -49,10 +55,13 @@ class CourseController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'acronym' => ['nullable', 'string', 'max:20'],
             'description' => ['nullable', 'string', 'max:1000'],
             'program_type' => ['required', 'in:shs,college'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        $data['acronym'] = isset($data['acronym']) ? strtoupper(trim($data['acronym'])) : null;
 
         $course->update([...$data, 'is_active' => (bool) ($data['is_active'] ?? false)]);
 

@@ -487,7 +487,7 @@ export default function RegistrarSubjects() {
                               style={[s.courseOption, form.course === course.name && s.courseOptionActive]}
                               onPress={() => { set('course', course.name); setCourseDropdownOpen(false); }}
                             >
-                              <Text style={s.courseOptionText}>{course.name}</Text>
+                              <Text style={s.courseOptionText}>{course.acronym ? `${course.acronym} - ${course.name}` : course.name}</Text>
                             </TouchableOpacity>
                           ))}
                           {courses.length === 0 && (

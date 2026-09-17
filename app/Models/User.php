@@ -83,7 +83,7 @@ class User extends Authenticatable
     ];
 
     protected $fillable = [
-        'name', 'email', 'password', 'role', 'position', 'profile_photo_path',
+        'name', 'first_name', 'middle_name', 'last_name', 'email', 'password', 'role', 'position', 'profile_photo_path',
     ];
 
     protected $appends = [
