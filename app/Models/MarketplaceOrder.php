@@ -11,6 +11,7 @@ class MarketplaceOrder extends Model
         'buyer_id',
         'seller_id',
         'quantity',
+        'size',
         'unit_price',
         'original_amount',
         'total_amount',
@@ -24,6 +25,12 @@ class MarketplaceOrder extends Model
         'checkout_url',
         'status',
         'notes',
+        'refund_status',
+        'refund_reason',
+        'refund_review_notes',
+        'refund_requested_at',
+        'refund_reviewed_by',
+        'refund_reviewed_at',
         'paid_at',
     ];
 
@@ -34,6 +41,8 @@ class MarketplaceOrder extends Model
         'total_amount' => 'decimal:2',
         'points_redeemed' => 'integer',
         'points_discount' => 'decimal:2',
+        'refund_requested_at' => 'datetime',
+        'refund_reviewed_at' => 'datetime',
         'paid_at' => 'datetime',
     ];
 
@@ -50,5 +59,10 @@ class MarketplaceOrder extends Model
     public function seller()
     {
         return $this->belongsTo(User::class, 'seller_id');
+    }
+
+    public function refundReviewer()
+    {
+        return $this->belongsTo(User::class, 'refund_reviewed_by');
     }
 }

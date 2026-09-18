@@ -5,6 +5,8 @@
     $manageableRoles = \App\Models\User::ADMIN_MANAGEABLE_ROLES;
     $allRoles = \App\Models\User::ROLES;
     $roleLabel = fn ($role) => ucwords(str_replace('_', ' ', $role));
+    $positions = \App\Models\User::POSITIONS;
+    $positionLabel = fn ($position) => $position ? ucwords(str_replace('_', ' ', $position)) : null;
 @endphp
 <div class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
     <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-fit">
@@ -16,6 +18,16 @@
             <select name="role" class="w-full rounded-lg border-slate-300 text-sm">
                 @foreach($manageableRoles as $role)
                     <option value="{{ $role }}">{{ $roleLabel($role) }}</option>
+                @endforeach
+            </select>
+            <select name="position" class="w-full rounded-lg border-slate-300 text-sm">
+                <option value="">Default / No sub-role</option>
+                @foreach($positions as $role => $rolePositions)
+                    <optgroup label="{{ $roleLabel($role) }}">
+                        @foreach($rolePositions as $position)
+                            <option value="{{ $position }}">{{ $positionLabel($position) }}</option>
+                        @endforeach
+                    </optgroup>
                 @endforeach
             </select>
             <input name="password" type="password" placeholder="Temporary password" class="w-full rounded-lg border-slate-300 text-sm">
@@ -64,7 +76,9 @@
                         </div>
                     </div>
                     <p class="hidden truncate text-xs font-semibold text-slate-600 md:block">{{ $user->email }}</p>
-                    <span class="w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">{{ $roleLabel($user->role) }}</span>
+                    <span class="w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">
+                        {{ $roleLabel($user->role) }}{{ $user->position ? ' - ' . $positionLabel($user->position) : '' }}
+                    </span>
                     <p class="hidden text-xs font-semibold text-slate-600 md:block">{{ $user->created_at?->format('Y-m-d') }}</p>
                     <span class="text-right text-sm font-black text-blue-700">Open</span>
                 </button>
@@ -96,6 +110,19 @@
                                 <select name="role" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
                                     @foreach($manageableRoles as $role)
                                         <option value="{{ $role }}" @selected($user->role === $role)>{{ $roleLabel($role) }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            <label class="block text-xs font-bold uppercase text-slate-500">
+                                Sub-role / Position
+                                <select name="position" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                                    <option value="">Default / No sub-role</option>
+                                    @foreach($positions as $role => $rolePositions)
+                                        <optgroup label="{{ $roleLabel($role) }}">
+                                            @foreach($rolePositions as $position)
+                                                <option value="{{ $position }}" @selected($user->position === $position)>{{ $positionLabel($position) }}</option>
+                                            @endforeach
+                                        </optgroup>
                                     @endforeach
                                 </select>
                             </label>
@@ -135,7 +162,9 @@
                             <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
                                 <p class="text-sm font-black text-slate-900">{{ $user->name }}</p>
                                 <p class="mt-1 text-xs font-semibold text-slate-500">{{ $user->email }}</p>
-                                <p class="mt-2 w-fit rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-600">{{ $roleLabel($user->role) }}</p>
+                                <p class="mt-2 w-fit rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-600">
+                                    {{ $roleLabel($user->role) }}{{ $user->position ? ' - ' . $positionLabel($user->position) : '' }}
+                                </p>
                             </div>
                             <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                                 <button type="button" data-delete-modal-close="delete-user-modal-{{ $user->id }}" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">

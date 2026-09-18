@@ -164,6 +164,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/marketplace/{item}/approve', [MarketplaceController::class, 'approve']);
     Route::post('/marketplace/{item}/reject', [MarketplaceController::class, 'reject']);
     Route::post('/marketplace/orders/{order}/mark-paid', [MarketplaceController::class, 'markOrderPaid']);
+    Route::post('/marketplace/orders/{order}/refund', [MarketplaceController::class, 'refundOrder']);
+    Route::post('/marketplace/orders/{order}/refund/approve', [MarketplaceController::class, 'approveRefund']);
+    Route::post('/marketplace/orders/{order}/refund/reject', [MarketplaceController::class, 'rejectRefund']);
     Route::post('/marketplace/orders/{order}/received', [MarketplaceController::class, 'markOrderReceived']);
     Route::post('/marketplace/orders/{order}/cancel', [MarketplaceController::class, 'cancelOrder']);
     Route::get('/marketplace/orders/{order}/receipt', [MarketplaceController::class, 'receipt']);

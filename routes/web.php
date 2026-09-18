@@ -26,7 +26,11 @@ use Illuminate\Support\Facades\Auth;
 $webPortalRoles = [
     User::ROLE_ADMIN,
     User::ROLE_REGISTRAR,
-    ...User::FACULTY_ROLES,
+    User::ROLE_FACULTY,
+    User::POSITION_TEACHER,
+    User::POSITION_HEAD_DEPARTMENT,
+    User::POSITION_HEAD_TEACHER,
+    User::POSITION_DEAN,
     User::POSITION_PROPERTY_CUSTODIAN,
 ];
 
@@ -39,7 +43,7 @@ $redirectToPortalDashboard = function ($user) {
     return match (true) {
         $user->role === User::ROLE_ADMIN => redirect('/admin/dashboard'),
         $user->role === User::ROLE_REGISTRAR => redirect('/registrar/dashboard'),
-        in_array($user->role, User::FACULTY_ROLES, true) => redirect('/teacher/dashboard'),
+        $user->role === User::ROLE_FACULTY || in_array($user->position, User::POSITIONS[User::ROLE_FACULTY], true) => redirect('/teacher/dashboard'),
         $isPropertyCustodian => redirect('/property-custodian/dashboard'),
         default => redirect('/login'),
     };
@@ -58,7 +62,7 @@ Route::get('/', function () use ($redirectToPortalDashboard) {
     $isAllowedWebUser = in_array($user->role, [
         User::ROLE_ADMIN,
         User::ROLE_REGISTRAR,
-        ...User::FACULTY_ROLES,
+        User::ROLE_FACULTY,
     ], true) || $isPropertyCustodian;
 
     if (!$isAllowedWebUser) {
@@ -81,7 +85,7 @@ Route::get('/dashboard', function () use ($redirectToPortalDashboard) {
     $isAllowedWebUser = in_array($user->role, [
         User::ROLE_ADMIN,
         User::ROLE_REGISTRAR,
-        ...User::FACULTY_ROLES,
+        User::ROLE_FACULTY,
     ], true) || $isPropertyCustodian;
 
     if (!$isAllowedWebUser) {
@@ -154,7 +158,7 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::get('/profile', [RegistrarProfileController::class, 'show'])->name('profile.show');
 });
 
-Route::middleware(['auth', 'web.roles:admin,faculty,teacher,head_teacher,dean'])->prefix('teacher')->name('teacher.')->group(function () {
+Route::middleware(['auth', 'web.roles:admin,faculty,teacher,head_department,head_teacher,dean'])->prefix('teacher')->name('teacher.')->group(function () {
     Route::get('/dashboard',                    [TeacherDashboard::class, 'index'])->name('dashboard');
     Route::get('/classes',                      [TeacherDashboard::class, 'classes'])->name('classes');
     Route::get('/assignments',                  [TeacherDashboard::class, 'assignments'])->name('assignments');
@@ -173,10 +177,14 @@ Route::middleware(['auth', 'web.roles:admin,faculty,teacher,head_teacher,dean'])
 
 Route::middleware(['auth', 'web.roles:admin,property_custodian'])->prefix('property-custodian')->name('property-custodian.')->group(function () {
     Route::get('/dashboard', [PropertyCustodianDashboardController::class, 'index'])->name('dashboard');
+    Route::get('/market', [PropertyCustodianDashboardController::class, 'market'])->name('market');
+    Route::get('/reports', [PropertyCustodianDashboardController::class, 'reports'])->name('reports');
     Route::post('/marketplace', [PropertyCustodianDashboardController::class, 'storeMarketplaceItem'])->name('marketplace.store');
     Route::put('/marketplace/{item}', [PropertyCustodianDashboardController::class, 'updateMarketplaceItem'])->name('marketplace.update');
     Route::delete('/marketplace/{item}', [PropertyCustodianDashboardController::class, 'destroyMarketplaceItem'])->name('marketplace.destroy');
     Route::post('/marketplace/orders/{order}/mark-paid', [PropertyCustodianDashboardController::class, 'markOrderPaid'])->name('marketplace.orders.mark-paid');
+    Route::post('/marketplace/orders/{order}/refund/approve', [PropertyCustodianDashboardController::class, 'approveRefund'])->name('marketplace.orders.refund.approve');
+    Route::post('/marketplace/orders/{order}/refund/reject', [PropertyCustodianDashboardController::class, 'rejectRefund'])->name('marketplace.orders.refund.reject');
 });
 
 require __DIR__.'/auth.php';

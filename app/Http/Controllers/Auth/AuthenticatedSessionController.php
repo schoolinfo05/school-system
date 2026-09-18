@@ -39,8 +39,8 @@ class AuthenticatedSessionController extends Controller
         $isAllowedWebUser = in_array($user->role, [
             User::ROLE_ADMIN,
             User::ROLE_REGISTRAR,
-            ...User::FACULTY_ROLES,
-        ], true) || $isPropertyCustodian;
+            User::ROLE_FACULTY,
+        ], true) || in_array($user->position, User::POSITIONS[User::ROLE_FACULTY], true) || $isPropertyCustodian;
 
         if (!$isAllowedWebUser) {
             Auth::guard('web')->logout();
@@ -55,7 +55,7 @@ class AuthenticatedSessionController extends Controller
         $route = match (true) {
             $user->role === User::ROLE_ADMIN => route('admin.dashboard'),
             $user->role === User::ROLE_REGISTRAR => route('registrar.dashboard'),
-            in_array($user->role, User::FACULTY_ROLES, true) => route('teacher.dashboard'),
+            $user->role === User::ROLE_FACULTY || in_array($user->position, User::POSITIONS[User::ROLE_FACULTY], true) => route('teacher.dashboard'),
             $isPropertyCustodian => route('property-custodian.dashboard'),
         };
 

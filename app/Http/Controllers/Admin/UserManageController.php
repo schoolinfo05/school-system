@@ -43,13 +43,16 @@ class UserManageController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'role' => ['required', Rule::in(User::ADMIN_MANAGEABLE_ROLES)],
+            'position' => ['nullable', 'string', Rule::in($this->allowedPositions())],
             'password' => ['required', 'string', 'min:6'],
         ]);
+        $data['position'] = $this->positionForRole($data['role'], $data['position'] ?? null);
 
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
             'role' => $data['role'],
+            'position' => $data['position'],
             'password' => Hash::make($data['password']),
         ]);
         Role::findOrCreate($data['role'], 'web');
@@ -66,8 +69,10 @@ class UserManageController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['required', Rule::in(User::ADMIN_MANAGEABLE_ROLES)],
+            'position' => ['nullable', 'string', Rule::in($this->allowedPositions())],
             'password' => ['nullable', 'string', 'min:6'],
         ]);
+        $data['position'] = $this->positionForRole($data['role'], $data['position'] ?? null);
 
         if ($user->id === $request->user()->id && $data['role'] !== 'admin') {
             return back()->withErrors(['role' => 'You cannot remove admin access from your own account.']);
@@ -77,6 +82,7 @@ class UserManageController extends Controller
             'name' => $data['name'],
             'email' => $data['email'],
             'role' => $data['role'],
+            'position' => $data['position'],
         ]);
 
         if (!empty($data['password'])) {
@@ -88,6 +94,24 @@ class UserManageController extends Controller
         $user->syncRoles([$data['role']]);
 
         return redirect()->route('admin.users.index')->with('status', 'User updated.');
+    }
+
+    private function allowedPositions(): array
+    {
+        return collect(User::POSITIONS)->flatten()->values()->all();
+    }
+
+    private function positionForRole(string $role, ?string $position): ?string
+    {
+        if ($role === User::ROLE_FACULTY && !$position) {
+            return User::POSITION_TEACHER;
+        }
+
+        if (!$position) {
+            return null;
+        }
+
+        return in_array($position, User::POSITIONS[$role] ?? [], true) ? $position : null;
     }
 
     public function destroy(Request $request, User $user)

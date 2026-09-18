@@ -33,6 +33,8 @@ const ROLES = [
 
 const POSITION_OPTIONS = {
   faculty: [
+    { value: 'teacher', label: 'Teacher / Instructor', bg: '#ECFDF5', color: '#047857' },
+    { value: 'head_department', label: 'Head Department', bg: '#EDE9FE', color: '#6D28D9' },
     { value: 'head_teacher', label: 'Head Teacher', bg: '#F3E8FF', color: '#7C3AED' },
     { value: 'dean', label: 'Dean', bg: '#FEF3C7', color: '#92400E' },
   ],
@@ -391,12 +393,13 @@ function normalizedRole(role) {
 }
 
 function legacyPositionFromRole(role) {
+  if (role === 'teacher') return 'teacher';
   if (['head_teacher', 'dean', 'librarian', 'property_custodian'].includes(role)) return role;
   return '';
 }
 
 function positionMeta(role, position, positions) {
-  if (!position && role === 'faculty') {
+  if ((!position || position === 'teacher') && role === 'faculty') {
     return { label: 'Teacher / Instructor', bg: '#ECFDF5', color: '#047857' };
   }
   if (!position) return null;

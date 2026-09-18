@@ -12,6 +12,7 @@ trait AuthorizesPortal
 
         if (!$user || (
             !in_array($user->role, $roles, true)
+            && !in_array($user->position, $roles, true)
             && !$user->hasAnyRole($roles)
         )) {
             abort(403);

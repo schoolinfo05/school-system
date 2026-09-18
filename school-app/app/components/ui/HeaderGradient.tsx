@@ -110,7 +110,7 @@ function routeForUser(user, segments = []) {
   if (role === 'staff' || ['librarian', 'property_custodian'].includes(position) || ['librarian', 'property_custodian'].includes(role)) {
     return '/(staff)/profile';
   }
-  if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role) || ['head_teacher', 'dean'].includes(position)) {
+  if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role) || ['teacher', 'head_department', 'head_teacher', 'dean'].includes(position)) {
     return '/(teacher)/profile';
   }
 

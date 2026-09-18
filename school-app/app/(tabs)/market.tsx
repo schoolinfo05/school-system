@@ -71,6 +71,8 @@ const STATUS_MAP = {
 
 // ── Component ───────────────────────────────────────────────────
 const money = value => Number(value ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sizeListText = sizes => Array.isArray(sizes) ? sizes.filter(Boolean).join(', ') : '';
+const orderNo = id => `Order #${String(id ?? '').padStart(6, '0')}`;
 const escapeHtml = value => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -80,6 +82,7 @@ const escapeHtml = value => String(value ?? '')
 
 function buildMarketplaceReceiptHtml(receipt) {
   const item = receipt.items?.[0] ?? {};
+  const receiptDescription = item.size ? `${item.title || 'Marketplace item'} - Size ${item.size}` : (item.title || 'Marketplace item');
   const issuedAt = receipt.issued_at ? new Date(receipt.issued_at).toLocaleString('en-PH') : new Date().toLocaleString('en-PH');
   const paidAt = receipt.paid_at ? new Date(receipt.paid_at).toLocaleString('en-PH') : issuedAt;
   const paymentId = receipt.paymongo_payment_id
@@ -139,7 +142,7 @@ function buildMarketplaceReceiptHtml(receipt) {
     <table>
       <tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr>
       <tr>
-        <td>${escapeHtml(item.title || 'Marketplace item')}</td>
+        <td>${escapeHtml(receiptDescription)}</td>
         <td>${escapeHtml(item.quantity || 1)}</td>
         <td>PHP ${money(item.unit_price)}</td>
         <td>PHP ${money(item.total)}</td>
@@ -173,6 +176,12 @@ const DEFAULT_PAYMENT_OPTIONS = {
     image_url: '',
     instructions: 'Scan the QRPH code with GCash, Maya, or your banking app, then enter the payment reference number.',
   },
+  redemption: {
+    rate: 0.5,
+    max_percent: 40,
+    min_points: 50,
+    max_points: 100,
+  },
 };
 
 export default function Market() {
@@ -201,12 +210,16 @@ export default function Market() {
   const [cancelOrder, setCancelOrder] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancellingId, setCancellingId] = useState(null);
+  const [refundOrder, setRefundOrder] = useState(null);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundingId, setRefundingId] = useState(null);
   const [receiptLoadingId, setReceiptLoadingId] = useState(null);
   const [verifyingId, setVerifyingId] = useState(null);
   const [receivingId, setReceivingId] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('gcash');
   const [paymentReference, setPaymentReference] = useState('');
   const [checkoutQuantity, setCheckoutQuantity] = useState('1');
+  const [selectedSize, setSelectedSize] = useState('');
   const [pointsBalance, setPointsBalance] = useState(0);
   const [pointsToRedeem, setPointsToRedeem] = useState('');
   const [qrphImage, setQrphImage] = useState(null);
@@ -228,6 +241,7 @@ export default function Market() {
 
   const [form, setForm] = useState({
     title: '', description: '', price: '', stock: '1',
+    size_options: '',
     category: 'books', condition: 'good', location: 'Cebu City',
     pickup_instructions: 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.',
     accepts_cash: true, accepts_gcash: true, accepts_qrph: true,
@@ -237,7 +251,7 @@ export default function Market() {
     || role === 'property_custodian'
     || (role === 'staff' && position === 'property_custodian');
   const canBuyItems = MARKET_BUYER_ROLES.includes(role);
-  const activeCheckoutCount = orders.filter(order => !['completed', 'cancelled'].includes(order.status)).length;
+  const activeCheckoutCount = orders.filter(order => !['completed', 'cancelled', 'refunded'].includes(order.status)).length;
   const headerStats = canManageListings
     ? [
         { label: 'Browse', value: items.length, accent: '#A5F3FC' },
@@ -257,6 +271,7 @@ export default function Market() {
         ...DEFAULT_PAYMENT_OPTIONS,
         ...res.data,
         qrph: { ...DEFAULT_PAYMENT_OPTIONS.qrph, ...(res.data?.qrph ?? {}) },
+        redemption: { ...DEFAULT_PAYMENT_OPTIONS.redemption, ...(res.data?.redemption ?? {}) },
       }))
       .catch(e => console.log('Payment options error:', e.message));
   }, []);
@@ -273,6 +288,7 @@ export default function Market() {
       const params = {};
       if (category !== 'all') params.category = category;
       if (search.trim()) params.search = search.trim();
+      if (canManageListings) params.include_all = 1;
       const res = await api.get('/marketplace', { params });
       setItems(res.data);
     } catch (e) {
@@ -281,7 +297,7 @@ export default function Market() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [category, search]);
+  }, [category, search, canManageListings]);
 
   const fetchMyItems = useCallback(async () => {
     try {
@@ -404,6 +420,7 @@ export default function Market() {
         ...form,
         price:         String(parseFloat(form.price)),
         stock:         String(parseInt(form.stock, 10)),
+        size_options:  form.category === 'uniforms' ? form.size_options : '',
         accepts_cash:  form.accepts_cash  ? '1' : '0',
         accepts_gcash: form.accepts_gcash ? '1' : '0',
         accepts_qrph:  form.accepts_qrph  ? '1' : '0',
@@ -434,6 +451,7 @@ export default function Market() {
       setShowSell(false);
       setForm({
         title: '', description: '', price: '', stock: '1',
+        size_options: '',
         category: 'books', condition: 'good', location: 'Cebu City',
         pickup_instructions: 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.',
         accepts_cash: true, accepts_gcash: true, accepts_qrph: true,
@@ -458,6 +476,7 @@ export default function Market() {
       description:    item.description    ?? '',
       price:          String(item.price   ?? ''),
       stock:          String(item.stock   ?? '1'),
+      size_options:   sizeListText(item.size_options),
       category:       item.category       ?? 'books',
       condition:      item.condition      ?? 'good',
       location:       item.location       ?? '',
@@ -517,6 +536,7 @@ export default function Market() {
         ...editForm,
         price:         String(parseFloat(editForm.price)),
         stock:         String(parseInt(editForm.stock, 10)),
+        size_options:  editForm.category === 'uniforms' ? editForm.size_options : '',
         accepts_cash:  editForm.accepts_cash  ? '1' : '0',
         accepts_gcash: editForm.accepts_gcash ? '1' : '0',
         accepts_qrph:  editForm.accepts_qrph  ? '1' : '0',
@@ -603,8 +623,17 @@ export default function Market() {
 
   const checkoutQuantityNum = parseInt(checkoutQuantity, 10) || 1;
   const checkoutSubtotal = (checkoutItem?.price ?? 0) * checkoutQuantityNum;
-  const maxRedeemPoints = Math.max(0, Math.min(100, Math.floor((checkoutSubtotal * 0.4) / 0.5), pointsBalance));
+  const redemptionRate = Math.max(0.01, Number(paymentOptions?.redemption?.rate ?? 0.5));
+  const redemptionMaxPercent = Math.max(0, Math.min(100, Number(paymentOptions?.redemption?.max_percent ?? 40)));
+  const redemptionMinPoints = Number(paymentOptions?.redemption?.min_points ?? 50);
+  const redemptionMaxPoints = Number(paymentOptions?.redemption?.max_points ?? 100);
+  const maxRedeemPoints = Math.max(
+    0,
+    Math.min(redemptionMaxPoints, Math.floor((checkoutSubtotal * (redemptionMaxPercent / 100)) / redemptionRate), pointsBalance)
+  );
   const redeemPoints = parseInt(pointsToRedeem, 10) || 0;
+  const redeemDiscount = Math.min(checkoutSubtotal, Math.max(0, redeemPoints) * redemptionRate);
+  const checkoutTotal = Math.max(0, checkoutSubtotal - redeemDiscount);
 
   const openCheckout = async (item) => {
     const defaultMethod = item.accepts_qrph && paymentOptions?.qrph ? 'qrph' : item.accepts_gcash ? 'gcash' : 'cash';
@@ -612,6 +641,7 @@ export default function Market() {
     setPaymentMethod(defaultMethod);
     setPaymentReference('');
     setCheckoutQuantity('1');
+    setSelectedSize(item.size_options?.[0] ?? '');
     setPointsToRedeem('');
     setPointsBalance(0);
 
@@ -633,14 +663,18 @@ export default function Market() {
       Alert.alert('Not enough stock', `Only ${checkoutItem.stock ?? 1} item(s) are available.`);
       return;
     }
+    if (checkoutItem.size_options?.length && !selectedSize) {
+      Alert.alert('Size required', 'Choose the uniform size you want to buy.');
+      return;
+    }
     if (['gcash', 'qrph'].includes(paymentMethod) && paymentReference.trim().length < 3) {
       Alert.alert('Reference required', 'Enter the payment reference number after sending payment.');
       return;
     }
     const checkoutRedeemPoints = role === 'student' ? redeemPoints : 0;
 
-    if (checkoutRedeemPoints > 0 && checkoutRedeemPoints < 50) {
-      Alert.alert('Minimum redemption', 'Redeem at least 50 points or leave it at 0.');
+    if (checkoutRedeemPoints > 0 && checkoutRedeemPoints < redemptionMinPoints) {
+      Alert.alert('Minimum redemption', `Redeem at least ${redemptionMinPoints} points or leave it at 0.`);
       return;
     }
     if (checkoutRedeemPoints > maxRedeemPoints) {
@@ -653,6 +687,7 @@ export default function Market() {
       const res = await api.post(`/marketplace/${checkoutItem.id}/buy`, {
         payment_method:   paymentMethod,
         quantity,
+        size: checkoutItem.size_options?.length ? selectedSize : null,
         gcash_reference: ['gcash', 'qrph'].includes(paymentMethod) ? paymentReference.trim() : null,
         points_to_redeem: checkoutRedeemPoints,
       });
@@ -738,6 +773,67 @@ export default function Market() {
     }
   };
 
+  const openRefundOrder = (order) => {
+    setRefundOrder(order);
+    setRefundReason('');
+  };
+
+  const handleRefundOrder = async () => {
+    if (!refundOrder) return;
+    if (refundReason.trim().length < 3) {
+      Alert.alert('Reason required', 'Please enter why this order is being refunded.');
+      return;
+    }
+
+    setRefundingId(refundOrder.id);
+    try {
+      const res = await api.post(`/marketplace/orders/${refundOrder.id}/refund`, {
+        reason: refundReason.trim(),
+      });
+      const updatedOrder = res.data;
+      setSales(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order));
+      setOrders(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order));
+      setRefundOrder(null);
+      setRefundReason('');
+      Alert.alert('Refund requested', 'Your refund request was sent for review.');
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message ?? 'Could not refund this order.');
+    } finally {
+      setRefundingId(null);
+    }
+  };
+
+  const handleApproveRefund = async (order) => {
+    setRefundingId(order.id);
+    try {
+      const res = await api.post(`/marketplace/orders/${order.id}/refund/approve`);
+      const updatedOrder = res.data;
+      setSales(prev => prev.map(item => item.id === updatedOrder.id ? updatedOrder : item));
+      fetchItems();
+      Alert.alert('Approved', 'Refund request approved.');
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message ?? 'Could not approve this refund.');
+    } finally {
+      setRefundingId(null);
+    }
+  };
+
+  const handleRejectRefund = async (order) => {
+    setRefundingId(order.id);
+    try {
+      const res = await api.post(`/marketplace/orders/${order.id}/refund/reject`, {
+        notes: 'Refund request rejected.',
+      });
+      const updatedOrder = res.data;
+      setSales(prev => prev.map(item => item.id === updatedOrder.id ? updatedOrder : item));
+      Alert.alert('Rejected', 'Refund request rejected.');
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message ?? 'Could not reject this refund.');
+    } finally {
+      setRefundingId(null);
+    }
+  };
+
   // ── Open item detail ────────────────────────────────────────
   const handlePrintReceipt = async (order) => {
     setReceiptLoadingId(order.id);
@@ -774,10 +870,13 @@ export default function Market() {
     const isGcash     = order.payment_method === 'gcash';
     const isQrph      = order.payment_method === 'qrph';
     const isCancelled = order.status === 'cancelled';
+    const isRefunded  = order.status === 'refunded';
     const isCompleted = order.status === 'completed';
-    const isPaid      = order.status === 'paid' || order.status === 'completed' || !!order.paid_at || order.paymongo_status === 'paid';
+    const isPaid      = !isRefunded && (order.status === 'paid' || order.status === 'completed' || !!order.paid_at || order.paymongo_status === 'paid');
     const canCancel   = ['reserved', 'pending_verification'].includes(order.status);
-    const canMarkReceived = !isCancelled && !isCompleted && (
+    const hasRefundRequest = order.refund_status === 'pending';
+    const canRefund   = isPaid && !hasRefundRequest;
+    const canMarkReceived = !isCancelled && !isRefunded && !hasRefundRequest && !isCompleted && (
       order.status === 'reserved'
       || order.status === 'paid'
       || !!order.paid_at
@@ -797,16 +896,17 @@ export default function Market() {
           <View style={{ flex: 1 }}>
             <Text style={s.orderTitle}>{item.title ?? 'Marketplace item'}</Text>
             <Text style={s.orderSeller}>Seller: {order.seller?.name ?? item.seller?.name ?? 'School Marketplace'}</Text>
+            <Text style={s.orderNumber}>{orderNo(order.id)}</Text>
           </View>
           <View style={[
             s.orderStatus,
-            isCancelled ? s.orderStatusCancelled : isPaid ? s.orderStatusPaid : s.orderStatusReserved,
+            isCancelled || isRefunded ? s.orderStatusCancelled : isPaid ? s.orderStatusPaid : s.orderStatusReserved,
           ]}>
             <Text style={[
               s.orderStatusText,
-              isCancelled ? s.orderStatusCancelledText : isPaid ? s.orderStatusPaidText : s.orderStatusReservedText,
+              isCancelled || isRefunded ? s.orderStatusCancelledText : isPaid ? s.orderStatusPaidText : s.orderStatusReservedText,
             ]}>
-              {isCancelled ? 'CANCELLED' : isCompleted ? 'RECEIVED' : order.status === 'paid' ? 'PAID' : ['gcash', 'qrph'].includes(order.payment_method) ? 'PENDING' : 'CHECKOUT'}
+              {isRefunded ? 'REFUNDED' : isCancelled ? 'CANCELLED' : isCompleted ? 'RECEIVED' : order.status === 'paid' ? 'PAID' : ['gcash', 'qrph'].includes(order.payment_method) ? 'PENDING' : 'CHECKOUT'}
             </Text>
           </View>
         </View>
@@ -824,27 +924,40 @@ export default function Market() {
             <Text style={s.orderMetaLabel}>Qty</Text>
             <Text style={s.orderMetaValue}>{order.quantity ?? 1}</Text>
           </View>
+          {order.size ? (
+            <View style={s.orderMetaItem}>
+              <Text style={s.orderMetaLabel}>Size</Text>
+              <Text style={s.orderMetaValue}>{order.size}</Text>
+            </View>
+          ) : null}
         </View>
 
-        {isCancelled && order.notes ? (
+        {(isCancelled || isRefunded) && order.notes ? (
           <View style={s.cancelReasonBox}>
-            <Text style={s.referenceLabel}>Cancel reason</Text>
+            <Text style={s.referenceLabel}>{isRefunded ? 'Refund reason' : 'Cancel reason'}</Text>
             <Text style={s.orderNote}>{order.notes}</Text>
           </View>
         ) : null}
 
-        {!isCancelled && ['gcash', 'qrph'].includes(order.payment_method) && order.gcash_reference ? (
+        {hasRefundRequest ? (
+          <View style={s.referenceBox}>
+            <Text style={s.referenceLabel}>Refund request pending</Text>
+            <Text style={s.orderNote}>{order.refund_reason || 'Waiting for school review.'}</Text>
+          </View>
+        ) : null}
+
+        {!isCancelled && !isRefunded && ['gcash', 'qrph'].includes(order.payment_method) && order.gcash_reference ? (
           <View style={s.referenceBox}>
             <Text style={s.referenceLabel}>{isQrph ? 'QRPH reference' : 'GCash reference'}</Text>
             <Text style={s.referenceValue}>{order.gcash_reference}</Text>
           </View>
         ) : null}
 
-        {!isCancelled && ['gcash', 'qrph'].includes(order.payment_method) && !order.gcash_reference ? (
+        {!isCancelled && !isRefunded && ['gcash', 'qrph'].includes(order.payment_method) && !order.gcash_reference ? (
             <Text style={s.orderNote}>Payment is pending school management verification.</Text>
         ) : null}
 
-        {!isCancelled ? (
+        {!isCancelled && !isRefunded ? (
           <View style={s.cashOrderBox}>
             <Text style={s.referenceLabel}>{['gcash', 'qrph'].includes(order.payment_method) ? 'Pickup after payment verification' : 'Pickup instructions'}</Text>
             <Text style={s.orderNote}>{item.pickup_instructions || 'Pay and claim this item at the Property Custodian Office. Bring your student ID and order number.'}</Text>
@@ -886,6 +999,19 @@ export default function Market() {
             }
           </TouchableOpacity>
         )}
+
+        {canRefund && (
+          <TouchableOpacity
+            style={[s.refundBtn, refundingId === order.id && { opacity: 0.6 }]}
+            onPress={() => openRefundOrder(order)}
+            disabled={refundingId === order.id}
+          >
+            {refundingId === order.id
+              ? <ActivityIndicator color={C.danger} />
+              : <Text style={s.refundBtnText}>Request refund</Text>
+            }
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -895,9 +1021,11 @@ export default function Market() {
     const buyerName  = order.buyer?.name ?? 'Student buyer';
     const status     = order.status ?? 'reserved';
     const isCancelled= status === 'cancelled';
+    const isRefunded = status === 'refunded';
     const isReceived = status === 'completed';
     const isPaid     = status === 'paid' || isReceived;
     const canVerify  = ['pending_verification', 'reserved'].includes(status) && ['gcash', 'qrph'].includes(order.payment_method);
+    const hasRefundRequest = order.refund_status === 'pending';
 
     return (
       <View key={order.id} style={[s.orderCard, isWideWeb && s.orderCardWeb]}>
@@ -912,16 +1040,17 @@ export default function Market() {
           <View style={{ flex: 1 }}>
             <Text style={s.orderTitle}>{item.title ?? 'Marketplace item'}</Text>
             <Text style={s.orderSeller}>Buyer: {buyerName}</Text>
+            <Text style={s.orderNumber}>{orderNo(order.id)}</Text>
           </View>
           <View style={[
             s.orderStatus,
-            isCancelled ? s.orderStatusCancelled : isPaid ? s.orderStatusPaid : s.orderStatusReserved,
+            isCancelled || isRefunded ? s.orderStatusCancelled : isPaid ? s.orderStatusPaid : s.orderStatusReserved,
           ]}>
             <Text style={[
               s.orderStatusText,
-              isCancelled ? s.orderStatusCancelledText : isPaid ? s.orderStatusPaidText : s.orderStatusReservedText,
+              isCancelled || isRefunded ? s.orderStatusCancelledText : isPaid ? s.orderStatusPaidText : s.orderStatusReservedText,
             ]}>
-              {isReceived ? 'RECEIVED' : status.toUpperCase()}
+              {isRefunded ? 'REFUNDED' : isReceived ? 'RECEIVED' : status.toUpperCase()}
             </Text>
           </View>
         </View>
@@ -939,6 +1068,12 @@ export default function Market() {
             <Text style={s.orderMetaLabel}>Qty</Text>
             <Text style={s.orderMetaValue}>{order.quantity ?? 1}</Text>
           </View>
+          {order.size ? (
+            <View style={s.orderMetaItem}>
+              <Text style={s.orderMetaLabel}>Size</Text>
+              <Text style={s.orderMetaValue}>{order.size}</Text>
+            </View>
+          ) : null}
           <View style={s.orderMetaItem}>
             <Text style={s.orderMetaLabel}>Stock left</Text>
             <Text style={s.orderMetaValue}>{item.stock ?? 0}</Text>
@@ -959,10 +1094,17 @@ export default function Market() {
           </View>
         ) : null}
 
-        {isCancelled && order.notes ? (
+        {(isCancelled || isRefunded) && order.notes ? (
           <View style={s.cancelReasonBox}>
-            <Text style={s.referenceLabel}>Cancel reason</Text>
+            <Text style={s.referenceLabel}>{isRefunded ? 'Refund reason' : 'Cancel reason'}</Text>
             <Text style={s.orderNote}>{order.notes}</Text>
+          </View>
+        ) : null}
+
+        {hasRefundRequest ? (
+          <View style={s.referenceBox}>
+            <Text style={s.referenceLabel}>Refund requested</Text>
+            <Text style={s.orderNote}>{order.refund_reason || 'Buyer requested a refund.'}</Text>
           </View>
         ) : null}
 
@@ -977,6 +1119,28 @@ export default function Market() {
               : <Text style={s.verifyBtnText}>Mark as paid</Text>
             }
           </TouchableOpacity>
+        )}
+
+        {hasRefundRequest && (
+          <View style={s.refundActionRow}>
+            <TouchableOpacity
+              style={[s.receivedBtn, s.refundReviewBtn, refundingId === order.id && { opacity: 0.6 }]}
+              onPress={() => handleApproveRefund(order)}
+              disabled={refundingId === order.id}
+            >
+              {refundingId === order.id
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={s.receivedBtnText}>Approve refund</Text>
+              }
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.refundBtn, s.refundReviewBtn, refundingId === order.id && { opacity: 0.6 }]}
+              onPress={() => handleRejectRefund(order)}
+              disabled={refundingId === order.id}
+            >
+              <Text style={s.refundBtnText}>Reject</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
     );
@@ -1048,6 +1212,9 @@ export default function Market() {
             </Text>
           ) : null}
           <Text style={s.stockText}>{item.stock ?? 1} in stock</Text>
+          {item.size_options?.length ? (
+            <Text style={s.stockText}>Sizes: {item.size_options.join(', ')}</Text>
+          ) : null}
           <View style={s.paymentRow}>
             {item.accepts_qrph  ? <Text style={s.paymentBadge}>QRPH</Text>  : null}
             {item.accepts_gcash ? <Text style={s.paymentBadge}>GCash</Text> : null}
@@ -1379,6 +1546,19 @@ export default function Market() {
                 <Text style={s.stockText}>{viewItem?.stock ?? 0} in stock</Text>
               </View>
 
+              {viewItem?.size_options?.length ? (
+                <View style={s.detailInfoBlock}>
+                  <Text style={s.detailSectionLabel}>Available Sizes</Text>
+                  <View style={s.chipRow}>
+                    {viewItem.size_options.map(size => (
+                      <View key={size} style={s.chip}>
+                        <Text style={s.chipText}>{size}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
               {/* Description */}
               <View style={s.detailInfoBlock}>
                 <Text style={s.detailSectionLabel}>Description</Text>
@@ -1501,6 +1681,16 @@ export default function Market() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {form.category === 'uniforms' && (
+              <>
+                <Text style={s.fieldLabel}>Uniform Sizes</Text>
+                <TextInput style={s.fieldInput}
+                  placeholder="e.g. XS, S, M, L, XL"
+                  value={form.size_options}
+                  onChangeText={v => setForm(p => ({ ...p, size_options: v }))} />
+              </>
+            )}
 
             <Text style={s.fieldLabel}>Condition</Text>
             <View style={s.chipRow}>
@@ -1683,6 +1873,16 @@ export default function Market() {
                 ))}
               </View>
 
+              {editForm.category === 'uniforms' && (
+                <>
+                  <Text style={s.fieldLabel}>Uniform Sizes</Text>
+                  <TextInput style={s.fieldInput}
+                    placeholder="e.g. XS, S, M, L, XL"
+                    value={editForm.size_options}
+                    onChangeText={v => setEditForm(p => ({ ...p, size_options: v }))} />
+                </>
+              )}
+
               <Text style={s.fieldLabel}>Condition</Text>
               <View style={s.chipRow}>
                 {['new', 'like_new', 'good', 'fair'].map(c => (
@@ -1852,6 +2052,27 @@ export default function Market() {
               </Text>
               <Text style={s.checkoutItem}>₱{Number(checkoutItem?.price ?? 0).toLocaleString()} each · {checkoutItem?.stock ?? 1} in stock</Text>
 
+              {redeemPoints > 0 ? (
+                <Text style={s.checkoutItem}>After points: PHP {money(checkoutTotal)}</Text>
+              ) : null}
+
+              {checkoutItem?.size_options?.length ? (
+                <>
+                  <Text style={s.fieldLabel}>Size *</Text>
+                  <View style={s.chipRow}>
+                    {checkoutItem.size_options.map(size => (
+                      <TouchableOpacity
+                        key={size}
+                        style={[s.chip, selectedSize === size && s.chipActive]}
+                        onPress={() => setSelectedSize(size)}
+                      >
+                        <Text style={[s.chipText, selectedSize === size && s.chipTextActive]}>{size}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              ) : null}
+
               <Text style={s.fieldLabel}>Quantity</Text>
               <View style={s.quantityRow}>
                 <TouchableOpacity
@@ -1876,6 +2097,38 @@ export default function Market() {
                   <Text style={s.quantityBtnText}>+</Text>
                 </TouchableOpacity>
               </View>
+
+              {role === 'student' ? (
+                <View style={s.pointsBox}>
+                  <View style={s.pointsTopRow}>
+                    <View>
+                      <Text style={s.pointsTitle}>Use points</Text>
+                      <Text style={s.pointsSub}>Balance {pointsBalance} pts · Max {maxRedeemPoints} pts</Text>
+                    </View>
+                    <Text style={s.pointsValue}>-PHP {money(redeemDiscount)}</Text>
+                  </View>
+                  <View style={s.quantityRow}>
+                    <TextInput
+                      style={[s.fieldInput, s.quantityInput]}
+                      value={pointsToRedeem}
+                      onChangeText={v => setPointsToRedeem(v.replace(/[^0-9]/g, ''))}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor={C.muted}
+                    />
+                    <TouchableOpacity
+                      style={s.quantityBtn}
+                      onPress={() => setPointsToRedeem(String(maxRedeemPoints))}
+                      disabled={maxRedeemPoints <= 0}
+                    >
+                      <Text style={s.quantityBtnText}>Max</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={s.pointsHint}>
+                    {redemptionMinPoints} point minimum. 1 point = PHP {money(redemptionRate)}. Final total: PHP {money(checkoutTotal)}.
+                  </Text>
+                </View>
+              ) : null}
 
               {paymentOptions?.qrph && (
                 <View style={s.gcashBox}>
@@ -2011,6 +2264,46 @@ export default function Market() {
                 {cancellingId
                   ? <ActivityIndicator color="#fff" />
                   : <Text style={s.payBtnText}>Cancel</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!refundOrder} transparent animationType="fade">
+        <View style={s.checkoutBackdrop}>
+          <View style={s.checkoutCard}>
+            <Text style={s.checkoutTitle}>Request refund</Text>
+            <Text style={s.checkoutItem}>{refundOrder?.item?.title ?? 'Marketplace item'}</Text>
+            <Text style={s.cancelPrompt}>Tell the custodian why you are requesting a refund.</Text>
+            <TextInput
+              style={[s.fieldInput, s.cancelReasonInput]}
+              placeholder="Enter refund reason"
+              placeholderTextColor={C.muted}
+              value={refundReason}
+              onChangeText={setRefundReason}
+              multiline
+            />
+            <View style={s.checkoutActions}>
+              <TouchableOpacity
+                style={s.cancelBtn}
+                onPress={() => {
+                  setRefundOrder(null);
+                  setRefundReason('');
+                }}
+                disabled={!!refundingId}
+              >
+                <Text style={s.cancelBtnText}>Keep order</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.confirmCancelBtn, refundingId && { opacity: 0.6 }]}
+                onPress={handleRefundOrder}
+                disabled={!!refundingId}
+              >
+                {refundingId
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.payBtnText}>Submit request</Text>
                 }
               </TouchableOpacity>
             </View>
@@ -2192,6 +2485,7 @@ const s = StyleSheet.create({
   orderIconText: { fontSize: 22 },
   orderTitle:   { fontSize: 14, color: C.text, fontWeight: '800' },
   orderSeller:  { fontSize: 12, color: C.sub, marginTop: 3 },
+  orderNumber:  { fontSize: 12, color: C.blue, marginTop: 3, fontWeight: '900' },
   orderStatus:  { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
   orderStatusPaid:         { backgroundColor: C.greenLight },
   orderStatusReserved:     { backgroundColor: C.warningLight },
@@ -2230,6 +2524,18 @@ const s = StyleSheet.create({
     borderColor: '#BCEBD8',
   },
   receiptBtnText: { color: C.green, fontWeight: '800', fontSize: 12 },
+  refundBtn: {
+    marginTop: 12,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: C.dangerLight,
+    borderWidth: 1,
+    borderColor: '#F4C7C7',
+  },
+  refundBtnText: { color: C.danger, fontWeight: '800', fontSize: 12 },
+  refundActionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  refundReviewBtn: { flex: 1, marginTop: 0 },
   receivedBtn: {
     marginTop: 12,
     borderRadius: 10,
@@ -2548,6 +2854,19 @@ const s = StyleSheet.create({
   },
   quantityBtnText: { color: C.blue, fontSize: 20, fontWeight: '900' },
   quantityInput:   { flex: 1, textAlign: 'center', fontWeight: '800' },
+  pointsBox: {
+    backgroundColor: C.warningLight,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: '#F6D98D',
+  },
+  pointsTopRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 },
+  pointsTitle: { color: C.warning, fontSize: 13, fontWeight: '900' },
+  pointsSub: { color: C.sub, fontSize: 12, marginTop: 3, fontWeight: '700' },
+  pointsValue: { color: C.warning, fontSize: 13, fontWeight: '900' },
+  pointsHint: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 8 },
   gcashBox: {
     backgroundColor: C.blueLight,
     borderRadius: 12,

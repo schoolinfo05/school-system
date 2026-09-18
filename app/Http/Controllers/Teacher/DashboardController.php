@@ -114,6 +114,7 @@ class DashboardController extends Controller
             'payment_method' => ['required', Rule::in(['cash', 'gcash', 'qrph'])],
             'gcash_reference' => ['required_if:payment_method,gcash|required_if:payment_method,qrph', 'nullable', 'string', 'max:100'],
             'quantity' => ['required', 'integer', 'min:1'],
+            'size' => ['nullable', 'string', 'max:30'],
         ]);
 
         if ($item->user_id === $request->user()->id) {
@@ -140,6 +141,11 @@ class DashboardController extends Controller
             return back()->withErrors(['marketplace' => 'This seller does not accept QRPH for this item.']);
         }
 
+        $size = $this->validatedMarketplaceSize($item, $data['size'] ?? null);
+        if ($size === false) {
+            return back()->withErrors(['marketplace' => 'Please choose an available size for this uniform.']);
+        }
+
         $quantity = (int) $data['quantity'];
         $subtotal = (float) $item->price * $quantity;
         $newStock = max(0, (int) $item->stock - $quantity);
@@ -154,6 +160,7 @@ class DashboardController extends Controller
             'buyer_id' => $request->user()->id,
             'seller_id' => $item->user_id,
             'quantity' => $quantity,
+            'size' => $size,
             'unit_price' => $item->price,
             'original_amount' => $subtotal,
             'total_amount' => $subtotal,
@@ -174,10 +181,29 @@ class DashboardController extends Controller
             'item_id' => $item->id,
             'sender_id' => $request->user()->id,
             'receiver_id' => $item->user_id,
-            'message' => "I want to buy {$quantity} x {$item->title}. Payment method: {$paymentText}. Please let me know how we can complete the transaction.",
+            'message' => "I want to buy {$quantity} x {$item->title}" . ($size ? " (size {$size})" : '') . ". Payment method: {$paymentText}. Please let me know how we can complete the transaction.",
         ]);
 
         return back()->with('status', "Checkout started for {$item->title}. Order #{$order->id}.");
+    }
+
+    private function validatedMarketplaceSize(MarketplaceItem $item, ?string $requestedSize): string|false|null
+    {
+        $options = collect($item->size_options ?? [])
+            ->map(fn ($size) => trim((string) $size))
+            ->filter()
+            ->values();
+
+        if ($options->isEmpty()) {
+            return null;
+        }
+
+        $requestedSize = trim((string) $requestedSize);
+        if ($requestedSize === '') {
+            return false;
+        }
+
+        return $options->first(fn ($size) => mb_strtolower($size) === mb_strtolower($requestedSize)) ?: false;
     }
 
     public function chat()

@@ -249,6 +249,10 @@ class AdminUserController extends Controller
 
     private function positionForRole(string $role, ?string $position): ?string
     {
+        if ($role === User::ROLE_FACULTY && !$position) {
+            return User::POSITION_TEACHER;
+        }
+
         if (!$position) {
             return null;
         }

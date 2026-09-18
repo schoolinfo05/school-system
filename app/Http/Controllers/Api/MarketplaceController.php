@@ -14,6 +14,7 @@ use App\Models\StudentReward;
 use App\Models\User;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
@@ -59,6 +60,7 @@ class MarketplaceController extends Controller
             'price'          => 'required|numeric|min:0',
             'stock'          => 'required|integer|min:1',
             'category'       => 'required|in:books,uniforms,electronics,supplies,other',
+            'size_options'   => 'nullable',
             'condition'      => 'required|in:new,like_new,good,fair',
             'location'       => 'nullable|string',
             'pickup_instructions' => 'nullable|string|max:1000',
@@ -101,12 +103,15 @@ class MarketplaceController extends Controller
             }
         }
 
+        $sizeOptions = $this->normalizedSizeOptions($request);
+
         $item = MarketplaceItem::create([
             ...$request->only([
                 'title', 'description', 'price', 'stock', 'category', 'condition',
                 'location', 'pickup_instructions', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
                 'gcash_name', 'gcash_number',
             ]),
+            'size_options' => $sizeOptions,
             'qrph_image_url' => $qrphImageUrl,
             'image_urls'     => $imageUrls,
             'pickup_instructions' => $this->pickupInstructionsFor($request),
@@ -132,6 +137,7 @@ class MarketplaceController extends Controller
             'payment_method'  => 'required|in:cash,gcash,qrph',
             'gcash_reference' => 'required_if:payment_method,gcash|required_if:payment_method,qrph|nullable|string|max:100',
             'quantity'        => 'nullable|integer|min:1',
+            'size'            => 'nullable|string|max:30',
             'points_to_redeem' => 'nullable|integer|min:0',
         ]);
 
@@ -151,6 +157,11 @@ class MarketplaceController extends Controller
 
         if ($quantity > $item->stock) {
             return response()->json(['message' => "Only {$item->stock} item(s) are available."], 422);
+        }
+
+        $size = $this->validatedOrderSize($request, $item);
+        if ($size instanceof \Illuminate\Http\JsonResponse) {
+            return $size;
         }
 
         if ($request->payment_method === 'cash' && !$item->accepts_cash) {
@@ -180,12 +191,13 @@ class MarketplaceController extends Controller
             'qrph'   => 'QRPH'  . ($request->gcash_reference ? " (reference: {$request->gcash_reference})" : ''),
             default  => 'Cash on meetup',
         };
+        $sizeText = $size ? " Size: {$size}." : '';
 
         MarketplaceMessage::create([
             'item_id'     => $item->id,
             'sender_id'   => $request->user()->id,
             'receiver_id' => $item->user_id,
-            'message'     => "I want to buy {$quantity} x {$item->title}. Payment method: {$paymentText}. Please let me know how we can complete the transaction.",
+            'message'     => "I want to buy {$quantity} x {$item->title}.{$sizeText} Payment method: {$paymentText}. Please let me know how we can complete the transaction.",
         ]);
 
         $order = MarketplaceOrder::create([
@@ -193,6 +205,7 @@ class MarketplaceController extends Controller
             'buyer_id'            => $request->user()->id,
             'seller_id'           => $item->user_id,
             'quantity'            => $quantity,
+            'size'                => $size,
             'unit_price'          => $item->price,
             'original_amount'     => $subtotal,
             'total_amount'        => $total,
@@ -226,6 +239,7 @@ class MarketplaceController extends Controller
     {
         $request->validate([
             'quantity' => 'required|integer|min:1',
+            'size' => 'nullable|string|max:30',
             'points_to_redeem' => 'nullable|integer|min:0',
         ]);
 
@@ -250,6 +264,11 @@ class MarketplaceController extends Controller
             return response()->json(['message' => "Only {$item->stock} item(s) are available."], 422);
         }
 
+        $size = $this->validatedOrderSize($request, $item);
+        if ($size instanceof \Illuminate\Http\JsonResponse) {
+            return $size;
+        }
+
         $secretKey = config('services.paymongo.secret_key');
         if (!$secretKey) {
             return response()->json(['message' => 'PayMongo is not configured. Add PAYMONGO_SECRET_KEY to your .env file.'], 503);
@@ -270,6 +289,7 @@ class MarketplaceController extends Controller
             'buyer_id'            => $request->user()->id,
             'seller_id'           => $item->user_id,
             'quantity'            => $quantity,
+            'size'                => $size,
             'unit_price'          => $item->price,
             'original_amount'     => $subtotal,
             'total_amount'        => $total,
@@ -303,7 +323,7 @@ class MarketplaceController extends Controller
                         'line_items'           => [[
                             'currency' => 'PHP',
                             'amount'   => (int) round($total * 100),
-                            'name'     => $redemption['points'] > 0 ? "{$item->title} after points discount" : $item->title,
+                            'name'     => trim(($redemption['points'] > 0 ? "{$item->title} after points discount" : $item->title) . ($size ? " - Size {$size}" : '')),
                             'quantity' => 1,
                         ]],
                         'payment_method_types' => ['gcash'],
@@ -349,7 +369,7 @@ class MarketplaceController extends Controller
             'item_id'     => $item->id,
             'sender_id'   => $request->user()->id,
             'receiver_id' => $item->user_id,
-            'message'     => "I started GCash checkout for {$quantity} x {$item->title}. Order #{$order->id}.",
+            'message'     => "I started GCash checkout for {$quantity} x {$item->title}" . ($size ? " (size {$size})" : '') . ". Order #{$order->id}.",
         ]);
 
         return response()->json([
@@ -372,6 +392,7 @@ class MarketplaceController extends Controller
             'price'          => 'nullable|numeric|min:0',
             'stock'          => 'nullable|integer|min:0',
             'category'       => 'nullable|in:books,uniforms,electronics,supplies,other',
+            'size_options'   => 'nullable',
             'condition'      => 'nullable|in:new,like_new,good,fair',
             'status'         => 'nullable|in:available,reserved,sold',
             'location'       => 'nullable|string',
@@ -412,6 +433,7 @@ class MarketplaceController extends Controller
                 'location', 'pickup_instructions', 'accepts_cash', 'accepts_gcash', 'accepts_qrph',
                 'gcash_name', 'gcash_number',
             ]),
+            ...($request->has('size_options') ? ['size_options' => $this->normalizedSizeOptions($request)] : []),
             'qrph_image_url' => $qrphImageUrl,
             'image_urls'     => $imageUrls,
             'pickup_instructions' => $request->has('pickup_instructions')
@@ -479,6 +501,12 @@ class MarketplaceController extends Controller
                 'image_url'     => config('services.qrph.image_url'),
                 'instructions'  => config('services.qrph.instructions'),
                 'enabled'       => (bool) (config('services.qrph.image_url') || config('services.qrph.account_number')),
+            ],
+            'redemption' => [
+                'rate' => (float) $this->settingValue('redemption_rate', 0.5),
+                'max_percent' => (float) $this->settingValue('max_redemption_percent', 40),
+                'min_points' => 50,
+                'max_points' => 100,
             ],
         ]);
     }
@@ -561,8 +589,8 @@ class MarketplaceController extends Controller
             return response()->json(['message' => 'Only school management or the item seller can verify payments.'], 403);
         }
 
-        if ($order->status === 'cancelled') {
-            return response()->json(['message' => 'Cancelled orders cannot be marked as paid.'], 422);
+        if (in_array($order->status, ['cancelled', 'refunded'], true)) {
+            return response()->json(['message' => 'Cancelled or refunded orders cannot be marked as paid.'], 422);
         }
 
         $order->update([
@@ -599,14 +627,133 @@ class MarketplaceController extends Controller
         return response()->json($order->load(['item', 'buyer', 'seller']));
     }
 
+    public function refundOrder(Request $request, MarketplaceOrder $order)
+    {
+        if ($order->buyer_id !== $request->user()->id) {
+            return response()->json(['message' => 'Only the buyer can request a refund.'], 403);
+        }
+
+        if (!in_array($order->status, ['paid', 'completed'], true) && !$order->paid_at && $order->paymongo_status !== 'paid') {
+            return response()->json(['message' => 'Only paid or completed orders can be submitted for refund.'], 422);
+        }
+
+        if (in_array($order->refund_status, ['pending', 'approved'], true)) {
+            return response()->json(['message' => 'This order already has a refund request.'], 422);
+        }
+
+        $data = $request->validate([
+            'reason' => 'required|string|min:3|max:500',
+        ]);
+
+        $order->update([
+            'refund_status' => 'pending',
+            'refund_reason' => $data['reason'],
+            'refund_review_notes' => null,
+            'refund_requested_at' => now(),
+            'refund_reviewed_by' => null,
+            'refund_reviewed_at' => null,
+        ]);
+
+        MarketplaceMessage::create([
+            'item_id' => $order->marketplace_item_id,
+            'sender_id' => $request->user()->id,
+            'receiver_id' => $order->seller_id,
+            'message' => "I requested a refund for {$order->item?->title}. Reason: {$data['reason']}",
+        ]);
+
+        $this->notifyUser(
+            $order->seller_id,
+            'marketplace_refund_requested',
+            'Refund requested',
+            "{$request->user()->name} requested a refund for {$order->item?->title}.",
+            ['order_id' => $order->id]
+        );
+
+        ActivityLog::record($request, 'marketplace_refund_requested', "{$request->user()->name} requested a refund for marketplace order #{$order->id}.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'reason' => $data['reason'],
+                'buyer_id' => $order->buyer_id,
+                'seller_id' => $order->seller_id,
+                'total_amount' => (float) $order->total_amount,
+            ],
+        ]);
+
+        return response()->json($order->fresh()->load(['item', 'buyer', 'seller']));
+    }
+
+    public function approveRefund(Request $request, MarketplaceOrder $order)
+    {
+        if (!$this->canManageMarketplace($request) && $order->seller_id !== $request->user()->id) {
+            return response()->json(['message' => 'Only school management or the custodian seller can approve refunds.'], 403);
+        }
+
+        if ($order->refund_status !== 'pending') {
+            return response()->json(['message' => 'This order has no pending refund request.'], 422);
+        }
+
+        $data = $request->validate([
+            'notes' => 'nullable|string|max:500',
+        ]);
+
+        DB::transaction(function () use ($order, $request, $data) {
+            $this->finalizeRefund($order, $request, $data['notes'] ?? null);
+        });
+
+        return response()->json($order->fresh()->load(['item', 'buyer', 'seller']));
+    }
+
+    public function rejectRefund(Request $request, MarketplaceOrder $order)
+    {
+        if (!$this->canManageMarketplace($request) && $order->seller_id !== $request->user()->id) {
+            return response()->json(['message' => 'Only school management or the custodian seller can reject refunds.'], 403);
+        }
+
+        if ($order->refund_status !== 'pending') {
+            return response()->json(['message' => 'This order has no pending refund request.'], 422);
+        }
+
+        $data = $request->validate([
+            'notes' => 'nullable|string|max:500',
+        ]);
+
+        $order->update([
+            'refund_status' => 'rejected',
+            'refund_review_notes' => $data['notes'] ?? null,
+            'refund_reviewed_by' => $request->user()->id,
+            'refund_reviewed_at' => now(),
+        ]);
+
+        $this->notifyUser(
+            $order->buyer_id,
+            'marketplace_refund_rejected',
+            'Refund rejected',
+            "Your refund request for {$order->item?->title} was rejected.",
+            ['order_id' => $order->id]
+        );
+
+        ActivityLog::record($request, 'marketplace_refund_rejected', "{$request->user()->name} rejected marketplace refund request #{$order->id}.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'notes' => $data['notes'] ?? null,
+                'buyer_id' => $order->buyer_id,
+                'seller_id' => $order->seller_id,
+            ],
+        ]);
+
+        return response()->json($order->fresh()->load(['item', 'buyer', 'seller']));
+    }
+
     public function markOrderReceived(Request $request, MarketplaceOrder $order)
     {
         if ($order->buyer_id !== $request->user()->id) {
             return response()->json(['message' => 'Only the buyer can mark this order as received.'], 403);
         }
 
-        if ($order->status === 'cancelled') {
-            return response()->json(['message' => 'Cancelled orders cannot be marked as received.'], 422);
+        if (in_array($order->status, ['cancelled', 'refunded'], true)) {
+            return response()->json(['message' => 'Cancelled or refunded orders cannot be marked as received.'], 422);
         }
 
         if ($order->status === 'completed') {
@@ -677,6 +824,7 @@ class MarketplaceController extends Controller
             'items' => [[
                 'title' => $order->item?->title,
                 'quantity' => $order->quantity,
+                'size' => $order->size,
                 'unit_price' => (float) $order->unit_price,
                 'total' => (float) ($order->original_amount ?: ($order->unit_price * $order->quantity)),
             ]],
@@ -696,6 +844,10 @@ class MarketplaceController extends Controller
 
         if ($order->status === 'cancelled') {
             return response()->json(['message' => 'This checkout is already cancelled.'], 422);
+        }
+
+        if ($order->status === 'refunded') {
+            return response()->json(['message' => 'This checkout is already refunded.'], 422);
         }
 
         if (in_array($order->status, ['paid', 'completed'], true) || $order->paid_at || $order->paymongo_status === 'paid') {
@@ -773,6 +925,10 @@ class MarketplaceController extends Controller
         }
 
         if (!$order) {
+            return response()->json(['received' => true]);
+        }
+
+        if (in_array($order->status, ['cancelled', 'refunded'], true)) {
             return response()->json(['received' => true]);
         }
 
@@ -865,6 +1021,46 @@ class MarketplaceController extends Controller
         }
 
         return null;
+    }
+
+    private function normalizedSizeOptions(Request $request): array
+    {
+        $raw = $request->input('size_options', []);
+        if (is_string($raw)) {
+            $raw = explode(',', $raw);
+        }
+
+        return collect(is_array($raw) ? $raw : [])
+            ->map(fn ($size) => trim((string) $size))
+            ->filter()
+            ->unique(fn ($size) => mb_strtolower($size))
+            ->take(20)
+            ->values()
+            ->all();
+    }
+
+    private function validatedOrderSize(Request $request, MarketplaceItem $item): string|\Illuminate\Http\JsonResponse|null
+    {
+        $options = collect($item->size_options ?? [])
+            ->map(fn ($size) => trim((string) $size))
+            ->filter()
+            ->values();
+
+        if ($options->isEmpty()) {
+            return null;
+        }
+
+        $size = trim((string) $request->input('size', ''));
+        if ($size === '') {
+            return response()->json(['message' => 'Please choose a uniform size.'], 422);
+        }
+
+        $matched = $options->first(fn ($option) => mb_strtolower($option) === mb_strtolower($size));
+        if (!$matched) {
+            return response()->json(['message' => 'Choose one of the available sizes for this uniform.'], 422);
+        }
+
+        return $matched;
     }
 
     private function redemptionFor(Request $request, float $subtotal): array
@@ -980,6 +1176,62 @@ class MarketplaceController extends Controller
         );
     }
 
+    private function finalizeRefund(MarketplaceOrder $order, Request $request, ?string $notes = null): void
+    {
+        if ($order->status === 'refunded') {
+            return;
+        }
+
+        $item = $order->item;
+        if ($item) {
+            $item->update([
+                'stock' => $item->stock + $order->quantity,
+                'status' => 'available',
+            ]);
+        }
+
+        $reason = $order->refund_reason ?: ($notes ?: 'Refund approved.');
+
+        $order->update([
+            'status' => 'refunded',
+            'notes' => $reason,
+            'refund_status' => 'approved',
+            'refund_review_notes' => $notes,
+            'refund_reviewed_by' => $request->user()->id,
+            'refund_reviewed_at' => now(),
+        ]);
+
+        $this->refundRedemption($order, $reason);
+
+        MarketplaceMessage::create([
+            'item_id' => $order->marketplace_item_id,
+            'sender_id' => $request->user()->id,
+            'receiver_id' => $order->buyer_id,
+            'message' => "Your refund request for {$order->item?->title} was approved.",
+        ]);
+
+        $this->notifyUser(
+            $order->buyer_id,
+            'marketplace_order_refunded',
+            'Marketplace order refunded',
+            "Your refund request for {$order->item?->title} was approved.",
+            ['order_id' => $order->id]
+        );
+
+        ActivityLog::record($request, 'marketplace_order_refunded', "{$request->user()->name} approved marketplace refund request #{$order->id}.", [
+            'subject_type' => MarketplaceOrder::class,
+            'subject_id' => $order->id,
+            'meta' => [
+                'reason' => $reason,
+                'notes' => $notes,
+                'buyer_id' => $order->buyer_id,
+                'seller_id' => $order->seller_id,
+                'total_amount' => (float) $order->total_amount,
+                'payment_method' => $order->payment_method,
+            ],
+        ]);
+    }
+
     public function getMessages(Request $request, MarketplaceItem $item)
     {
         $userId = $request->user()->id;
@@ -1024,17 +1276,28 @@ class MarketplaceController extends Controller
 
     private function canManageMarketplace(Request $request): bool
     {
-        return $request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])
+        return $this->isSchoolManager($request)
             || $this->isPropertyCustodian($request);
     }
 
     private function requiresApproval(Request $request): bool
     {
-        if ($request->user()->hasAnyRole(['admin', 'registrar', 'school_management'])) {
+        if ($this->isSchoolManager($request)) {
             return false;
         }
 
         return (bool) $this->settingValue('require_item_approval', false);
+    }
+
+    private function isSchoolManager(Request $request): bool
+    {
+        $user = $request->user();
+
+        return $user
+            && (
+                in_array($user->role, ['admin', 'registrar', 'school_management'], true)
+                || $user->hasAnyRole(['admin', 'registrar', 'school_management'])
+            );
     }
 
     private function settingsPayload(): array

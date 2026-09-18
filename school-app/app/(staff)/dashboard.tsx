@@ -83,6 +83,7 @@ const emptyMarketItem = {
   description: '',
   price: '',
   stock: '1',
+  size_options: '',
   category: 'supplies',
   condition: 'new',
   status: 'available',
@@ -105,6 +106,7 @@ function buildReceiptHtml(order, item) {
   const total = Number(order.total_amount ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
   const unitPrice = Number(item?.price ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
   const qty = order.quantity ?? 1;
+  const sizeLine = order.size ? `<tr><td>Size</td><td>${order.size}</td></tr>` : '';
   const refLine = order.gcash_reference ? `<tr><td>Reference No.</td><td>${order.gcash_reference}</td></tr>` : '';
 
   return `<!DOCTYPE html>
@@ -168,6 +170,7 @@ function buildReceiptHtml(order, item) {
   <table style="margin-top:8px">
     <tr><td>Unit Price</td><td>PHP ${unitPrice}</td></tr>
     <tr><td>Quantity</td><td>${qty}</td></tr>
+    ${sizeLine}
   </table>
 
   <hr class="divider"/>
@@ -369,6 +372,7 @@ export default function StaffDashboard() {
       description: item.description || '',
       price: String(item.price ?? ''),
       stock: String(item.stock ?? '1'),
+      size_options: Array.isArray(item.size_options) ? item.size_options.filter(Boolean).join(', ') : '',
       category: item.category || 'supplies',
       condition: item.condition || 'new',
       status: item.status || 'available',
@@ -426,6 +430,7 @@ export default function StaffDashboard() {
         description: marketForm.description.trim(),
         price: String(Number(marketForm.price)),
         stock: String(parseInt(marketForm.stock, 10)),
+        size_options: marketForm.category === 'uniforms' ? marketForm.size_options : '',
         category: marketForm.category,
         condition: marketForm.condition,
         status: marketForm.status,
@@ -879,6 +884,9 @@ function MarketplaceList({ counts, currentUserId, items, ordersByItem, scope, se
               <Badge item={category} />
               <Badge item={{ label: `${item.stock ?? 0} in stock`, bg: (item.stock ?? 0) <= 5 ? '#FEF3C7' : '#F1F5F9', color: (item.stock ?? 0) <= 5 ? '#92400E' : '#475569' }} />
             </View>
+            {!!item.size_options?.length && (
+              <Text style={[s.notes, { color: theme.textMuted }]} numberOfLines={1}>Sizes: {item.size_options.join(', ')}</Text>
+            )}
             <Text style={[s.assetMeta, { color: theme.textSub }]} numberOfLines={3}>{item.description}</Text>
             {scope === 'all' && <Text style={[s.notes, { color: theme.textMuted }]} numberOfLines={1}>Posted by {item.seller?.name ?? 'School Marketplace'}</Text>}
             {!!item.location && <Text style={[s.notes, { color: theme.textMuted }]} numberOfLines={1}>Pickup: {item.location}</Text>}
@@ -894,6 +902,9 @@ function MarketplaceList({ counts, currentUserId, items, ordersByItem, scope, se
                     <View key={order.id} style={[s.buyerRow, { borderTopColor: theme.border }]}>
                       <Text style={[s.buyerName, { color: theme.text }]}>{order.buyer?.name ?? 'Buyer'}</Text>
                       <Text style={[s.buyerMeta, { color: theme.textSub }]}>{order.buyer?.email ?? 'No email'}</Text>
+                      {!!order.size && (
+                        <Text style={[s.buyerMeta, { color: theme.textSub }]}>Size: {order.size}</Text>
+                      )}
                       <Text style={[s.buyerMeta, { color: theme.textSub }]}>
                         Qty {order.quantity ?? 1} · {String(order.payment_method || 'cash').toUpperCase()} · PHP {Number(order.total_amount ?? 0).toLocaleString()}
                       </Text>
@@ -1047,6 +1058,15 @@ function MarketModal({ form, setForm, visible, editing, saving, images, onPickIm
             ) : null}
             <Text style={[s.label, { color: theme.textSub }]}>Category</Text>
             <ChipPicker items={MARKET_CATEGORIES} value={form.category} onChange={value => setField('category', value)} />
+            {form.category === 'uniforms' && (
+              <Field
+                label="Uniform Sizes"
+                value={form.size_options}
+                onChangeText={value => setField('size_options', value)}
+                theme={theme}
+                placeholder="XS, S, M, L, XL"
+              />
+            )}
             <Text style={[s.label, { color: theme.textSub }]}>Condition</Text>
             <ChipPicker items={MARKET_CONDITIONS} value={form.condition} onChange={value => setField('condition', value)} />
             <Text style={[s.label, { color: theme.textSub }]}>Payment Types</Text>

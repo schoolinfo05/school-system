@@ -100,6 +100,8 @@ export default function Today() {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const recentNotifications = notifications?.notifications?.slice(0, 3) ?? [];
   const unreadCount = notifications?.unread_count ?? 0;
+  const rewardSummary = data?.reward_summary ?? {};
+  const redeemablePoints = rewardSummary.redeemable_points ?? rewardSummary.points ?? 0;
   const enrollmentApplication = data?.enrollment_application;
   const enrollment = student?.enrollment;
   const yearLevelLabel = (value) => {
@@ -240,12 +242,12 @@ export default function Today() {
       {/* ── Header ── */}
       <View style={[styles.header, { backgroundColor: theme.primary }]}> 
         <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
+          <View style={styles.headerText}>
             <Text style={styles.greeting}>{greeting}</Text>
-            <Text style={styles.name}>
+            <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.86}>
               {student?.first_name} {student?.last_name}
             </Text>
-            <Text style={styles.section}>
+            <Text style={styles.section} numberOfLines={1}>
               {sectionLabel}
             </Text>
           </View>
@@ -267,17 +269,30 @@ export default function Today() {
 
       {/* ── Stat cards ── */}
       <View style={styles.statsRow}>
-        <View style={[styles.statCard, { backgroundColor: theme.card }]}> 
+        <View style={[styles.statCard, { backgroundColor: theme.card }]}>
           <Text style={[styles.statVal, { color: theme.text }]}>{data?.attendance_pct ?? 0}%</Text>
           <Text style={[styles.statLabel, { color: theme.textSub }]}>Attendance</Text>
         </View>
-        <View style={[styles.statCard, { backgroundColor: theme.card }]}> 
+        <View style={[styles.statCard, { backgroundColor: theme.card }]}>
           <Text style={[styles.statVal, { color: theme.text }]}>{gwa}</Text>
           <Text style={[styles.statLabel, { color: theme.textSub }]}>GWA</Text>
         </View>
-        <View style={[styles.statCard, { backgroundColor: theme.card },
-
-          { borderBottomWidth: 3, borderBottomColor: (data?.pending_fees?.length ?? 0) > 0 ? theme.danger : theme.success }]}>
+        <TouchableOpacity
+          style={[styles.statCard, { backgroundColor: theme.card }]}
+          activeOpacity={0.75}
+          onPress={() => router.push('/(tabs)/rewards')}
+        >
+          <Text style={[styles.statVal, { color: theme.success }]}>{redeemablePoints}</Text>
+          <Text style={[styles.statLabel, { color: theme.textSub }]}>Points</Text>
+        </TouchableOpacity>
+        <View style={[
+          styles.statCard,
+          {
+            backgroundColor: theme.card,
+            borderBottomWidth: 3,
+            borderBottomColor: (data?.pending_fees?.length ?? 0) > 0 ? theme.danger : theme.success,
+          },
+        ]}>
           <Text style={[styles.statVal,
             { color: (data?.pending_fees?.length ?? 0) > 0 ? theme.danger : theme.success }]}>
             {data?.pending_fees?.length ?? 0}
@@ -450,13 +465,14 @@ const styles = StyleSheet.create({
   header:      {
     backgroundColor: Colors.blue,
     paddingTop: HEADER_TOP,
-    paddingBottom: 24,
+    paddingBottom: 36,
     paddingHorizontal: 20,
   },
   headerRow:   { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  headerText:  { flex: 1, minWidth: 0 },
   greeting:    { color: 'rgba(255,255,255,0.8)', fontSize: Font.sm },
-  name:        { color: '#fff', fontSize: Font.xl, fontWeight: '700', marginTop: 4 },
-  section:     { color: 'rgba(255,255,255,0.7)', fontSize: Font.xs, marginTop: 6 },
+  name:        { color: '#fff', fontSize: Font.xl, fontWeight: '800', marginTop: 5 },
+  section:     { color: 'rgba(255,255,255,0.78)', fontSize: Font.xs, marginTop: 6 },
   profileBtn:  {
     width: 46,
     height: 46,
@@ -473,21 +489,26 @@ const styles = StyleSheet.create({
   // Stats
   statsRow:    {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     marginHorizontal: 16,
-    marginTop: -16,
-    gap: 10,
+    marginTop: -24,
+    rowGap: 10,
     marginBottom: 16,
   },
   statCard:    {
-    flex: 1,
+    width: '48%',
+    minHeight: 92,
     backgroundColor: Colors.card,
     borderRadius: Radius.md,
-    paddingVertical: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
     ...Shadow.card,
   },
-  statVal:     { fontSize: Font.xl, fontWeight: '700', color: Colors.text },
-  statLabel:   { fontSize: Font.xs, color: Colors.textSub, marginTop: 4 },
+  statVal:     { fontSize: Font.xl, fontWeight: '800', color: Colors.text },
+  statLabel:   { fontSize: Font.xs, color: Colors.textSub, marginTop: 6, textAlign: 'center' },
 
   // Cards
   card:        {

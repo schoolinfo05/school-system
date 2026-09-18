@@ -22,6 +22,8 @@ class User extends Authenticatable
     public const ROLE_PARENT = 'parent';
     public const ROLE_STAFF = 'staff';
 
+    public const POSITION_TEACHER = 'teacher';
+    public const POSITION_HEAD_DEPARTMENT = 'head_department';
     public const POSITION_HEAD_TEACHER = 'head_teacher';
     public const POSITION_DEAN = 'dean';
     public const POSITION_LIBRARIAN = 'librarian';
@@ -73,6 +75,8 @@ class User extends Authenticatable
 
     public const POSITIONS = [
         self::ROLE_FACULTY => [
+            self::POSITION_TEACHER,
+            self::POSITION_HEAD_DEPARTMENT,
             self::POSITION_HEAD_TEACHER,
             self::POSITION_DEAN,
         ],

@@ -33,7 +33,9 @@
             ['label' => 'Profile', 'route' => 'teacher.profile', 'match' => 'teacher/profile', 'roles' => ['faculty', 'teacher', 'head_teacher', 'dean']],
         ],
         'Staff' => [
-            ['label' => 'Property & Market', 'route' => 'property-custodian.dashboard', 'match' => 'property-custodian*', 'roles' => ['admin', 'property_custodian']],
+            ['label' => 'Property', 'route' => 'property-custodian.dashboard', 'match' => 'property-custodian/dashboard', 'roles' => ['admin', 'property_custodian']],
+            ['label' => 'Market', 'route' => 'property-custodian.market', 'match' => 'property-custodian/market*', 'roles' => ['admin', 'property_custodian']],
+            ['label' => 'Reports', 'route' => 'property-custodian.reports', 'match' => 'property-custodian/reports*', 'roles' => ['admin', 'property_custodian']],
         ],
     ];
 
