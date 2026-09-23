@@ -14,7 +14,7 @@ class EnrollmentApplication extends Model
         // Personal
         'first_name', 'last_name', 'middle_name',
         'birthdate', 'gender', 'religion', 'civil_status',
-        'place_of_birth', 'contact_number', 'address',
+        'citizenship', 'place_of_birth', 'contact_number', 'address',
 
         // Family
         'father_name', 'father_occupation',

@@ -34,6 +34,7 @@
                     <div><dt class="text-slate-500">Gender</dt><dd class="font-bold text-slate-800">{{ $label($application->gender) }}</dd></div>
                     <div><dt class="text-slate-500">Religion</dt><dd class="font-bold text-slate-800">{{ $value($application->religion) }}</dd></div>
                     <div><dt class="text-slate-500">Civil status</dt><dd class="font-bold text-slate-800">{{ $label($application->civil_status) }}</dd></div>
+                    <div><dt class="text-slate-500">Citizenship</dt><dd class="font-bold text-slate-800">{{ $value($application->citizenship) }}</dd></div>
                     <div><dt class="text-slate-500">Place of birth</dt><dd class="font-bold text-slate-800">{{ $value($application->place_of_birth) }}</dd></div>
                     <div class="md:col-span-2"><dt class="text-slate-500">Address</dt><dd class="font-bold text-slate-800">{{ $value($application->address) }}</dd></div>
                 </dl>

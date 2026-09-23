@@ -30,6 +30,103 @@ const YEAR_LEVELS   = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
 const SEXES         = ['Male', 'Female'];
 const CIVIL_STATUSES = ['Single', 'Married', 'Widowed'];
 const SHS_STRANDS   = ['STEM', 'ABM', 'HUMSS', 'TVL', 'GAS'];
+const CITIZENSHIPS   = ['Filipino', 'Dual Citizen', 'Foreign National'];
+
+const PH_REGIONS = {
+  'NCR - National Capital Region': ['Metro Manila'],
+  'CAR - Cordillera Administrative Region': ['Abra', 'Apayao', 'Benguet', 'Ifugao', 'Kalinga', 'Mountain Province'],
+  'Region I - Ilocos Region': ['Ilocos Norte', 'Ilocos Sur', 'La Union', 'Pangasinan'],
+  'Region II - Cagayan Valley': ['Batanes', 'Cagayan', 'Isabela', 'Nueva Vizcaya', 'Quirino'],
+  'Region III - Central Luzon': ['Aurora', 'Bataan', 'Bulacan', 'Nueva Ecija', 'Pampanga', 'Tarlac', 'Zambales'],
+  'Region IV-A - CALABARZON': ['Batangas', 'Cavite', 'Laguna', 'Quezon', 'Rizal'],
+  'MIMAROPA Region': ['Marinduque', 'Occidental Mindoro', 'Oriental Mindoro', 'Palawan', 'Romblon'],
+  'Region V - Bicol Region': ['Albay', 'Camarines Norte', 'Camarines Sur', 'Catanduanes', 'Masbate', 'Sorsogon'],
+  'Region VI - Western Visayas': ['Aklan', 'Antique', 'Capiz', 'Guimaras', 'Iloilo', 'Negros Occidental'],
+  'Region VII - Central Visayas': ['Bohol', 'Cebu', 'Negros Oriental', 'Siquijor'],
+  'Region VIII - Eastern Visayas': ['Biliran', 'Eastern Samar', 'Leyte', 'Northern Samar', 'Samar', 'Southern Leyte'],
+  'Region IX - Zamboanga Peninsula': ['Zamboanga del Norte', 'Zamboanga del Sur', 'Zamboanga Sibugay'],
+  'Region X - Northern Mindanao': ['Bukidnon', 'Camiguin', 'Lanao del Norte', 'Misamis Occidental', 'Misamis Oriental'],
+  'Region XI - Davao Region': ['Davao de Oro', 'Davao del Norte', 'Davao del Sur', 'Davao Occidental', 'Davao Oriental'],
+  'Region XII - SOCCSKSARGEN': ['Cotabato', 'Sarangani', 'South Cotabato', 'Sultan Kudarat'],
+  'Region XIII - Caraga': ['Agusan del Norte', 'Agusan del Sur', 'Dinagat Islands', 'Surigao del Norte', 'Surigao del Sur'],
+  'BARMM - Bangsamoro Autonomous Region': ['Basilan', 'Lanao del Sur', 'Maguindanao del Norte', 'Maguindanao del Sur', 'Sulu', 'Tawi-Tawi'],
+};
+
+const PH_CITIES_BY_PROVINCE = {
+  Bohol: [
+    'Alburquerque', 'Alicia', 'Anda', 'Antequera', 'Baclayon', 'Balilihan', 'Batuan', 'Bien Unido',
+    'Bilar', 'Buenavista', 'Calape', 'Candijay', 'Carmen', 'Catigbian', 'Clarin', 'Corella',
+    'Cortes', 'Dagohoy', 'Danao', 'Dauis', 'Dimiao', 'Duero', 'Garcia Hernandez', 'Getafe',
+    'Guindulman', 'Inabanga', 'Jagna', 'Lila', 'Loay', 'Loboc', 'Loon', 'Mabini',
+    'Maribojoc', 'Panglao', 'Pilar', 'President Carlos P. Garcia', 'Sagbayan', 'San Isidro',
+    'San Miguel', 'Sevilla', 'Sierra Bullones', 'Sikatuna', 'Tagbilaran City', 'Talibon',
+    'Trinidad', 'Tubigon', 'Ubay', 'Valencia',
+  ],
+  Cebu: [
+    'Alcantara', 'Alcoy', 'Alegria', 'Aloguinsan', 'Argao', 'Asturias', 'Badian', 'Balamban',
+    'Bantayan', 'Barili', 'Bogo City', 'Boljoon', 'Borbon', 'Carcar City', 'Carmen', 'Catmon',
+    'Cebu City', 'Compostela', 'Consolacion', 'Cordova', 'Daanbantayan', 'Dalaguete', 'Danao City',
+    'Dumanjug', 'Ginatilan', 'Lapu-Lapu City', 'Liloan', 'Madridejos', 'Malabuyoc', 'Mandaue City',
+    'Medellin', 'Minglanilla', 'Moalboal', 'Naga City', 'Oslob', 'Pilar', 'Pinamungajan', 'Poro',
+    'Ronda', 'Samboan', 'San Fernando', 'San Francisco', 'San Remigio', 'Santa Fe', 'Santander',
+    'Sibonga', 'Sogod', 'Tabogon', 'Tabuelan', 'Talisay City', 'Toledo City', 'Tuburan', 'Tudela',
+  ],
+  'Negros Oriental': [
+    'Amlan', 'Ayungon', 'Bacong', 'Bais City', 'Basay', 'Bayawan City', 'Bindoy', 'Canlaon City',
+    'Dauin', 'Dumaguete City', 'Guihulngan City', 'Jimalalud', 'La Libertad', 'Mabinay', 'Manjuyod',
+    'Pamplona', 'San Jose', 'Santa Catalina', 'Siaton', 'Sibulan', 'Tanjay City', 'Tayasan',
+    'Valencia', 'Vallehermoso', 'Zamboanguita',
+  ],
+  Siquijor: ['Enrique Villanueva', 'Larena', 'Lazi', 'Maria', 'San Juan', 'Siquijor'],
+};
+
+const PH_BARANGAYS_BY_CITY = {
+  'Cebu City': [
+    'Adlaon', 'Agsungot', 'Apas', 'Babag', 'Bacayan', 'Banilad', 'Basak Pardo', 'Basak San Nicolas',
+    'Bonbon', 'Budlaan', 'Buhisan', 'Bulacao', 'Busay', 'Calamba', 'Cambinocot', 'Capitol Site',
+    'Carreta', 'Cogon Pardo', 'Cogon Ramos', 'Day-as', 'Duljo Fatima', 'Ermita', 'Guadalupe',
+    'Guba', 'Hipodromo', 'Inayawan', 'Kalubihan', 'Kalunasan', 'Kamagayan', 'Kamputhaw',
+    'Kasambagan', 'Kinasang-an Pardo', 'Labangon', 'Lahug', 'Lorega San Miguel', 'Lusaran',
+    'Luz', 'Mabini', 'Mabolo', 'Malubog', 'Mambaling', 'Pahina Central', 'Pahina San Nicolas',
+    'Pamutan', 'Pari-an', 'Paril', 'Pasil', 'Pit-os', 'Poblacion Pardo', 'Pulangbato', 'Pung-ol Sibugay',
+    'Punta Princesa', 'Quiot Pardo', 'Sambag I', 'Sambag II', 'San Antonio', 'San Jose',
+    'San Nicolas Proper', 'San Roque', 'Santa Cruz', 'Santo Niño', 'Sapangdaku', 'Sawang Calero',
+    'Sinsin', 'Sirao', 'Suba', 'Sudlon I', 'Sudlon II', 'T. Padilla', 'Tabunan', 'Tagbao',
+    'Talamban', 'Taptap', 'Tejero', 'Tinago', 'Tisa', 'To-ong', 'Zapatera',
+  ],
+  'Mandaue City': [
+    'Alang-alang', 'Bakilid', 'Banilad', 'Basak', 'Cabancalan', 'Cambaro', 'Canduman',
+    'Casili', 'Casuntingan', 'Centro', 'Cubacub', 'Guizo', 'Ibabao-Estancia', 'Jagobiao',
+    'Labogon', 'Looc', 'Maguikay', 'Mantuyong', 'Opao', 'Pakna-an', 'Pagsabungan',
+    'Subangdaku', 'Tabok', 'Tawason', 'Tingub', 'Tipolo', 'Umapad',
+  ],
+  'Lapu-Lapu City': [
+    'Agus', 'Babag', 'Bankal', 'Baring', 'Basak', 'Buaya', 'Calawisan', 'Canjulao',
+    'Caw-oy', 'Cawhagan', 'Caubian', 'Gun-ob', 'Ibo', 'Looc', 'Mactan', 'Maribago',
+    'Marigondon', 'Pajac', 'Pajo', 'Pangan-an', 'Poblacion', 'Punta Engaño', 'Pusok',
+    'Sabang', 'Santa Rosa', 'Subabasbas', 'Talima', 'Tingo', 'Tungasan',
+  ],
+  'Talisay City': [
+    'Biasong', 'Bulacao', 'Cadulawan', 'Camp IV', 'Cansojong', 'Dumlog', 'Jaclupan',
+    'Lawaan I', 'Lawaan II', 'Lawaan III', 'Linao', 'Maghaway', 'Manipis', 'Mohon',
+    'Poblacion', 'Pooc', 'San Isidro', 'San Roque', 'Tabunok', 'Tangke', 'Tapul',
+  ],
+  'Naga City': [
+    'Alfaco', 'Bairan', 'Balirong', 'Cabungahan', 'Cantao-an', 'Central Poblacion',
+    'Cogon', 'Colon', 'East Poblacion', 'Inayagan', 'Inoburan', 'Jaguimit', 'Lanas',
+    'Langtad', 'Lutac', 'Mainit', 'Mayana', 'Naalad', 'North Poblacion', 'Pangdan',
+    'Patag', 'South Poblacion', 'Tagjaguimit', 'Tangke', 'Tinaan', 'Tuyan', 'Uling',
+    'West Poblacion',
+  ],
+  'Danao City': [
+    'Baliang', 'Bayabas', 'Binaliw', 'Cabungahan', 'Cagat-Lamac', 'Cahumayan', 'Cambanay',
+    'Cambubho', 'Cogon-Cruz', 'Danasan', 'Dungga', 'Dunggoan', 'Guinsay', 'Guinacot',
+    'Ibo', 'Langosig', 'Lawaan', 'Licos', 'Looc', 'Magtagobtob', 'Malapoc', 'Manlayag',
+    'Mantija', 'Masaba', 'Maslog', 'Nangka', 'Oguis', 'Pili', 'Poblacion', 'Quisol',
+    'Sabang', 'Sacsac', 'Sandayong Norte', 'Sandayong Sur', 'Santa Rosa', 'Santican',
+    'Sibacan', 'Suba', 'Taboc', 'Taytay', 'Togonon', 'Tuburan Sur',
+  ],
+};
 
 const STUDENT_TYPE_OPTIONS = [
   { label: 'Shiftee', value: 'shiftee', payload: 'transferee' },
@@ -77,6 +174,7 @@ export default function EnrollmentScreen() {
   const [courseSearch, setCourseSearch] = useState('');
   const [courseDropdownOpen, setCourseDropdownOpen] = useState(false);
   const [sectionDropdownOpen, setSectionDropdownOpen] = useState(false);
+  const [openSelect, setOpenSelect] = useState(null);
   const [authenticatedUser, setAuthenticatedUser] = useState(null);
 
   const [form, setForm] = useState({
@@ -91,8 +189,8 @@ export default function EnrollmentScreen() {
     program_type: 'college',
     surname: '', first_name: '', middle_name: '',
     year_born: '', month_born: '', day_born: '',
-    sex: '', religion: '', civil_status: '',
-    place_of_birth: '', home_address: '', mobile_no: '',
+    sex: '', religion: '', civil_status: '', citizenship: '',
+    place_of_birth: '', home_address: '', region: '', province: '', city: '', barangay: '', purok: '', mobile_no: '',
     prev_school: '', prev_school_address: '',
     father_name: '', father_occupation: '',
     mother_name: '', mother_occupation: '',
@@ -219,6 +317,7 @@ export default function EnrollmentScreen() {
       sex: student.gender ? (student.gender === 'female' ? 'Female' : 'Male') : prev.sex,
       religion: student.religion || prev.religion,
       civil_status: student.civil_status || prev.civil_status,
+      citizenship: student.citizenship || prev.citizenship,
       place_of_birth: student.place_of_birth || prev.place_of_birth,
       mobile_no: student.phone || prev.mobile_no,
       home_address: student.address || prev.home_address,
@@ -454,6 +553,9 @@ export default function EnrollmentScreen() {
     if (form.academic_status === 'Irregular' && !form.subject_ids.length) return Alert.alert('Required', 'Please select at least one subject.');
     if (form.academic_status === 'Regular' && !form.section_subject_ids.length) return Alert.alert('Required', 'The selected section has no subjects assigned.');
 
+    const selectedAddress = [form.purok, form.barangay, form.city, form.province, form.region].filter(Boolean).join(', ');
+    const fullAddress = [form.home_address, selectedAddress].filter(Boolean).join(', ');
+
     const payload = {
       email: authenticatedUser.email,
       first_name: form.first_name,
@@ -462,10 +564,11 @@ export default function EnrollmentScreen() {
       birthdate: `${form.year_born}-${form.month_born.padStart(2,'0')}-${form.day_born.padStart(2,'0')}`,
       gender: form.sex.toLowerCase(),
       contact_number: form.mobile_no,
-      address: form.home_address,
+      address: fullAddress,
       place_of_birth: form.place_of_birth,
       religion: form.religion,
       civil_status: form.civil_status,
+      citizenship: form.citizenship,
       student_type: normalizeStudentTypeForPayload(form.student_type),
       academic_status: form.academic_status,
       program_type: form.program_type,
@@ -566,6 +669,61 @@ export default function EnrollmentScreen() {
     </View>
   );
 
+  const renderSelectDropdown = (field, options, placeholder, onSelect) => (
+    <>
+      <TouchableOpacity
+        style={[s.dropdown, form[field] && s.dropdownActive]}
+        onPress={() => setOpenSelect(current => current === field ? null : field)}
+      >
+        <View style={s.dropdownLabelGroup}>
+          <Text style={s.dropdownLabel}>
+            {form[field] || placeholder}
+          </Text>
+          <Text style={s.dropdownValue} numberOfLines={1}>
+            {form[field] ? 'Tap to change selection' : 'Tap to choose from the list'}
+          </Text>
+        </View>
+        <Text style={s.dropdownArrow}>{openSelect === field ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+
+      {openSelect === field && (
+        <View style={s.dropdownPanel}>
+          <ScrollView
+            style={s.dropdownScroll}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
+            {options.map(opt => (
+              <TouchableOpacity
+                key={opt}
+                style={[s.courseOption, form[field] === opt && s.courseOptionActive]}
+                onPress={() => {
+                  if (onSelect) {
+                    onSelect(opt);
+                  } else {
+                    set(field, opt);
+                  }
+                  setOpenSelect(null);
+                }}
+              >
+                <View style={s.courseOptionLeft}>
+                  <View style={s.courseCodeBadge}>
+                    <Text style={s.courseCodeText}>{opt.slice(0, 3).toUpperCase()}</Text>
+                  </View>
+                  <View style={s.courseOptionText}>
+                    <Text style={s.courseOptionName}>{opt}</Text>
+                    <Text style={s.courseOptionMeta}>Select option</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </>
+  );
+
   const CheckItem = ({ label, value }) => (
     <TouchableOpacity style={s.checkRow} onPress={() => set('student_type', value)}>
       <View style={[s.checkBox, form.student_type === value && s.checkBoxActive]}>
@@ -582,6 +740,8 @@ export default function EnrollmentScreen() {
     .reduce((acc, sub) => acc + (sub.units_lab || 0) + (sub.units_lec || 0), 0);
 
   const isSHS = form.program_type === 'shs';
+  const cityOptions = PH_CITIES_BY_PROVINCE[form.province] || [];
+  const barangayOptions = PH_BARANGAYS_BY_CITY[form.city] || [];
   const renderHeader = () => (
     <View style={s.schoolHeader}>
       <Text style={s.schoolName}>{`St. Cecilia's College - Cebu, Inc.`}</Text>
@@ -950,6 +1110,9 @@ export default function EnrollmentScreen() {
             </View>
           </View>
 
+          <Field label="Citizenship">
+            {renderSelectDropdown('citizenship', CITIZENSHIPS, 'Select citizenship')}
+          </Field>
           <Field label="Mobile Number">
             {inp('mobile_no', { keyboardType: 'phone-pad', placeholder: '+63' })}
           </Field>
@@ -957,7 +1120,103 @@ export default function EnrollmentScreen() {
             {inp('place_of_birth')}
           </Field>
           <Field label="Home Address">
-            {inp('home_address', { multiline: true })}
+            <Text style={s.addressLabel}>Region</Text>
+            {renderSelectDropdown('region', Object.keys(PH_REGIONS), 'Select region', (value) => setForm(prev => ({
+                ...prev,
+                region: value,
+                province: '',
+                city: '',
+                barangay: '',
+                purok: '',
+                home_address: '',
+              })))}
+            {!!form.region && (
+              <>
+                <Text style={s.addressLabel}>Province</Text>
+                {renderSelectDropdown('province', PH_REGIONS[form.region] || [], 'Select province', (value) => setForm(prev => ({
+                    ...prev,
+                    province: value,
+                    city: '',
+                    barangay: '',
+                    purok: '',
+                    home_address: '',
+                  })))}
+              </>
+            )}
+            {!!form.province && (
+              <>
+                <Text style={s.addressLabel}>City / Municipality</Text>
+                {cityOptions.length ? (
+                  renderSelectDropdown('city', cityOptions, 'Select city or municipality', (value) => setForm(prev => ({
+                      ...prev,
+                      city: value,
+                      barangay: '',
+                      purok: '',
+                      home_address: '',
+                    })))
+                ) : (
+                  <TextInput
+                    style={s.input}
+                    value={form.city}
+                    placeholder="e.g. Cebu City, Davao City, Tagbilaran"
+                    onChangeText={value => setForm(prev => ({
+                      ...prev,
+                      city: value,
+                      barangay: '',
+                      purok: '',
+                      home_address: '',
+                    }))}
+                  />
+                )}
+              </>
+            )}
+            {!!form.city && (
+              <>
+                <Text style={s.addressLabel}>Barangay</Text>
+                {barangayOptions.length ? (
+                  renderSelectDropdown('barangay', barangayOptions, 'Select barangay', (value) => setForm(prev => ({
+                      ...prev,
+                      barangay: value,
+                      purok: '',
+                      home_address: '',
+                    })))
+                ) : (
+                  <TextInput
+                    style={s.input}
+                    value={form.barangay}
+                    placeholder="e.g. Lahug, Poblacion, San Isidro"
+                    onChangeText={value => setForm(prev => ({
+                      ...prev,
+                      barangay: value,
+                      purok: '',
+                      home_address: '',
+                    }))}
+                  />
+                )}
+              </>
+            )}
+            {!!form.barangay && (
+              <>
+                <Text style={s.addressLabel}>Purok / Sitio / Zone</Text>
+                <TextInput
+                  style={s.input}
+                  value={form.purok}
+                  placeholder="e.g. Purok 3, Sitio Riverside, Zone 2"
+                  onChangeText={value => setForm(prev => ({ ...prev, purok: value, home_address: '' }))}
+                />
+              </>
+            )}
+            <Text style={s.helperText}>
+              {[form.purok, form.barangay, form.city, form.province, form.region].filter(Boolean).join(', ') || 'Select region and province, then enter city/municipality, barangay, and purok/sitio/zone.'}
+            </Text>
+          </Field>
+          <Field label="Specific House / Street / Block">
+            {inp('home_address', { placeholder: 'Optional: house no., street, subdivision, block/lot' })}
+            {!!form.home_address && (
+              <Text style={s.helperText}>
+                {[form.home_address, form.purok, form.barangay, form.city, form.province, form.region].filter(Boolean).join(', ')}
+              </Text>
+            )}
           </Field>
         </View>
 
@@ -1199,6 +1458,7 @@ const s = StyleSheet.create({
   chipActive:    { borderColor: C.primary, backgroundColor: '#EEF4FF' },
   chipText:      { fontSize: 14, color: C.subtext },
   chipTextActive:{ color: C.primary, fontWeight: '700' },
+  addressLabel: { fontSize: 12, color: C.subtext, fontWeight: '800', marginTop: 10, marginBottom: 2 },
   dropdown:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: '#FBFAF7', padding: 12, marginTop: 4 },
   dropdownActive:{ borderColor: C.primary },
   dropdownLabelGroup: { flex: 1, paddingRight: 8 },

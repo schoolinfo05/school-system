@@ -39,7 +39,17 @@
         ],
     ];
 
+    $portalGroupForRole = match (true) {
+        $role === 'admin' => 'Admin',
+        $role === 'registrar' => 'Registrar',
+        in_array($role, ['faculty', 'teacher', 'head_teacher', 'dean'], true)
+            || in_array($user?->position, ['teacher', 'head_department', 'head_teacher', 'dean'], true) => 'Teacher',
+        $role === 'property_custodian' || $user?->position === 'property_custodian' => 'Staff',
+        default => null,
+    };
+
     $visibleGroups = collect($navGroups)
+        ->when($portalGroupForRole, fn ($groups) => $groups->only([$portalGroupForRole]))
         ->map(fn ($items) => collect($items)->filter(fn ($item) => in_array($role, $item['roles'], true) || in_array($user?->position, $item['roles'], true))->values())
         ->filter(fn ($items) => $items->isNotEmpty());
 @endphp

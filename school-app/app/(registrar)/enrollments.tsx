@@ -305,6 +305,7 @@ export default function RegistrarEnrollments() {
                 <InfoRow label="Gender"        value={selected.gender} />
                 <InfoRow label="Religion"      value={selected.religion} />
                 <InfoRow label="Civil Status"  value={selected.civil_status} />
+                <InfoRow label="Citizenship"   value={selected.citizenship} />
                 <InfoRow label="Place of Birth" value={selected.place_of_birth} />
                 <InfoRow label="Contact No."   value={selected.contact_number} />
                 <InfoRow label="Address"       value={selected.address} />
