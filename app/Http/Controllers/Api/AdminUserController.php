@@ -75,7 +75,7 @@ class AdminUserController extends Controller
             })
             ->orderBy('role')
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'role', 'position', 'created_at', 'updated_at']);
+            ->get(['id', 'name', 'email', 'role', 'position', 'department', 'created_at', 'updated_at']);
 
         return response()->json([
             'roles' => $this->roleOptions(),
@@ -94,9 +94,11 @@ class AdminUserController extends Controller
             'password' => ['required', 'string', 'min:6'],
             'role'     => ['required', Rule::in($this->manageableRoles)],
             'position' => ['nullable', 'string', Rule::in($this->allowedPositions())],
+            'department' => ['nullable', 'string', 'max:255', 'required_if:position,head_department'],
         ]);
 
         $data['position'] = $this->positionForRole($data['role'], $data['position'] ?? null);
+        $data['department'] = $data['position'] === User::POSITION_HEAD_DEPARTMENT ? trim((string) ($data['department'] ?? '')) : null;
 
         $user = User::create([
             'name'     => $data['name'],
@@ -104,6 +106,7 @@ class AdminUserController extends Controller
             'password' => Hash::make($data['password']),
             'role'     => $data['role'],
             'position' => $data['position'],
+            'department' => $data['department'] ?? null,
         ]);
 
         $this->syncRole($user, $data['role']);
@@ -114,7 +117,7 @@ class AdminUserController extends Controller
             'meta' => ['created_role' => $user->role, 'created_email' => $user->email],
         ]);
 
-        return response()->json($user->only(['id', 'name', 'email', 'role', 'position', 'created_at', 'updated_at']), 201);
+        return response()->json($user->only(['id', 'name', 'email', 'role', 'position', 'department', 'created_at', 'updated_at']), 201);
     }
 
     public function update(Request $request, User $user)
@@ -128,9 +131,11 @@ class AdminUserController extends Controller
             'password' => ['nullable', 'string', 'min:6'],
             'role'     => ['required', Rule::in($this->manageableRoles)],
             'position' => ['nullable', 'string', Rule::in($this->allowedPositions())],
+            'department' => ['nullable', 'string', 'max:255', 'required_if:position,head_department'],
         ]);
 
         $data['position'] = $this->positionForRole($data['role'], $data['position'] ?? null);
+        $data['department'] = $data['position'] === User::POSITION_HEAD_DEPARTMENT ? trim((string) ($data['department'] ?? '')) : null;
 
         if ($user->id === $request->user()->id && $data['role'] !== 'admin') {
             return response()->json(['message' => 'You cannot remove admin access from your own account.'], 422);
@@ -144,6 +149,7 @@ class AdminUserController extends Controller
         $user->email = $data['email'];
         $user->role = $data['role'];
         $user->position = $data['position'];
+        $user->department = $data['department'] ?? null;
 
         if (!empty($data['password'])) {
             $user->password = Hash::make($data['password']);
@@ -158,7 +164,7 @@ class AdminUserController extends Controller
             'meta' => ['updated_role' => $user->role, 'updated_email' => $user->email],
         ]);
 
-        return response()->json($user->only(['id', 'name', 'email', 'role', 'position', 'created_at', 'updated_at']));
+        return response()->json($user->only(['id', 'name', 'email', 'role', 'position', 'department', 'created_at', 'updated_at']));
     }
 
     public function destroy(Request $request, User $user)
@@ -234,7 +240,9 @@ class AdminUserController extends Controller
                 $role => collect($positions)
                     ->map(fn (string $position) => [
                         'value' => $position,
-                        'label' => str($position)->replace('_', ' ')->title()->toString(),
+                        'label' => $position === User::POSITION_HEAD_DEPARTMENT
+                            ? 'Department Chair'
+                            : str($position)->replace('_', ' ')->title()->toString(),
                     ])
                     ->values()
                     ->all(),

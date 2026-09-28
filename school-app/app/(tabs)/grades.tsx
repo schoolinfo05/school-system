@@ -30,7 +30,13 @@ export default function Grades() {
   const ACCENT = [theme.green, theme.primary, theme.orange, theme.purple];
 
   useEffect(() => {
-    AsyncStorage.getItem('role').then(role => {
+    AsyncStorage.multiGet(['role', 'position']).then(pairs => {
+      const role = pairs[0][1];
+      const position = pairs[1][1];
+      if (['head_department', 'dean'].includes(position) || ['head_department', 'dean'].includes(role)) {
+        router.replace('/(leadership)/dashboard');
+        return;
+      }
       if (role === 'faculty' || role === 'teacher') {
         router.replace('/(teacher)/grades');
         return;

@@ -7,6 +7,7 @@
             ['label' => 'Dashboard', 'route' => 'admin.dashboard', 'match' => 'admin/dashboard', 'roles' => ['admin']],
             ['label' => 'Students', 'route' => 'admin.students.index', 'match' => 'admin/students*', 'roles' => ['admin']],
             ['label' => 'Users', 'route' => 'admin.users.index', 'match' => 'admin/users*', 'roles' => ['admin']],
+            ['label' => 'Departments', 'route' => 'admin.departments.index', 'match' => 'admin/departments*', 'roles' => ['admin']],
             ['label' => 'Controls', 'route' => 'admin.controls.index', 'match' => 'admin/controls*', 'roles' => ['admin']],
             ['label' => 'Activity Logs', 'route' => 'admin.activity.index', 'match' => 'admin/activity*', 'roles' => ['admin']],
             ['label' => 'Reports', 'route' => 'admin.reports.index', 'match' => 'admin/reports*', 'roles' => ['admin']],

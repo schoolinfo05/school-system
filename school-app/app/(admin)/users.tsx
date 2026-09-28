@@ -34,8 +34,7 @@ const ROLES = [
 const POSITION_OPTIONS = {
   faculty: [
     { value: 'teacher', label: 'Teacher / Instructor', bg: '#ECFDF5', color: '#047857' },
-    { value: 'head_department', label: 'Head Department', bg: '#EDE9FE', color: '#6D28D9' },
-    { value: 'head_teacher', label: 'Head Teacher', bg: '#F3E8FF', color: '#7C3AED' },
+    { value: 'head_department', label: 'Department Chair', bg: '#EDE9FE', color: '#6D28D9' },
     { value: 'dean', label: 'Dean', bg: '#FEF3C7', color: '#92400E' },
   ],
   staff: [
@@ -44,7 +43,7 @@ const POSITION_OPTIONS = {
   ],
 };
 
-const emptyForm = { name: '', email: '', password: '', role: 'faculty', position: '' };
+const emptyForm = { name: '', email: '', password: '', role: 'faculty', position: '', department: '' };
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
@@ -115,6 +114,7 @@ export default function AdminUsers() {
       password: '',
       role: normalizedRole(user.role || 'faculty'),
       position: user.position || legacyPositionFromRole(user.role) || '',
+      department: user.department || '',
     });
     setModalOpen(true);
   };
@@ -138,6 +138,7 @@ export default function AdminUsers() {
         email: form.email.trim(),
         role: form.role,
         position: form.position || null,
+        department: form.position === 'head_department' ? form.department.trim() : null,
       };
       if (form.password.trim()) payload.password = form.password.trim();
 
@@ -249,6 +250,7 @@ export default function AdminUsers() {
                     <Text style={[s.positionText, { color: position.color }]}>{position.label}</Text>
                   </View>
                 )}
+                {!!user.department && <Text style={s.departmentText}>Program: {user.department}</Text>}
                 <View style={s.cardActions}>
                   <TouchableOpacity style={s.editBtn} onPress={() => openEdit(user)}>
                     <Text style={s.editText}>Edit</Text>
@@ -370,6 +372,19 @@ export default function AdminUsers() {
                 </>
               )}
 
+              {form.position === 'head_department' && (
+                <>
+                  <Text style={s.label}>Assigned program / department</Text>
+                  <TextInput
+                    style={s.input}
+                    value={form.department}
+                    onChangeText={value => setField('department', value)}
+                    placeholder="e.g. BS Information Technology"
+                    placeholderTextColor="#9CA3AF"
+                  />
+                </>
+              )}
+
               <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.7 }]} onPress={saveUser} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveText}>{editing ? 'Save changes' : 'Create user'}</Text>}
               </TouchableOpacity>
@@ -443,6 +458,7 @@ const s = StyleSheet.create({
   roleText: { fontSize: 11, fontWeight: '900' },
   positionBadge: { marginTop: 12, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, alignSelf: 'flex-start' },
   positionText: { fontSize: 11, fontWeight: '900' },
+  departmentText: { marginTop: 9, fontSize: 12, color: '#64748B', fontWeight: '700' },
   cardActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
   editBtn: { flex: 1, backgroundColor: '#EEF2FF', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
   editText: { color: '#3730A3', fontWeight: '800', fontSize: 13 },

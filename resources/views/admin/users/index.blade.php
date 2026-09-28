@@ -6,7 +6,7 @@
     $allRoles = \App\Models\User::ROLES;
     $roleLabel = fn ($role) => ucwords(str_replace('_', ' ', $role));
     $positions = \App\Models\User::POSITIONS;
-    $positionLabel = fn ($position) => $position ? ucwords(str_replace('_', ' ', $position)) : null;
+    $positionLabel = fn ($position) => $position === 'head_department' ? 'Department Chair' : ($position ? ucwords(str_replace('_', ' ', $position)) : null);
 @endphp
 <div class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
     <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-fit">
@@ -15,21 +15,22 @@
             @csrf
             <input name="name" value="{{ old('name') }}" placeholder="Full name" class="w-full rounded-lg border-slate-300 text-sm">
             <input name="email" value="{{ old('email') }}" placeholder="Email" class="w-full rounded-lg border-slate-300 text-sm">
-            <select name="role" class="w-full rounded-lg border-slate-300 text-sm">
+            <select name="role" data-role-select class="w-full rounded-lg border-slate-300 text-sm">
                 @foreach($manageableRoles as $role)
                     <option value="{{ $role }}">{{ $roleLabel($role) }}</option>
                 @endforeach
             </select>
-            <select name="position" class="w-full rounded-lg border-slate-300 text-sm">
+            <select name="position" data-position-select class="w-full rounded-lg border-slate-300 text-sm">
                 <option value="">Default / No sub-role</option>
                 @foreach($positions as $role => $rolePositions)
-                    <optgroup label="{{ $roleLabel($role) }}">
-                        @foreach($rolePositions as $position)
-                            <option value="{{ $position }}">{{ $positionLabel($position) }}</option>
-                        @endforeach
-                    </optgroup>
+                    @foreach($rolePositions as $position)
+                        <option value="{{ $position }}" data-position-role="{{ $role }}">{{ $positionLabel($position) }}</option>
+                    @endforeach
                 @endforeach
             </select>
+            <div data-department-field class="hidden">
+                <select name="department_id" class="w-full rounded-lg border-slate-300 text-sm"><option value="">Choose department</option>@foreach($departments as $department)<option value="{{ $department->id }}" @selected(old('department_id') == $department->id)>{{ $department->code }} — {{ $department->name }}</option>@endforeach</select>
+            </div>
             <input name="password" type="password" placeholder="Temporary password" class="w-full rounded-lg border-slate-300 text-sm">
             <button class="w-full rounded-lg bg-blue-700 text-white py-2 text-sm font-bold">Create user</button>
         </form>
@@ -107,7 +108,7 @@
                             </label>
                             <label class="block text-xs font-bold uppercase text-slate-500">
                                 Role
-                                <select name="role" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                                <select name="role" data-role-select class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
                                     @foreach($manageableRoles as $role)
                                         <option value="{{ $role }}" @selected($user->role === $role)>{{ $roleLabel($role) }}</option>
                                     @endforeach
@@ -115,16 +116,18 @@
                             </label>
                             <label class="block text-xs font-bold uppercase text-slate-500">
                                 Sub-role / Position
-                                <select name="position" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
+                                <select name="position" data-position-select class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
                                     <option value="">Default / No sub-role</option>
                                     @foreach($positions as $role => $rolePositions)
-                                        <optgroup label="{{ $roleLabel($role) }}">
-                                            @foreach($rolePositions as $position)
-                                                <option value="{{ $position }}" @selected($user->position === $position)>{{ $positionLabel($position) }}</option>
-                                            @endforeach
-                                        </optgroup>
+                                        @foreach($rolePositions as $position)
+                                            <option value="{{ $position }}" data-position-role="{{ $role }}" @selected($user->position === $position)>{{ $positionLabel($position) }}</option>
+                                        @endforeach
                                     @endforeach
                                 </select>
+                            </label>
+                            <label data-department-field class="hidden block text-xs font-bold uppercase text-slate-500">
+                                Assigned program / department
+                                <select name="department_id" class="mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900"><option value="">Choose department</option>@foreach($departments as $department)<option value="{{ $department->id }}" @selected($user->department_id === $department->id)>{{ $department->code }} — {{ $department->name }}</option>@endforeach</select>
                             </label>
                             <label class="block text-xs font-bold uppercase text-slate-500">
                                 New password
@@ -185,6 +188,34 @@
 </div>
 
 <script>
+    const syncPositionOptions = (roleSelect) => {
+        const form = roleSelect.closest('form');
+        const positionSelect = form?.querySelector('[data-position-select]');
+        const departmentField = form?.querySelector('[data-department-field]');
+        if (!positionSelect) return;
+
+        const role = roleSelect.value;
+        Array.from(positionSelect.options).forEach((option) => {
+            const optionRole = option.dataset.positionRole;
+            const shouldHide = optionRole && optionRole !== role;
+            option.hidden = shouldHide;
+            option.disabled = shouldHide;
+        });
+
+        if (positionSelect.selectedOptions[0]?.disabled) {
+            positionSelect.value = '';
+        }
+
+        const isDepartmentChair = role === 'faculty' && positionSelect.value === 'head_department';
+        departmentField?.classList.toggle('hidden', !isDepartmentChair);
+    };
+
+    document.querySelectorAll('[data-role-select]').forEach((roleSelect) => {
+        syncPositionOptions(roleSelect);
+        roleSelect.addEventListener('change', () => syncPositionOptions(roleSelect));
+        roleSelect.closest('form')?.querySelector('[data-position-select]')?.addEventListener('change', () => syncPositionOptions(roleSelect));
+    });
+
     document.querySelectorAll('[data-user-modal-open]').forEach((button) => {
         button.addEventListener('click', () => {
             const modal = document.getElementById(button.dataset.userModalOpen);

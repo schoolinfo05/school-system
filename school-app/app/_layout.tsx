@@ -10,6 +10,7 @@ export default function RootLayout() {
         <Stack.Screen name="register" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(teacher)" />
+        <Stack.Screen name="(leadership)" />
         <Stack.Screen name="(admin)" />
         <Stack.Screen name="(parent)" />
         <Stack.Screen name="(staff)" />

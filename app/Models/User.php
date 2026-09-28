@@ -77,7 +77,6 @@ class User extends Authenticatable
         self::ROLE_FACULTY => [
             self::POSITION_TEACHER,
             self::POSITION_HEAD_DEPARTMENT,
-            self::POSITION_HEAD_TEACHER,
             self::POSITION_DEAN,
         ],
         self::ROLE_STAFF => [
@@ -87,7 +86,7 @@ class User extends Authenticatable
     ];
 
     protected $fillable = [
-        'name', 'first_name', 'middle_name', 'last_name', 'email', 'password', 'role', 'position', 'profile_photo_path',
+        'name', 'first_name', 'middle_name', 'last_name', 'email', 'password', 'role', 'position', 'department', 'department_id', 'profile_photo_path',
     ];
 
     protected $appends = [
@@ -123,5 +122,10 @@ class User extends Authenticatable
     public function teacherClasses()
     {
         return $this->hasMany(SchoolClass::class, 'teacher_id');
+    }
+
+    public function academicDepartment()
+    {
+        return $this->belongsTo(Department::class);
     }
 }

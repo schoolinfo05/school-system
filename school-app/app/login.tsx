@@ -41,7 +41,9 @@ export default function Login() {
         router.replace('/enrollment');
       } else if (role === 'admin') {
         router.replace('/(admin)/dashboard');
-      } else if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
+      } else if (['head_department', 'dean'].includes(res.data.user?.position) || ['head_department', 'dean'].includes(role)) {
+        router.replace('/(leadership)/dashboard');
+      } else if (['faculty', 'teacher'].includes(role)) {
         router.replace('/(teacher)/classes');
       } else if (role === 'registrar') {
         router.replace('/(registrar)/enrollments');

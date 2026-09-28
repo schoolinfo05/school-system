@@ -10,14 +10,17 @@ export default function Index() {
   const [route, setRoute]     = useState(null);
 
   useEffect(() => {
-    AsyncStorage.multiGet(['token', 'role']).then(pairs => {
+    AsyncStorage.multiGet(['token', 'role', 'position']).then(pairs => {
       const token = pairs[0][1];
       const role  = pairs[1][1];
+      const position = pairs[2][1];
       if (token) {
         setToken(token);
         if (role === 'admin') {
           setRoute('/(admin)/dashboard');
-        } else if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
+        } else if (['head_department', 'dean'].includes(position) || ['head_department', 'dean'].includes(role)) {
+          setRoute('/(leadership)/dashboard');
+        } else if (['faculty', 'teacher'].includes(role)) {
           setRoute('/(teacher)/classes');
         } else if (role === 'registrar') {
           setRoute('/(registrar)/enrollments');

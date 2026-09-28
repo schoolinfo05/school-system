@@ -8,6 +8,7 @@ use App\Models\MarketplaceItem;
 use App\Models\MarketplaceMessage;
 use App\Models\MarketplaceOrder;
 use App\Models\SchoolClass;
+use App\Models\SchoolNotification;
 use App\Models\SectionSubject;
 use App\Models\Student;
 use App\Models\Grade;
@@ -243,10 +244,22 @@ class DashboardController extends Controller
 
         abort_unless(in_array((int) $data['receiver_id'], $allowedContactIds, true), 403);
 
-        TeacherMessage::create([
+        $message = TeacherMessage::create([
             'sender_id' => $request->user()->id,
             'receiver_id' => $data['receiver_id'],
             'message' => $data['message'],
+        ]);
+
+        SchoolNotification::create([
+            'user_id' => $data['receiver_id'],
+            'type' => 'new_message',
+            'title' => 'New message',
+            'body' => "{$request->user()->name}: {$data['message']}",
+            'channels' => ['in_app'],
+            'data' => [
+                'sender_id' => $request->user()->id,
+                'message_id' => $message->id,
+            ],
         ]);
 
         return back()->with('status', 'Message sent.');

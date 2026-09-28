@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\AuthorizesPortal;
 use App\Models\User;
+use App\Models\Department;
 use App\Services\ArchiveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -32,7 +33,9 @@ class UserManageController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        return view('admin.users.index', compact('users'));
+        $departments = Department::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'code']);
+
+        return view('admin.users.index', compact('users', 'departments'));
     }
 
     public function store(Request $request)
@@ -44,19 +47,28 @@ class UserManageController extends Controller
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'role' => ['required', Rule::in(User::ADMIN_MANAGEABLE_ROLES)],
             'position' => ['nullable', 'string', Rule::in($this->allowedPositions())],
+            'department_id' => ['nullable', 'exists:departments,id', 'required_if:position,head_department'],
             'password' => ['required', 'string', 'min:6'],
         ]);
         $data['position'] = $this->positionForRole($data['role'], $data['position'] ?? null);
+        $department = $this->departmentForPosition($data);
 
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
             'role' => $data['role'],
             'position' => $data['position'],
+            'department_id' => $department?->id,
+            'department' => $department?->name,
             'password' => Hash::make($data['password']),
         ]);
         Role::findOrCreate($data['role'], 'web');
         $user->assignRole($data['role']);
+
+        if ($department) {
+            Department::query()->where('chair_user_id', $user->id)->whereKeyNot($department->id)->update(['chair_user_id' => null]);
+            $department->update(['chair_user_id' => $user->id]);
+        }
 
         return redirect()->route('admin.users.index')->with('status', 'User created.');
     }
@@ -70,9 +82,11 @@ class UserManageController extends Controller
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['required', Rule::in(User::ADMIN_MANAGEABLE_ROLES)],
             'position' => ['nullable', 'string', Rule::in($this->allowedPositions())],
+            'department_id' => ['nullable', 'exists:departments,id', 'required_if:position,head_department'],
             'password' => ['nullable', 'string', 'min:6'],
         ]);
         $data['position'] = $this->positionForRole($data['role'], $data['position'] ?? null);
+        $department = $this->departmentForPosition($data);
 
         if ($user->id === $request->user()->id && $data['role'] !== 'admin') {
             return back()->withErrors(['role' => 'You cannot remove admin access from your own account.']);
@@ -83,6 +97,8 @@ class UserManageController extends Controller
             'email' => $data['email'],
             'role' => $data['role'],
             'position' => $data['position'],
+            'department_id' => $department?->id,
+            'department' => $department?->name,
         ]);
 
         if (!empty($data['password'])) {
@@ -92,6 +108,13 @@ class UserManageController extends Controller
         $user->save();
         Role::findOrCreate($data['role'], 'web');
         $user->syncRoles([$data['role']]);
+
+        if ($department) {
+            Department::query()->where('chair_user_id', $user->id)->whereKeyNot($department->id)->update(['chair_user_id' => null]);
+            $department->update(['chair_user_id' => $user->id]);
+        } else {
+            Department::query()->where('chair_user_id', $user->id)->update(['chair_user_id' => null]);
+        }
 
         return redirect()->route('admin.users.index')->with('status', 'User updated.');
     }
@@ -112,6 +135,13 @@ class UserManageController extends Controller
         }
 
         return in_array($position, User::POSITIONS[$role] ?? [], true) ? $position : null;
+    }
+
+    private function departmentForPosition(array $data): ?Department
+    {
+        return $data['position'] === User::POSITION_HEAD_DEPARTMENT
+            ? Department::find($data['department_id'])
+            : null;
     }
 
     public function destroy(Request $request, User $user)

@@ -120,6 +120,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'role'  => $role,
                 'position' => $position,
+                'department' => $user->department,
                 'profile_photo_url' => $user->profile_photo_url,
             ],
         ]);

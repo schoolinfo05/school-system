@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\StudentManageController;
 use App\Http\Controllers\Admin\SystemControlController;
 use App\Http\Controllers\Admin\UserManageController;
+use App\Http\Controllers\Admin\DepartmentController;
 use App\Http\Controllers\Registrar\DashboardController as RegistrarDashboardController;
 use App\Http\Controllers\Registrar\EnrollmentReviewController;
 use App\Http\Controllers\Registrar\CourseController as RegistrarCourseController;
@@ -117,6 +118,9 @@ Route::middleware(['auth', 'web.roles:admin'])->prefix('admin')->name('admin.')-
     Route::post('/users', [UserManageController::class, 'store'])->name('users.store');
     Route::put('/users/{user}', [UserManageController::class, 'update'])->name('users.update');
     Route::delete('/users/{user}', [UserManageController::class, 'destroy'])->name('users.destroy');
+    Route::get('/departments', [DepartmentController::class, 'index'])->name('departments.index');
+    Route::post('/departments', [DepartmentController::class, 'store'])->name('departments.store');
+    Route::put('/departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
 });
 
 Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->name('registrar.')->group(function () {

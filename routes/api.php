@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\AssignmentController;
 use App\Http\Controllers\Api\PropertyCustodianController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\AcademicTermController;
+use App\Http\Controllers\Api\AcademicLeadershipController;
 
 // ── Public routes (no login required) ────────────────────────────
 Route::post('/login',            [AuthController::class, 'login'])->middleware('throttle:5,1');
@@ -143,6 +144,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/teacher/assignments/{assignment}/submissions/{submission}/grade', [AssignmentController::class, 'grade']);
 
         Route::post('/teacher/event-participations', [RewardController::class, 'verifyEvent']);
+    });
+
+    // Dean & head teacher — school-wide academic oversight (read-only)
+    Route::middleware('role:faculty')->group(function () {
+        Route::get('/academic-leadership/dashboard', [AcademicLeadershipController::class, 'dashboard']);
     });
 
     // Shared teacher/student

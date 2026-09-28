@@ -24,8 +24,14 @@ export default function Profile() {
   const [notificationPrefs, setNotificationPrefs] = useState([]);
 
   useEffect(() => {
-    AsyncStorage.getItem('role').then(role => {
-      if (['faculty', 'teacher', 'head_teacher', 'dean'].includes(role)) {
+    AsyncStorage.multiGet(['role', 'position']).then(pairs => {
+      const role = pairs[0][1];
+      const position = pairs[1][1];
+      if (['head_department', 'dean'].includes(position) || ['head_department', 'dean'].includes(role)) {
+        router.replace('/(leadership)/profile');
+        return;
+      }
+      if (['faculty', 'teacher', 'head_teacher'].includes(role)) {
         router.replace('/(teacher)/profile');
         return;
       }

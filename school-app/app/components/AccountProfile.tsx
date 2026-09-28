@@ -14,7 +14,7 @@ const ROLE_LABELS = {
 
 const POSITION_LABELS = {
   teacher: 'Teacher / Instructor',
-  head_department: 'Head Department',
+  head_department: 'Department Chair',
   head_teacher: 'Head Teacher',
   dean: 'Dean',
   librarian: 'Librarian',
