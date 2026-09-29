@@ -178,6 +178,7 @@
                     <option value="new_student" @selected(old('student_type', $student->student_type) === 'new_student')>New student</option>
                     <option value="old_student" @selected(old('student_type', $student->student_type) === 'old_student')>Old student</option>
                     <option value="transferee" @selected(old('student_type', $student->student_type) === 'transferee')>Transferee</option>
+                            <option value="shiftee" @selected(old('student_type', $student->student_type) === 'shiftee')>Shiftee</option>
                     <option value="returnee" @selected(old('student_type', $student->student_type) === 'returnee')>Returnee</option>
                 </select>
             </label>

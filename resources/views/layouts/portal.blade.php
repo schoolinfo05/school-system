@@ -20,6 +20,7 @@
             ['label' => 'Courses', 'route' => 'registrar.courses.index', 'match' => 'registrar/courses*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Subjects', 'route' => 'registrar.subjects.index', 'match' => 'registrar/subjects*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Requests', 'route' => 'registrar.subject-requests.index', 'match' => 'registrar/subject-requests*', 'roles' => ['admin', 'registrar']],
+            ['label' => 'Course Shifts', 'route' => 'registrar.course-shift-requests.index', 'match' => 'registrar/course-shift-requests*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Sections', 'route' => 'registrar.sections.index', 'match' => 'registrar/sections*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Grades', 'route' => 'registrar.grades.index', 'match' => 'registrar/grades*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Points', 'route' => 'registrar.points.index', 'match' => 'registrar/points*', 'roles' => ['admin', 'registrar']],

@@ -38,7 +38,7 @@ return new class extends Migration
             $table->string('prev_school_address')->nullable();
 
             // ── Student classification ──
-            $table->enum('student_type', ['new_student', 'old_student', 'transferee', 'returnee'])->nullable();
+            $table->enum('student_type', ['new_student', 'old_student', 'transferee', 'shiftee', 'returnee'])->nullable();
             $table->enum('academic_status', ['Regular', 'Irregular'])->nullable();
             $table->string('shiftee_from')->nullable();
             $table->string('shiftee_to')->nullable();

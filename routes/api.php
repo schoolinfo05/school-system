@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\PropertyCustodianController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\AcademicTermController;
 use App\Http\Controllers\Api\AcademicLeadershipController;
+use App\Http\Controllers\Api\CourseShiftRequestController;
 
 // ── Public routes (no login required) ────────────────────────────
 Route::post('/login',            [AuthController::class, 'login'])->middleware('throttle:5,1');
@@ -45,6 +46,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me',      [AuthController::class, 'me']);
     Route::post('/enrollment', [EnrollmentController::class, 'store']);
+    Route::get('/my-course-shift-requests', [CourseShiftRequestController::class, 'mine']);
+    Route::post('/my-course-shift-requests', [CourseShiftRequestController::class, 'store']);
     Route::post('/me/profile-photo', [AuthController::class, 'updateProfilePhoto']);
     Route::put('/me/password', [AuthController::class, 'updatePassword']);
 
@@ -106,6 +109,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/registrar/teachers',                   [SubjectSectionController::class, 'teacherIndex']);
         Route::get('/registrar/section-students',           [SubjectSectionController::class, 'studentIndex']);
         Route::get('/registrar/enrollments',                [EnrollmentController::class, 'index']);
+        Route::get('/registrar/course-shift-requests',     [CourseShiftRequestController::class, 'index']);
+        Route::post('/registrar/course-shift-requests/{courseShiftRequest}/review', [CourseShiftRequestController::class, 'review']);
         Route::get('/registrar/subject-change-requests',    [SubjectChangeRequestController::class, 'index']);
         Route::post('/registrar/subject-change-requests/{subjectChangeRequest}/approve', [SubjectChangeRequestController::class, 'approve']);
         Route::post('/registrar/subject-change-requests/{subjectChangeRequest}/reject', [SubjectChangeRequestController::class, 'reject']);

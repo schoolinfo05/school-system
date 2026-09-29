@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\EnrollmentApplication;
 use App\Models\AcademicTerm;
 use App\Models\Course;
+use App\Models\CourseShiftRequest;
 use App\Models\SchoolNotification;
 use App\Models\Section;
 use App\Models\SectionSubject;
@@ -40,10 +41,19 @@ class EnrollmentController extends Controller
         ]);
 
         $existingApplication = null;
+        $currentApprovedApplication = null;
 
         // For old students, find their most recent approved application
         if ($request->filled('student_type') && $request->student_type === 'old_student' && $request->filled('id_no')) {
             $existingApplication = EnrollmentApplication::where('id_no', $request->id_no)
+                ->where('status', 'approved')
+                ->latest()
+                ->first();
+        }
+
+        if ($request->student_type === 'shiftee') {
+            $currentApprovedApplication = EnrollmentApplication::query()
+                ->where('user_id', $studentUser->id)
                 ->where('status', 'approved')
                 ->latest()
                 ->first();
@@ -78,7 +88,7 @@ class EnrollmentController extends Controller
             'prev_school_address' => 'nullable|string|max:255',
 
             // Classification
-            'student_type'    => 'nullable|in:new_student,old_student,transferee,returnee',
+            'student_type'    => 'nullable|in:new_student,old_student,transferee,shiftee,returnee',
             'academic_status' => 'required|in:Regular,Irregular',
             'shiftee_from'    => 'nullable|string|max:100',
             'shiftee_to'      => 'nullable|string|max:100',
@@ -99,7 +109,7 @@ class EnrollmentController extends Controller
             'subject_ids.*' => 'integer|exists:subjects,id',
             'section_subject_ids'   => 'nullable|array',
             'section_subject_ids.*' => 'integer|exists:section_subjects,id',
-            'documents'     => 'nullable|array|max:10',
+            'documents'     => 'required_if:student_type,transferee,shiftee|array|max:10',
             'documents.*'   => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:5120',
 
             // Enrollment period
@@ -127,6 +137,12 @@ class EnrollmentController extends Controller
             return response()->json([
                 'message' => $validator->errors()->first(),
                 'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        if ($request->student_type === 'shiftee' && (!$request->filled('course_id') || !$request->filled('shiftee_from') || !$request->filled('shiftee_to'))) {
+            return response()->json([
+                'message' => 'Shiftee applications require the current course, requested course, and reason path.',
             ], 422);
         }
 
@@ -214,6 +230,25 @@ class EnrollmentController extends Controller
             'status'   => 'pending',
             'user_id'  => $studentUser->id,
         ]);
+
+        if ($request->student_type === 'shiftee') {
+            $pendingShift = CourseShiftRequest::query()
+                ->where('user_id', $studentUser->id)
+                ->where('status', CourseShiftRequest::STATUS_PENDING)
+                ->exists();
+
+            if (!$pendingShift) {
+                CourseShiftRequest::create([
+                    'user_id' => $studentUser->id,
+                    'current_course_id' => $currentApprovedApplication?->course_id,
+                    'requested_course_id' => $request->course_id,
+                    'reason' => trim("Course shift from {$request->shiftee_from} to {$request->shiftee_to}"),
+                    'school_year' => $request->school_year,
+                    'semester' => strtolower($request->semester),
+                    'status' => CourseShiftRequest::STATUS_PENDING,
+                ]);
+            }
+        }
 
         return response()->json([
             'message'        => 'Application submitted successfully.',
@@ -354,6 +389,20 @@ class EnrollmentController extends Controller
 
         if ($app->status !== 'pending') {
             return response()->json(['message' => 'Application already reviewed.'], 422);
+        }
+
+        if ($app->student_type === 'shiftee') {
+            $shiftApproved = CourseShiftRequest::query()
+                ->where('user_id', $app->user_id)
+                ->where('requested_course_id', $app->course_id)
+                ->where('school_year', $app->school_year)
+                ->where('semester', $app->semester)
+                ->where('status', CourseShiftRequest::STATUS_APPROVED)
+                ->exists();
+
+            if (!$shiftApproved) {
+                return response()->json(['message' => 'Approve the course-shift request before approving this enrollment.'], 422);
+            }
         }
 
         $prerequisiteMessage = $this->prerequisiteFailureMessage($app);

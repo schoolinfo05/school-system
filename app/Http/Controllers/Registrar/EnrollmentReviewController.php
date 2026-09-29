@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\EnrollmentController as ApiEnrollmentController;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\AuthorizesPortal;
 use App\Models\EnrollmentApplication;
+use App\Models\CourseShiftRequest;
+use App\Models\CourseShiftCreditEvaluation;
 use App\Models\Subject;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
@@ -101,6 +103,75 @@ class EnrollmentReviewController extends Controller
         return redirect()
             ->route('registrar.enrollments.show', $enrollment)
             ->with('status', 'Use the reject form to submit this enrollment review.');
+    }
+
+    public function courseShiftRequests(Request $request)
+    {
+        $this->requireAnyRole($request, ['admin', 'registrar']);
+
+        $requests = CourseShiftRequest::query()
+            ->with(['student:id,name,email', 'currentCourse:id,name', 'requestedCourse:id,name', 'reviewer:id,name', 'creditEvaluations.targetSubject'])
+            ->when($request->status, fn ($query) => $query->where('status', $request->status))
+            ->latest()
+            ->paginate(25)
+            ->withQueryString();
+
+        $subjects = Subject::query()->where('is_active', true)->orderBy('code')->get(['id', 'code', 'name']);
+
+        return view('registrar.course-shift-requests.index', compact('requests', 'subjects'));
+    }
+
+    public function storeCourseShiftCredit(Request $request, CourseShiftRequest $courseShiftRequest)
+    {
+        $this->requireAnyRole($request, ['admin', 'registrar']);
+
+        $data = $request->validate([
+            'source_subject_code' => ['required', 'string', 'max:50'],
+            'source_subject_name' => ['required', 'string', 'max:255'],
+            'target_subject_id' => ['nullable', 'integer', 'exists:subjects,id'],
+            'decision' => ['required', 'in:credited,not_credited'],
+            'remarks' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        if ($data['decision'] === 'credited' && empty($data['target_subject_id'])) {
+            return back()->withErrors(['target_subject_id' => 'Select the equivalent subject when granting credit.']);
+        }
+
+        CourseShiftCreditEvaluation::create([
+            ...$data,
+            'course_shift_request_id' => $courseShiftRequest->id,
+            'evaluated_by' => $request->user()->id,
+            'evaluated_at' => now(),
+        ]);
+
+        return back()->with('status', 'Subject credit evaluation recorded.');
+    }
+
+    public function reviewCourseShiftRequest(Request $request, CourseShiftRequest $courseShiftRequest)
+    {
+        $this->requireAnyRole($request, ['admin', 'registrar']);
+
+        $data = $request->validate([
+            'decision' => ['required', 'in:approve,reject'],
+            'remarks' => ['nullable', 'required_if:decision,reject', 'string', 'max:2000'],
+        ]);
+
+        if ($courseShiftRequest->status !== CourseShiftRequest::STATUS_PENDING) {
+            return back()->with('status', 'This course-shift request has already been reviewed.');
+        }
+
+        $courseShiftRequest->update([
+            'status' => $data['decision'] === 'approve'
+                ? CourseShiftRequest::STATUS_APPROVED
+                : CourseShiftRequest::STATUS_REJECTED,
+            'reviewed_by' => $request->user()->id,
+            'reviewed_at' => now(),
+            'remarks' => $data['remarks'] ?? null,
+        ]);
+
+        return back()->with('status', $data['decision'] === 'approve'
+            ? 'Course-shift request approved.'
+            : 'Course-shift request rejected.');
     }
 
     private function responseMessage($response, string $fallback): string

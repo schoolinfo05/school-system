@@ -153,6 +153,9 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::get('/subject-requests', [RegistrarSubjectChangeRequestController::class, 'index'])->name('subject-requests.index');
     Route::post('/subject-requests/{subjectRequest}/approve', [RegistrarSubjectChangeRequestController::class, 'approve'])->name('subject-requests.approve');
     Route::post('/subject-requests/{subjectRequest}/reject', [RegistrarSubjectChangeRequestController::class, 'reject'])->name('subject-requests.reject');
+    Route::get('/course-shift-requests', [EnrollmentReviewController::class, 'courseShiftRequests'])->name('course-shift-requests.index');
+    Route::post('/course-shift-requests/{courseShiftRequest}/credits', [EnrollmentReviewController::class, 'storeCourseShiftCredit'])->name('course-shift-requests.credits.store');
+    Route::post('/course-shift-requests/{courseShiftRequest}/review', [EnrollmentReviewController::class, 'reviewCourseShiftRequest'])->name('course-shift-requests.review');
     Route::get('/sections', [RegistrarSectionController::class, 'index'])->name('sections.index');
     Route::post('/sections', [RegistrarSectionController::class, 'store'])->name('sections.store');
     Route::put('/sections/{section}', [RegistrarSectionController::class, 'update'])->name('sections.update');

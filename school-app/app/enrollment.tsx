@@ -129,7 +129,7 @@ const PH_BARANGAYS_BY_CITY = {
 };
 
 const STUDENT_TYPE_OPTIONS = [
-  { label: 'Shiftee', value: 'shiftee', payload: 'transferee' },
+  { label: 'Shiftee', value: 'shiftee', payload: 'shiftee' },
   { label: 'Transferee', value: 'transferee', payload: 'transferee' },
   { label: 'Returnee', value: 'returnee', payload: 'returnee' },
   { label: 'New Student', value: 'new_student', payload: 'new_student' },
