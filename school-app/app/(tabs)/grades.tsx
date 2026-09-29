@@ -13,7 +13,15 @@ import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
 import { useTheme } from '../../src/theme-context';
 
 const QUARTERS = ['1', '2', '3', '4'];
-function getRemark(score, theme) {
+function getRemark(score, theme, isCollege) {
+  if (isCollege) {
+    if (score <= 1.5) return { text: 'Outstanding', color: theme.green };
+    if (score <= 2) return { text: 'Very Satisfactory', color: theme.primary };
+    if (score <= 2.5) return { text: 'Satisfactory', color: theme.textSub };
+    if (score <= 3) return { text: 'Fairly Satisfactory', color: theme.warning };
+    if (score <= 4) return { text: 'Conditional', color: theme.warning };
+    return { text: 'Did Not Meet', color: theme.danger };
+  }
   if (score >= 90) return { text: 'Outstanding',         color: theme.green   };
   if (score >= 85) return { text: 'Very Satisfactory',   color: theme.primary };
   if (score >= 80) return { text: 'Satisfactory',        color: theme.textSub };
@@ -55,6 +63,7 @@ export default function Grades() {
 
   const grades    = data?.grades?.[activeQ] ?? [];
   const allGrades = data?.grades ? Object.values(data.grades).flat() : [];
+  const isCollege = data?.student?.enrollment?.program_type === 'college';
   const gwa = allGrades.length > 0
     ? (allGrades.reduce((s, g) => s + parseFloat(g.score), 0) / allGrades.length).toFixed(1)
     : '—';
@@ -73,9 +82,9 @@ export default function Grades() {
           </View>
           <View style={styles.gwaBadge}>
             <Text style={styles.gwaBadgeText}>
-              {parseFloat(gwa) >= 90 ? '🏆 Outstanding'
-                : parseFloat(gwa) >= 85 ? '⭐ Very Good'
-                : parseFloat(gwa) >= 80 ? '✅ Good'
+              {(isCollege ? parseFloat(gwa) <= 1.5 : parseFloat(gwa) >= 90) ? '🏆 Outstanding'
+                : (isCollege ? parseFloat(gwa) <= 2 : parseFloat(gwa) >= 85) ? '⭐ Very Good'
+                : (isCollege ? parseFloat(gwa) <= 3 : parseFloat(gwa) >= 80) ? '✅ Good'
                 : '📚 Keep going'}
             </Text>
           </View>
@@ -107,8 +116,11 @@ export default function Grades() {
             </View>
           )
           : grades.map((g, i) => {
-            const rem = getRemark(parseFloat(g.score), theme);
-            const pct = Math.max(5, Math.min(100, ((parseFloat(g.score) - 70) / 30) * 100));
+            const collegeGrade = Boolean(g.school_class?.is_college);
+            const rem = getRemark(parseFloat(g.score), theme, collegeGrade);
+            const pct = collegeGrade
+              ? Math.max(5, Math.min(100, ((5 - parseFloat(g.score)) / 4) * 100))
+              : Math.max(5, Math.min(100, ((parseFloat(g.score) - 70) / 30) * 100));
             return (
               <View key={i} style={[styles.subjectCard, { backgroundColor: theme.card }]}> 
                 <View style={[styles.accentBar, { backgroundColor: ACCENT[i % ACCENT.length] }]} />

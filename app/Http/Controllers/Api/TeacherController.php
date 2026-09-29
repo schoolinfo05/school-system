@@ -11,9 +11,12 @@ use App\Models\Student;
 use App\Models\StudentSubject;
 use App\Models\StudentReward;
 use App\Models\Grade;
+use App\Models\GradeSubmission;
 use App\Models\Attendance;
+use App\Services\GradeWorkflowService;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TeacherController extends Controller
 {
@@ -94,57 +97,52 @@ class TeacherController extends Controller
         $grades = Grade::where('school_class_id', $schoolClass->id)
             ->get()
             ->groupBy('student_id');
+        $gradeSubmissions = GradeSubmission::query()
+            ->where('school_class_id', $schoolClass->id)
+            ->where('school_year', $schoolClass->school_year)
+            ->get()
+            ->keyBy('quarter');
 
         return response()->json([
             'class'    => $sectionSubject ? $this->sectionSubjectClassPayload($sectionSubject) : $this->legacyClassPayload($schoolClass),
             'students' => $students,
             'grades'   => $grades,
+            'grade_submissions' => $gradeSubmissions,
         ]);
     }
 
-    public function saveGrades(Request $request, $class, PointsService $points)
+    public function saveGrades(Request $request, $class, GradeWorkflowService $workflow)
     {
         [$sectionSubject, $schoolClass] = $this->resolveTeacherClass($request, $class);
 
-        $request->validate([
+        $limits = $workflow->scoreLimits($schoolClass);
+        $data = $request->validate([
             'grades'              => 'required|array',
             'grades.*.student_id' => 'required|exists:students,id',
             'grades.*.quarter'    => 'required|in:1,2,3,4',
-            'grades.*.score'      => 'required|numeric|min:0|max:100',
+                'grades.*.score'      => array_merge(
+                ['required', 'numeric', 'min:' . $limits['min'], 'max:' . $limits['max']],
+                $limits['is_college'] ? ['multiple_of:0.25'] : []
+            ),
         ]);
 
         if ($message = $this->gradeDeadlineMessage($schoolClass->school_year, $sectionSubject?->section?->semester)) {
             return response()->json(['message' => $message], 422);
         }
 
-        foreach ($request->grades as $g) {
-            $remarks = $this->getRemark($g['score']);
-            $grade = Grade::updateOrCreate(
-                [
-                    'student_id'      => $g['student_id'],
-                    'school_class_id' => $schoolClass->id,
-                    'quarter'         => $g['quarter'],
-                    'school_year'     => $schoolClass->school_year,
-                ],
-                ['score' => $g['score'], 'remarks' => $remarks]
-            );
-
-            $student = Student::find($g['student_id']);
-            if ($student) {
-                $points->awardGradePoints(
-                    $student,
-                    (float) $g['score'],
-                    "grade:{$student->id}:{$schoolClass->id}:{$g['quarter']}:{$schoolClass->school_year}",
+        DB::transaction(function () use ($data, $workflow, $request, $schoolClass) {
+            foreach (collect($data['grades'])->groupBy('quarter') as $quarter => $gradeRows) {
+                $workflow->saveTeacherGrades(
                     $request->user(),
-                    $schoolClass->school_year,
-                    $sectionSubject?->section?->semester,
-                    ['grade_id' => $grade->id, 'school_class_id' => $schoolClass->id, 'quarter' => $g['quarter']]
+                    $schoolClass,
+                    (string) $quarter,
+                    $gradeRows->all(),
+                    true
                 );
-                $this->notifyParentGradePosted($student, $grade);
             }
-        }
+        });
 
-        return response()->json(['message' => 'Grades saved successfully!']);
+        return response()->json(['message' => 'Grade sheet submitted to the Department Chair for review.']);
     }
 
     public function saveAttendance(Request $request, $class, PointsService $points)
@@ -281,6 +279,7 @@ class TeacherController extends Controller
             'subject' => trim(($subject?->code ? "{$subject->code} - " : '') . ($subject?->name ?? 'Subject')),
             'section' => $section?->name,
             'section_id' => $section?->id,
+            'is_college' => $section?->program_type === 'college',
             'grade_level' => $section?->year_level,
             'course' => $section?->course,
             'strand' => $section?->strand,
@@ -315,6 +314,7 @@ class TeacherController extends Controller
             'subject' => $schoolClass->subject,
             'section' => $schoolClass->section,
             'section_id' => null,
+            'is_college' => (bool) $schoolClass->is_college,
             'grade_level' => $schoolClass->grade_level,
             'course' => null,
             'strand' => null,
@@ -399,15 +399,6 @@ class TeacherController extends Controller
         return $schoolClass;
     }
 
-    private function getRemark(float $score): string
-    {
-        if ($score >= 90) return 'Outstanding';
-        if ($score >= 85) return 'Very Satisfactory';
-        if ($score >= 80) return 'Satisfactory';
-        if ($score >= 75) return 'Fairly Satisfactory';
-        return 'Did Not Meet Expectations';
-    }
-
     private function gradeDeadlineMessage(string $schoolYear, ?string $semester): ?string
     {
         if (!$semester) {
@@ -423,22 +414,6 @@ class TeacherController extends Controller
         }
 
         return null;
-    }
-
-    private function notifyParentGradePosted(Student $student, Grade $grade): void
-    {
-        if (!$student->parent_user_id) {
-            return;
-        }
-
-        SchoolNotification::create([
-            'user_id' => $student->parent_user_id,
-            'type' => ((float) $grade->score < 75) ? 'low_grade_alert' : 'grade_posted_parent',
-            'title' => ((float) $grade->score < 75) ? 'Low grade alert' : 'Grade posted',
-            'body' => "{$student->first_name} {$student->last_name} received {$grade->score} for Q{$grade->quarter}.",
-            'channels' => ['in_app'],
-            'data' => ['student_id' => $student->id, 'grade_id' => $grade->id],
-        ]);
     }
 
     private function notifyParentAttendance(Student $student, Attendance $attendance): void

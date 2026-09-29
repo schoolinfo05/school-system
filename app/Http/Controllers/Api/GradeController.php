@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AcademicTerm;
 use App\Models\Grade;
+use App\Models\SchoolClass;
 use App\Models\SchoolNotification;
 use App\Models\Student;
+use App\Services\GradeWorkflowService;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
 
@@ -17,14 +19,19 @@ class GradeController extends Controller
         return response()->json(Grade::with(['student', 'schoolClass'])->get());
     }
 
-    public function store(Request $request, PointsService $points)
+    public function store(Request $request, PointsService $points, GradeWorkflowService $workflow)
     {
+        $class = SchoolClass::findOrFail($request->input('school_class_id'));
+        $limits = $workflow->scoreLimits($class);
         $request->validate([
             'student_id'      => 'required|exists:students,id',
-            'school_class_id' => 'required',
+            'school_class_id' => 'required|exists:school_classes,id',
             'school_year'     => 'required',
             'quarter'         => 'required|in:1,2,3,4',
-            'score'           => 'nullable|numeric|min:0|max:100',
+            'score'           => array_merge(
+                ['nullable', 'numeric', 'min:' . $limits['min'], 'max:' . $limits['max']],
+                $limits['is_college'] ? ['multiple_of:0.25'] : []
+            ),
         ]);
 
         if ($message = $this->gradeDeadlineMessage($request->school_year, null)) {
@@ -54,9 +61,10 @@ class GradeController extends Controller
                     $request->user(),
                     $request->school_year,
                     null,
-                    ['grade_id' => $grade->id, 'school_class_id' => $request->school_class_id, 'quarter' => $request->quarter]
+                    ['grade_id' => $grade->id, 'school_class_id' => $request->school_class_id, 'quarter' => $request->quarter],
+                    $limits['is_college']
                 );
-                $this->notifyParentGradePosted($student, $grade);
+                $this->notifyParentGradePosted($student, $grade, $limits['is_college']);
             }
         }
 
@@ -68,9 +76,17 @@ class GradeController extends Controller
         return response()->json($grade->load(['student', 'schoolClass']));
     }
 
-    public function update(Request $request, Grade $grade, PointsService $points)
+    public function update(Request $request, Grade $grade, PointsService $points, GradeWorkflowService $workflow)
     {
-        $grade->update($request->all());
+        $limits = $workflow->scoreLimits($grade->schoolClass);
+        $data = $request->validate([
+            'score' => array_merge(
+                ['sometimes', 'nullable', 'numeric', 'min:' . $limits['min'], 'max:' . $limits['max']],
+                $limits['is_college'] ? ['multiple_of:0.25'] : []
+            ),
+            'remarks' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ]);
+        $grade->update($data);
         if ($grade->score !== null && $grade->student) {
             $points->awardGradePoints(
                 $grade->student,
@@ -79,9 +95,10 @@ class GradeController extends Controller
                 $request->user(),
                 $grade->school_year,
                 null,
-                ['grade_id' => $grade->id, 'school_class_id' => $grade->school_class_id, 'quarter' => $grade->quarter]
+                ['grade_id' => $grade->id, 'school_class_id' => $grade->school_class_id, 'quarter' => $grade->quarter],
+                $limits['is_college']
             );
-            $this->notifyParentGradePosted($grade->student, $grade);
+            $this->notifyParentGradePosted($grade->student, $grade, $limits['is_college']);
         }
         return response()->json($grade);
     }
@@ -117,7 +134,7 @@ class GradeController extends Controller
         return null;
     }
 
-    private function notifyParentGradePosted(Student $student, Grade $grade): void
+    private function notifyParentGradePosted(Student $student, Grade $grade, bool $isCollege): void
     {
         if (!$student->parent_user_id) {
             return;
@@ -125,8 +142,8 @@ class GradeController extends Controller
 
         SchoolNotification::create([
             'user_id' => $student->parent_user_id,
-            'type' => ((float) $grade->score < 75) ? 'low_grade_alert' : 'grade_posted_parent',
-            'title' => ((float) $grade->score < 75) ? 'Low grade alert' : 'Grade posted',
+            'type' => ((float) $grade->score > ($isCollege ? 3 : 74)) ? 'low_grade_alert' : 'grade_posted_parent',
+            'title' => ((float) $grade->score > ($isCollege ? 3 : 74)) ? 'Low grade alert' : 'Grade posted',
             'body' => "{$student->first_name} {$student->last_name} received {$grade->score} for Q{$grade->quarter}.",
             'channels' => ['in_app'],
             'data' => ['student_id' => $student->id, 'grade_id' => $grade->id],

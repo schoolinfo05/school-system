@@ -168,7 +168,9 @@ export default function Classes() {
                   <Text style={[styles.gradeMeta, { color: theme.textMuted }]}>{g.school_class?.subject} · Q{g.quarter}</Text>
                 </View>
                 <Text style={[styles.gradeScore, {
-                  color: g.score >= 85 ? theme.success : g.score >= 75 ? theme.warning : theme.danger,
+                  color: selectedClass?.is_college
+                    ? (g.score <= 2 ? theme.success : g.score <= 3 ? theme.warning : theme.danger)
+                    : (g.score >= 85 ? theme.success : g.score >= 75 ? theme.warning : theme.danger),
                 }]}>
                   {g.score}
                 </Text>

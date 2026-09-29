@@ -21,6 +21,7 @@
             ['label' => 'Subjects', 'route' => 'registrar.subjects.index', 'match' => 'registrar/subjects*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Requests', 'route' => 'registrar.subject-requests.index', 'match' => 'registrar/subject-requests*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Sections', 'route' => 'registrar.sections.index', 'match' => 'registrar/sections*', 'roles' => ['admin', 'registrar']],
+            ['label' => 'Grades', 'route' => 'registrar.grades.index', 'match' => 'registrar/grades*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Points', 'route' => 'registrar.points.index', 'match' => 'registrar/points*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Reports', 'route' => 'registrar.reports.index', 'match' => 'registrar/reports*', 'roles' => ['admin', 'registrar']],
             ['label' => 'Profile', 'route' => 'registrar.profile.show', 'match' => 'registrar/profile*', 'roles' => ['admin', 'registrar']],
@@ -33,6 +34,12 @@
             ['label' => 'Chat', 'route' => 'teacher.chat', 'match' => 'teacher/chat', 'roles' => ['faculty', 'teacher', 'head_teacher', 'dean']],
             ['label' => 'Profile', 'route' => 'teacher.profile', 'match' => 'teacher/profile', 'roles' => ['faculty', 'teacher', 'head_teacher', 'dean']],
         ],
+        'Department Chair' => [
+            ['label' => 'Teacher List', 'route' => 'department-chair.teachers', 'match' => 'department-chair/teachers', 'roles' => ['head_department']],
+            ['label' => 'Grade', 'route' => 'department-chair.grades', 'match' => 'department-chair/grades', 'roles' => ['head_department']],
+            ['label' => 'Students', 'route' => 'department-chair.students', 'match' => 'department-chair/students', 'roles' => ['head_department']],
+            ['label' => 'Report', 'route' => 'department-chair.reports', 'match' => 'department-chair/reports', 'roles' => ['head_department']],
+        ],
         'Staff' => [
             ['label' => 'Property', 'route' => 'property-custodian.dashboard', 'match' => 'property-custodian/dashboard', 'roles' => ['admin', 'property_custodian']],
             ['label' => 'Market', 'route' => 'property-custodian.market', 'match' => 'property-custodian/market*', 'roles' => ['admin', 'property_custodian']],
@@ -43,6 +50,7 @@
     $portalGroupForRole = match (true) {
         $role === 'admin' => 'Admin',
         $role === 'registrar' => 'Registrar',
+        $user?->position === 'head_department' => 'Department Chair',
         in_array($role, ['faculty', 'teacher', 'head_teacher', 'dean'], true)
             || in_array($user?->position, ['teacher', 'head_department', 'head_teacher', 'dean'], true) => 'Teacher',
         $role === 'property_custodian' || $user?->position === 'property_custodian' => 'Staff',

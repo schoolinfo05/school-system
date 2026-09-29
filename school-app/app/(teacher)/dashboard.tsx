@@ -174,7 +174,7 @@ export default function TeacherDashboard() {
                     {grade.school_class?.subject ?? 'Subject'} • Q{grade.quarter}
                   </Text>
                 </View>
-                <Text style={[styles.gradeScore, { color: gradeColor(grade.score, theme) }]}>
+                <Text style={[styles.gradeScore, { color: gradeColor(grade.score, theme, grade.school_class?.is_college) }]}>
                   {grade.score}
                 </Text>
               </View>
@@ -200,8 +200,13 @@ function formatClassMeta(item) {
   return `${level} • ${item.section || 'No section'} • ${item.room || 'No room'} • ${item.schedule || 'No schedule'}`;
 }
 
-function gradeColor(score, theme) {
+function gradeColor(score, theme, isCollege) {
   const value = Number(score);
+  if (isCollege) {
+    if (value <= 2) return theme.success;
+    if (value <= 3) return theme.warning;
+    return theme.danger;
+  }
   if (value >= 85) return theme.success;
   if (value >= 75) return theme.warning;
   return theme.danger;

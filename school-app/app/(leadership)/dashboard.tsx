@@ -23,6 +23,7 @@ export default function AcademicLeadershipDashboard() {
   const isDean = data?.position === 'dean';
   const title = isDean ? 'Dean' : 'Department Chair';
   const attendance = summary.attendance_rate == null ? '—' : `${summary.attendance_rate}%`;
+  const departmentTeachers = data?.department_teachers ?? [];
   return <View style={[s.container, { backgroundColor: theme.bg }]}>
     <HeaderGradient title="Academic Overview" subtitle={`${title}${data?.department ? ` · ${data.department}` : ' · College-wide'}`} initials={isDean ? 'DN' : 'DC'} stats={[{ label: 'Students', value: summary.students ?? 0, accent: '#A7F3D0' }, { label: 'Sections', value: summary.sections ?? 0, accent: '#FDE68A' }, { label: 'Average', value: summary.average_grade || '—', accent: '#C7D2FE' }]} />
     <ScrollView contentContainerStyle={s.body} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}>
@@ -31,13 +32,19 @@ export default function AcademicLeadershipDashboard() {
         <Metric label="Attendance today" value={attendance} detail={`${summary.attendance_records_today ?? 0} records`} theme={theme} color={theme.success} />
         <Metric label="Class offerings" value={summary.classes ?? 0} detail={`${summary.faculty ?? 0} assigned faculty`} theme={theme} color={theme.purple} />
       </View>
+      {!isDean && <>
+        <Text style={[s.heading, { color: theme.text }]}>Department teachers</Text>
+        <View style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          {(departmentTeachers ?? []).length ? departmentTeachers.map((teacher) => <View key={teacher.id} style={[s.row, { borderColor: theme.border }]}><View style={[s.icon, { backgroundColor: theme.primaryLight }]}><Text style={{ color: theme.primary, fontWeight: '900' }}>{teacher.name?.split(' ').slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'T'}</Text></View><View style={{ flex: 1 }}><Text style={[s.name, { color: theme.text }]}>{teacher.name}</Text><Text style={[s.meta, { color: theme.textSub }]}>{teacher.email || 'No email provided'}</Text></View></View>) : <Empty theme={theme} text="No teachers assigned to this department yet." />}
+        </View>
+      </>}
       <Text style={[s.heading, { color: theme.text }]}>College sections</Text>
       <View style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
         {(data?.sections ?? []).length ? data.sections.map(section => <View key={section.id} style={[s.row, { borderColor: theme.border }]}><View style={[s.icon, { backgroundColor: theme.primaryLight }]}><Text style={{ color: theme.primary, fontWeight: '900' }}>{section.name?.slice(0, 2).toUpperCase()}</Text></View><View style={{ flex: 1 }}><Text style={[s.name, { color: theme.text }]}>{section.name}</Text><Text style={[s.meta, { color: theme.textSub }]}>{[section.course, section.year_level ? `Year ${section.year_level}` : null, section.semester].filter(Boolean).join(' · ')}</Text></View><Text style={[s.count, { color: theme.primary }]}>{section.enrolled_students_count ?? 0}</Text></View>) : <Empty theme={theme} text="No college sections are available yet." />}
       </View>
       <Text style={[s.heading, { color: theme.text }]}>Recent grade activity</Text>
       <View style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        {(data?.recent_grades ?? []).length ? data.recent_grades.map((grade, i) => <View key={grade.id ?? i} style={[s.row, { borderColor: theme.border }]}><View style={{ flex: 1 }}><Text style={[s.name, { color: theme.text }]}>{grade.student?.first_name} {grade.student?.last_name}</Text><Text style={[s.meta, { color: theme.textSub }]}>{grade.school_class?.subject ?? 'Subject'} · Q{grade.quarter}</Text></View><Text style={[s.grade, { color: Number(grade.score) >= 75 ? theme.success : theme.danger }]}>{grade.score}</Text></View>) : <Empty theme={theme} text="No grades have been recorded yet." />}
+        {(data?.recent_grades ?? []).length ? data.recent_grades.map((grade, i) => <View key={grade.id ?? i} style={[s.row, { borderColor: theme.border }]}><View style={{ flex: 1 }}><Text style={[s.name, { color: theme.text }]}>{grade.student?.first_name} {grade.student?.last_name}</Text><Text style={[s.meta, { color: theme.textSub }]}>{grade.school_class?.subject ?? 'Subject'} · Q{grade.quarter}</Text></View><Text style={[s.grade, { color: grade.school_class?.is_college ? (Number(grade.score) <= 3 ? theme.success : theme.danger) : (Number(grade.score) >= 75 ? theme.success : theme.danger) }]}>{grade.score}</Text></View>) : <Empty theme={theme} text="No grades have been recorded yet." />}
       </View>
     </ScrollView>
   </View>;

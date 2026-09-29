@@ -280,7 +280,7 @@
                                 <p class="font-semibold text-slate-800">{{ $grade->schoolClass?->subject ?: 'Subject' }}</p>
                                 <p class="text-xs text-slate-500">{{ $grade->remarks }}</p>
                             </div>
-                            <p class="text-xl font-black {{ $grade->score >= 90 ? 'text-emerald-700' : ($grade->score >= 75 ? 'text-blue-700' : 'text-red-600') }}">{{ $grade->score }}</p>
+                            <p class="text-xl font-black {{ $grade->schoolClass?->is_college ? ($grade->score <= 2 ? 'text-emerald-700' : ($grade->score <= 3 ? 'text-blue-700' : 'text-red-600')) : ($grade->score >= 90 ? 'text-emerald-700' : ($grade->score >= 75 ? 'text-blue-700' : 'text-red-600')) }}">{{ $grade->score }}</p>
                         </div>
                     @endforeach
                 </div>

@@ -19,14 +19,28 @@ class DepartmentController extends Controller
         $this->requireAnyRole($request, ['admin']);
 
         $departments = Department::query()
-            ->with(['chair:id,name', 'courses:id,department_id,name,acronym'])
-            ->withCount('faculty')
+            ->with(['chair:id,name', 'courses:id,department_id,name,acronym', 'teachers:id,name,email,department_id,position'])
+            ->withCount(['teachers as faculty_count'])
             ->orderBy('name')
             ->get();
         $courses = Course::query()->where('program_type', 'college')->where('is_active', true)->orderBy('name')->get(['id', 'name', 'acronym', 'department_id']);
-        $chairs = User::query()->where('role', User::ROLE_FACULTY)->orderBy('name')->get(['id', 'name', 'email', 'department_id']);
+        $chairs = User::query()
+            ->where('role', User::ROLE_FACULTY)
+            ->where('position', User::POSITION_HEAD_DEPARTMENT)
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'department_id']);
 
-        return view('admin.departments.index', compact('departments', 'courses', 'chairs'));
+        $availableTeachers = User::query()
+            ->where('role', User::ROLE_FACULTY)
+            ->where(function ($query) {
+                $query->whereNull('position')
+                    ->orWhere('position', User::POSITION_TEACHER);
+            })
+            ->whereNull('department_id')
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'department_id']);
+
+        return view('admin.departments.index', compact('departments', 'courses', 'chairs', 'availableTeachers'));
     }
 
     public function store(Request $request)
@@ -49,12 +63,30 @@ class DepartmentController extends Controller
         return back()->with('status', 'Department updated.');
     }
 
+    public function removeTeacher(Request $request, Department $department, User $user)
+    {
+        $this->requireAnyRole($request, ['admin']);
+
+        if ($user->department_id !== $department->id) {
+            return back()->withErrors(['teacher' => 'This teacher is not assigned to this department.']);
+        }
+
+        $user->update([
+            'department_id' => null,
+            'department' => null,
+        ]);
+
+        return back()->with('status', $user->name . ' removed from the department.');
+    }
+
     private function validated(Request $request, ?Department $department = null): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('departments', 'name')->ignore($department?->id)],
             'code' => ['required', 'string', 'max:20', Rule::unique('departments', 'code')->ignore($department?->id)],
             'chair_user_id' => ['nullable', 'exists:users,id'],
+            'teacher_ids' => ['nullable', 'array'],
+            'teacher_ids.*' => ['integer', 'exists:users,id'],
             'course_ids' => ['nullable', 'array'],
             'course_ids.*' => ['integer', Rule::exists('courses', 'id')->where('program_type', 'college')],
             'is_active' => ['nullable', 'boolean'],
@@ -75,6 +107,18 @@ class DepartmentController extends Controller
     {
         Course::query()->where('department_id', $department->id)->update(['department_id' => null]);
         Course::query()->whereIn('id', $data['course_ids'] ?? [])->update(['department_id' => $department->id]);
+
+        $teacherIds = array_values(array_filter(array_map('intval', $data['teacher_ids'] ?? [])));
+
+        if ($teacherIds) {
+            User::query()
+                ->where('role', User::ROLE_FACULTY)
+                ->whereIn('id', $teacherIds)
+                ->update([
+                    'department_id' => $department->id,
+                    'department' => $department->name,
+                ]);
+        }
 
         if ($department->chair_user_id) {
             Department::query()->where('chair_user_id', $department->chair_user_id)->whereKeyNot($department->id)->update(['chair_user_id' => null]);

@@ -54,6 +54,19 @@ class AcademicLeadershipController extends Controller
             ->limit(8)
             ->get();
 
+        $departmentTeachers = collect();
+        if ($isDepartmentChair && $user->department_id) {
+            $departmentTeachers = User::query()
+                ->where('department_id', $user->department_id)
+                ->where('role', User::ROLE_FACULTY)
+                ->where(function ($query) {
+                    $query->whereNull('position')
+                        ->orWhere('position', User::POSITION_TEACHER);
+                })
+                ->orderBy('name')
+                ->get(['id', 'name', 'email', 'department_id', 'position']);
+        }
+
         return response()->json([
             'leader' => $user->name,
             'position' => $user->position,
@@ -69,6 +82,7 @@ class AcademicLeadershipController extends Controller
             ],
             'sections' => $sections,
             'recent_grades' => $recentGrades,
+            'department_teachers' => $departmentTeachers,
         ]);
     }
 

@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AssignmentSubmission;
 use App\Models\ClassAssignment;
-use App\Models\Grade;
 use App\Models\SchoolClass;
 use App\Models\SchoolNotification;
 use App\Models\SectionSubject;
 use App\Models\Student;
 use App\Models\User;
+use App\Services\GradeWorkflowService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -324,7 +324,7 @@ class AssignmentController extends Controller
         return response()->json($submission->fresh());
     }
 
-    public function grade(Request $request, ClassAssignment $assignment, AssignmentSubmission $submission)
+    public function grade(Request $request, ClassAssignment $assignment, AssignmentSubmission $submission, GradeWorkflowService $workflow)
     {
         $this->authorizeTeacherAssignment($request, $assignment);
 
@@ -339,16 +339,18 @@ class AssignmentController extends Controller
             'quarter' => ['nullable', Rule::in(['1', '2', '3', '4'])],
         ]);
 
-        $submission->update([
-            'score' => $data['score'],
-            'feedback' => $data['feedback'] ?? null,
-            'status' => 'graded',
-            'graded_at' => now(),
-        ]);
+        DB::transaction(function () use ($submission, $data, $request, $assignment, $workflow) {
+            $submission->update([
+                'score' => $data['score'],
+                'feedback' => $data['feedback'] ?? null,
+                'status' => 'graded',
+                'graded_at' => now(),
+            ]);
 
-        if ($request->boolean('sync_to_grades')) {
-            $this->syncSubmissionToGrades($assignment, $submission, $data['quarter'] ?? '1');
-        }
+            if ($request->boolean('sync_to_grades')) {
+                $this->saveAssignmentScoreToDraft($assignment, $submission, $data['quarter'] ?? '1', $request->user(), $workflow);
+            }
+        });
 
         SchoolNotification::create([
             'user_id' => $submission->user_id,
@@ -506,7 +508,7 @@ class AssignmentController extends Controller
         return round(($correct / max(1, $questions->count())) * (float) $assignment->points_possible, 2);
     }
 
-    private function syncSubmissionToGrades(ClassAssignment $assignment, AssignmentSubmission $submission, string $quarter): void
+    private function saveAssignmentScoreToDraft(ClassAssignment $assignment, AssignmentSubmission $submission, string $quarter, User $teacher, GradeWorkflowService $workflow): void
     {
         $sectionSubject = $assignment->sectionSubject()->with(['section', 'subject'])->first();
         if (!$sectionSubject || $submission->score === null) {
@@ -534,18 +536,9 @@ class AssignmentController extends Controller
         );
 
         $scorePercent = min(100, round(((float) $submission->score / max(1, (float) $assignment->points_possible)) * 100, 2));
-
-        Grade::updateOrCreate(
-            [
-                'student_id' => $submission->student_id,
-                'school_class_id' => $schoolClass->id,
-                'quarter' => $quarter,
-                'school_year' => $schoolClass->school_year,
-            ],
-            [
-                'score' => $scorePercent,
-                'remarks' => $scorePercent >= 75 ? 'Passed' : 'Needs Improvement',
-            ]
-        );
+        $student = Student::find($submission->student_id);
+        if ($student) {
+            $workflow->saveAssignmentGrade($teacher, $schoolClass, $student, $quarter, $scorePercent);
+        }
     }
 }

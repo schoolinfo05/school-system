@@ -102,7 +102,7 @@ function GradesList({ grades, theme }) {
                   </Text>
                 )}
               </View>
-              <Text style={[s.gradeScore, { color: scoreColor(Number(grade.score || 0)) }]}>
+              <Text style={[s.gradeScore, { color: scoreColor(Number(grade.score || 0), grade.school_class?.is_college) }]}>
                 {grade.score ?? '-'}
               </Text>
             </View>
@@ -122,7 +122,12 @@ function Metric({ label, value, theme }) {
   );
 }
 
-function scoreColor(score) {
+function scoreColor(score, isCollege) {
+  if (isCollege) {
+    if (score <= 2) return '#047857';
+    if (score <= 3) return '#2563EB';
+    return '#DC2626';
+  }
   if (score >= 90) return '#047857';
   if (score >= 75) return '#2563EB';
   return '#DC2626';

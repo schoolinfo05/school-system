@@ -13,7 +13,13 @@ import api from '../../src/api';
 import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
 import { useTheme } from '../../src/theme-context';
 
-function gradeColor(score, theme) {
+function gradeColor(score, theme, isCollege) {
+  if (isCollege) {
+    if (score <= 2) return theme.success;
+    if (score <= 3) return theme.primary;
+    if (score <= 4) return theme.warning;
+    return theme.danger;
+  }
   if (score >= 90) return theme.success;
   if (score >= 80) return theme.primary;
   if (score >= 75) return theme.warning;
@@ -379,12 +385,12 @@ export default function Today() {
           ? data.grades['4'].map((g, i) => (
             <View key={i} style={[styles.gradeRow, { borderColor: theme.border }]}>
               <View style={[styles.gradeBar, {
-                width: `${Math.max(5, Math.min(100, ((g.score - 70) / 30) * 100))}%`,
-                backgroundColor: gradeColor(g.score, theme),
+                width: `${Math.max(5, Math.min(100, (g.school_class?.is_college ? ((5 - g.score) / 4) * 100 : ((g.score - 1) / 99) * 100)))}%`,
+                backgroundColor: gradeColor(g.score, theme, g.school_class?.is_college),
               }]} />
               <Text style={[styles.subjectName, { color: theme.textSub }]}>{g.school_class?.subject ?? '—'}</Text>
               <Text style={[styles.gradeScore, {
-                color: gradeColor(g.score, theme),
+                color: gradeColor(g.score, theme, g.school_class?.is_college),
               }]}>
                 {g.score}
               </Text>

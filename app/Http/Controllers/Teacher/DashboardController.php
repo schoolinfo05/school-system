@@ -15,6 +15,7 @@ use App\Models\Grade;
 use App\Models\Attendance;
 use App\Models\TeacherMessage;
 use App\Models\User;
+use App\Services\GradeWorkflowService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -23,6 +24,10 @@ class DashboardController extends Controller
     public function index()
     {
         $teacher = auth()->user();
+
+        if ($teacher?->position === User::POSITION_HEAD_DEPARTMENT) {
+            return redirect()->route('department-chair.teachers');
+        }
 
         $classes = $this->teacherClasses();
 
@@ -274,18 +279,17 @@ class DashboardController extends Controller
         return view('teacher.profile', compact('teacher', 'classes', 'assignmentsCount'));
     }
 
-    public function myClass(SchoolClass $class)
+    public function myClass(SchoolClass $class, GradeWorkflowService $workflow)
     {
-        $students = Student::where('grade_level', $class->grade_level)
-            ->where('section', $class->section)
-            ->get();
+        $students = $workflow->classStudents($class);
+        $isCollege = $workflow->isCollegeClass($class);
 
         $grades = Grade::where('school_class_id', $class->id)
             ->with('student')
             ->get()
             ->keyBy('student_id');
 
-        return view('teacher.class', compact('class', 'students', 'grades'));
+        return view('teacher.class', compact('class', 'students', 'grades', 'isCollege'));
     }
 
     private function teacherClasses()

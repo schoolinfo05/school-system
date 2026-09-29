@@ -4,61 +4,69 @@ namespace App\Http\Controllers\Teacher;
 
 use App\Http\Controllers\Controller;
 use App\Models\SchoolClass;
-use App\Models\Student;
 use App\Models\Grade;
+use App\Models\GradeChangeRequest;
+use App\Models\GradeSubmission;
+use App\Services\GradeWorkflowService;
 use Illuminate\Http\Request;
 
 class GradeEntryController extends Controller
 {
-    public function index(SchoolClass $class)
+    public function index(SchoolClass $class, GradeWorkflowService $workflow)
     {
-        $students = Student::where('grade_level', $class->grade_level)
-            ->where('section', $class->section)
-            ->get();
+        abort_unless((int) $class->teacher_id === (int) auth()->id(), 403);
+
+        $students = $workflow->classStudents($class);
+        $isCollege = $workflow->isCollegeClass($class);
 
         $quarters = ['1','2','3','4'];
 
         $grades = Grade::where('school_class_id', $class->id)
             ->get()
-            ->groupBy('student_id');
+            ->keyBy(fn (Grade $grade) => $grade->student_id . '_' . $grade->quarter);
+        $submissions = GradeSubmission::query()
+            ->where('school_class_id', $class->id)
+            ->where('school_year', $class->school_year)
+            ->get()
+            ->keyBy('quarter');
+        $changeRequests = GradeChangeRequest::query()
+            ->whereIn('grade_submission_id', $submissions->pluck('id'))
+            ->with('events.actor')
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('grade_submission_id')
+            ->map(fn ($requests) => $requests->first());
 
-        return view('teacher.grades', compact('class', 'students', 'grades', 'quarters'));
+        return view('teacher.grades', compact('class', 'students', 'grades', 'quarters', 'submissions', 'changeRequests', 'isCollege'));
     }
 
-    public function store(Request $request, SchoolClass $class)
+    public function store(Request $request, SchoolClass $class, GradeWorkflowService $workflow)
     {
-        $request->validate([
-            'grades'           => 'required|array',
-            'grades.*.student_id' => 'required|exists:students,id',
-            'grades.*.quarter'    => 'required|in:1,2,3,4',
-            'grades.*.score'      => 'required|numeric|min:0|max:100',
+        $limits = $workflow->scoreLimits($class);
+        $data = $request->validate([
+            'intent' => ['required', 'in:draft,submit'],
+            'quarter_display' => ['required', 'in:1,2,3,4'],
+            'grades' => ['required', 'array'],
+            'grades.*.student_id' => ['required', 'integer', 'exists:students,id'],
+            'grades.*.quarter' => ['required', 'in:1,2,3,4'],
+                'grades.*.score' => array_merge(
+                ['nullable', 'numeric', 'min:' . $limits['min'], 'max:' . $limits['max']],
+                $limits['is_college'] ? ['multiple_of:0.25'] : []
+            ),
         ]);
 
-        foreach ($request->grades as $gradeData) {
-            $remarks = $this->getRemark($gradeData['score']);
-            Grade::updateOrCreate(
-                [
-                    'student_id'      => $gradeData['student_id'],
-                    'school_class_id' => $class->id,
-                    'quarter'         => $gradeData['quarter'],
-                    'school_year'     => $class->school_year,
-                ],
-                [
-                    'score'   => $gradeData['score'],
-                    'remarks' => $remarks,
-                ]
-            );
-        }
+        $submission = $workflow->saveTeacherGrades(
+            $request->user(),
+            $class,
+            $data['quarter_display'],
+            $data['grades'],
+            $data['intent'] === 'submit'
+        );
 
-        return back()->with('success', 'Grades saved successfully!');
-    }
+        $message = $submission->status === GradeSubmission::STATUS_CHAIR_REVIEW
+            ? 'Grade sheet submitted to the Department Chair.'
+            : 'Grade draft saved.';
 
-    private function getRemark(float $score): string
-    {
-        if ($score >= 90) return 'Outstanding';
-        if ($score >= 85) return 'Very Satisfactory';
-        if ($score >= 80) return 'Satisfactory';
-        if ($score >= 75) return 'Fairly Satisfactory';
-        return 'Did Not Meet Expectations';
+        return back()->with('status', $message);
     }
 }

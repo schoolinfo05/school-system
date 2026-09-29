@@ -51,11 +51,12 @@ class AiStudyController extends Controller
             ->get();
 
         $gradeContext = $grades->map(function ($g) {
-            return "{$g->schoolClass->subject}: Q{$g->quarter} = {$g->score} ({$g->remarks})";
+            $scale = $g->schoolClass?->is_college ? '/5 (1 is highest)' : '/100';
+            return "{$g->schoolClass->subject}: Q{$g->quarter} = {$g->score}{$scale} ({$g->remarks})";
         })->join("\n");
 
         $weakSubjects = $grades
-            ->filter(fn($g) => $g->score < 80)
+            ->filter(fn($g) => $g->schoolClass?->is_college ? $g->score > 3 : $g->score < 80)
             ->map(fn($g) => $g->schoolClass->subject)
             ->unique()
             ->join(', ');
@@ -65,7 +66,7 @@ class AiStudyController extends Controller
 Here are their current grades:
 {$gradeContext}
 
-Weak subjects (below 80): " . ($weakSubjects ?: 'none') . "
+Weak subjects (below passing threshold: above 3.00 for college or below 80/100 otherwise): " . ($weakSubjects ?: 'none') . "
 
 Your role:
 - Answer questions clearly and simply, using examples a Grade {$student->grade_level} student would understand
@@ -106,7 +107,8 @@ Your role:
 
         $systemPrompt = "You are a quiz generator. Return ONLY a valid JSON array, no other text, no markdown, no explanation.";
 
-        $userMessage = "Generate a 5-question multiple choice quiz for a Grade {$student->grade_level} Filipino student on: {$request->subject}. Their score is {$score}/100 in Q{$quarter}. Return ONLY a JSON array where each item has: question, choices (array of 4 strings), answer (the correct choice string), explanation.";
+        $gradeScale = $grade?->schoolClass?->is_college ? '/5 (1 is highest)' : '/100';
+        $userMessage = "Generate a 5-question multiple choice quiz for a Grade {$student->grade_level} Filipino student on: {$request->subject}. Their score is {$score}{$gradeScale} in Q{$quarter}. Return ONLY a JSON array where each item has: question, choices (array of 4 strings), answer (the correct choice string), explanation.";
 
         try {
             $raw   = $this->callGroq($systemPrompt, $userMessage);

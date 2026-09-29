@@ -24,4 +24,14 @@ class Department extends Model
     {
         return $this->hasMany(User::class);
     }
+
+    public function teachers()
+    {
+        return $this->hasMany(User::class)
+            ->where('role', User::ROLE_FACULTY)
+            ->where(function ($query) {
+                $query->whereNull('position')
+                    ->orWhere('position', User::POSITION_TEACHER);
+            });
+    }
 }

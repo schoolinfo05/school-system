@@ -170,7 +170,7 @@ export default function Profile() {
     : '—';
 
   const badges = [
-    parseFloat(gwa) >= 90 && { icon: '🏆', label: 'Honor Student' },
+    (enrollment?.program_type === 'college' ? parseFloat(gwa) <= 1.5 : parseFloat(gwa) >= 90) && { icon: '🏆', label: 'Honor Student' },
     (data?.attendance_pct ?? 0) >= 90 && { icon: '📅', label: 'Perfect Attendance' },
     allGrades.length > 0 && { icon: '📚', label: 'Active Learner' },
     { icon: '⭐', label: `Enrolled ${s?.school_year}` },

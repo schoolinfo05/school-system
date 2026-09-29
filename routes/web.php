@@ -7,6 +7,8 @@ use App\Http\Controllers\Admin\StudentManageController;
 use App\Http\Controllers\Admin\SystemControlController;
 use App\Http\Controllers\Admin\UserManageController;
 use App\Http\Controllers\Admin\DepartmentController;
+use App\Http\Controllers\Registrar\GradeApprovalController;
+use App\Http\Controllers\Registrar\GradeChangeRequestController as RegistrarGradeChangeRequestController;
 use App\Http\Controllers\Registrar\DashboardController as RegistrarDashboardController;
 use App\Http\Controllers\Registrar\EnrollmentReviewController;
 use App\Http\Controllers\Registrar\CourseController as RegistrarCourseController;
@@ -20,7 +22,9 @@ use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\PropertyCustodian\DashboardController as PropertyCustodianDashboardController;
 use App\Http\Controllers\Teacher\DashboardController as TeacherDashboard;
 use App\Http\Controllers\Teacher\GradeEntryController;
+use App\Http\Controllers\Teacher\GradeChangeRequestController as TeacherGradeChangeRequestController;
 use App\Http\Controllers\Teacher\AttendanceController as TeacherAttendance;
+use App\Http\Controllers\DepartmentChairController;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 
@@ -121,6 +125,7 @@ Route::middleware(['auth', 'web.roles:admin'])->prefix('admin')->name('admin.')-
     Route::get('/departments', [DepartmentController::class, 'index'])->name('departments.index');
     Route::post('/departments', [DepartmentController::class, 'store'])->name('departments.store');
     Route::put('/departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
+    Route::post('/departments/{department}/teachers/{user}/remove', [DepartmentController::class, 'removeTeacher'])->name('departments.teachers.remove');
 });
 
 Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->name('registrar.')->group(function () {
@@ -158,6 +163,9 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::delete('/sections/{section}/students/{student}', [RegistrarSectionController::class, 'removeStudent'])->name('sections.students.destroy');
     Route::get('/points', [PointsController::class, 'index'])->name('points.index');
     Route::post('/points', [PointsController::class, 'store'])->name('points.store');
+    Route::get('/grades', [GradeApprovalController::class, 'index'])->name('grades.index');
+    Route::post('/grades/{submission}/review', [GradeApprovalController::class, 'review'])->name('grades.review');
+    Route::post('/grade-change-requests/{changeRequest}/review', [RegistrarGradeChangeRequestController::class, 'review'])->name('grade-change-requests.review');
     Route::get('/reports', [ReportsController::class, 'registrar'])->name('reports.index');
     Route::get('/profile', [RegistrarProfileController::class, 'show'])->name('profile.show');
 });
@@ -175,8 +183,19 @@ Route::middleware(['auth', 'web.roles:admin,faculty,teacher,head_department,head
     Route::get('/class/{class}',                [TeacherDashboard::class, 'myClass'])->name('class');
     Route::get('/class/{class}/grades',         [GradeEntryController::class, 'index'])->name('grades');
     Route::post('/class/{class}/grades',        [GradeEntryController::class, 'store'])->name('grades.store');
+    Route::post('/class/{class}/grades/{submission}/change-request', [TeacherGradeChangeRequestController::class, 'store'])->name('grades.change-request');
     Route::get('/class/{class}/attendance',     [TeacherAttendance::class, 'index'])->name('attendance');
     Route::post('/class/{class}/attendance',    [TeacherAttendance::class, 'store'])->name('attendance.store');
+});
+
+Route::middleware(['auth', 'web.roles:faculty,head_department'])->prefix('department-chair')->name('department-chair.')->group(function () {
+    Route::get('/teachers', [DepartmentChairController::class, 'teachers'])->name('teachers');
+    Route::get('/grades', [DepartmentChairController::class, 'grades'])->name('grades');
+    Route::get('/grades/{submission}/review', [DepartmentChairController::class, 'reviewPage'])->name('grades.review.page');
+    Route::post('/grades/{submission}/review', [DepartmentChairController::class, 'reviewGrades'])->name('grades.review');
+    Route::post('/grade-change-requests/{changeRequest}/review', [DepartmentChairController::class, 'reviewGradeChangeRequest'])->name('grade-change-requests.review');
+    Route::get('/students', [DepartmentChairController::class, 'students'])->name('students');
+    Route::get('/reports', [DepartmentChairController::class, 'reports'])->name('reports');
 });
 
 Route::middleware(['auth', 'web.roles:admin,property_custodian'])->prefix('property-custodian')->name('property-custodian.')->group(function () {

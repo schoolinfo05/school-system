@@ -45,7 +45,7 @@
                     <p class="font-bold text-slate-800">{{ $grade->student->first_name }} {{ $grade->student->last_name }}</p>
                     <p class="text-xs text-slate-500">{{ $grade->schoolClass->subject }} · Q{{ $grade->quarter }}</p>
                 </div>
-                <span class="text-lg font-black {{ $grade->score >= 90 ? 'text-emerald-700' : ($grade->score >= 75 ? 'text-blue-700' : 'text-red-600') }}">{{ $grade->score }}</span>
+                <span class="text-lg font-black {{ $grade->schoolClass?->is_college ? ($grade->score <= 2 ? 'text-emerald-700' : ($grade->score <= 3 ? 'text-blue-700' : 'text-red-600')) : ($grade->score >= 90 ? 'text-emerald-700' : ($grade->score >= 75 ? 'text-blue-700' : 'text-red-600')) }}">{{ $grade->score }}</span>
             </div>
         @empty
             <p class="py-6 text-center text-sm text-slate-500">No grades entered yet.</p>

@@ -43,8 +43,10 @@ export default function TeacherGrades() {
       setData(res.data);
       const initial = {};
       res.data.students.forEach(s => {
-        const g = res.data.grades[s.id]?.find(g => g.quarter === '1');
-        initial[s.id] = g?.score?.toString() ?? '';
+        const submission = res.data.grade_submissions?.['1'];
+        const submittedGrade = submission?.grades?.find(g => Number(g.student_id) === Number(s.id));
+        const officialGrade = res.data.grades[s.id]?.find(g => g.quarter === '1');
+        initial[s.id] = (submittedGrade?.score ?? officialGrade?.score)?.toString() ?? '';
       });
       setScores(initial);
     }).catch(e => console.log('Error:', e.message))
@@ -55,8 +57,10 @@ export default function TeacherGrades() {
     if (!data) return;
     const updated = {};
     data.students.forEach(s => {
-      const g = data.grades[s.id]?.find(g => g.quarter === quarter);
-      updated[s.id] = g?.score?.toString() ?? '';
+      const submission = data.grade_submissions?.[quarter];
+      const submittedGrade = submission?.grades?.find(g => Number(g.student_id) === Number(s.id));
+      const officialGrade = data.grades[s.id]?.find(g => g.quarter === quarter);
+      updated[s.id] = (submittedGrade?.score ?? officialGrade?.score)?.toString() ?? '';
     });
     setScores(updated);
   }, [quarter, data]);
@@ -65,20 +69,23 @@ export default function TeacherGrades() {
     setSaving(true);
     try {
       const grades = data.students
-        .filter(s => scores[s.id] && parseFloat(scores[s.id]) > 0)
         .map(s => ({
           student_id: s.id,
           quarter,
-          score: parseFloat(scores[s.id]),
+          score: scores[s.id] === '' ? null : parseFloat(scores[s.id]),
         }));
 
-      if (grades.length === 0) {
-        Alert.alert('No grades', 'Please enter at least one grade.');
+      const maxScore = data.class?.is_college ? 5 : 100;
+      const invalidCollegeIncrement = data.class?.is_college && grades.some(g => g.score !== null && Math.abs((g.score * 4) - Math.round(g.score * 4)) > 0.00001);
+      if (grades.some(g => g.score === null || g.score < 1 || g.score > maxScore) || invalidCollegeIncrement) {
+        Alert.alert('Complete the grade sheet', data.class?.is_college
+          ? 'Enter a quarter-step college grade from 1.00 to 5.00 for every student. 1.00 is highest.'
+          : 'Enter a score from 1 to 100 for every student.');
         return;
       }
 
       await api.post(`/teacher/class/${activeClassId}/grades`, { grades });
-      Alert.alert('✓ Saved!', `Grades for Q${quarter} saved successfully!`);
+      Alert.alert('Submitted', `Grades for Q${quarter} were submitted to the Department Chair.`);
     } catch (e) {
       Alert.alert('Error', 'Could not save grades. Please try again.');
       console.log(e.message);
@@ -108,7 +115,7 @@ export default function TeacherGrades() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backBtnText}>← Classes</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Enter grades</Text>
+        <Text style={styles.title}>Enter grades {data?.class?.is_college ? '(1-5, 1 highest)' : '(1-100)'}</Text>
         <Text style={styles.sub}>{activeSubject}</Text>
       </View>
 
@@ -161,19 +168,23 @@ export default function TeacherGrades() {
               keyboardType="numeric"
               placeholder="—"
               placeholderTextColor="#ccc"
+              editable={!data?.grade_submissions?.[quarter] || ['draft', 'teacher_revision'].includes(data.grade_submissions[quarter].status)}
               maxLength={5}/>
           </View>
         ))}
       </ScrollView>
 
       <View style={styles.footer}>
+        {data?.grade_submissions?.[quarter] && !['draft', 'teacher_revision'].includes(data.grade_submissions[quarter].status) && (
+          <Text style={styles.lockedNotice}>Submitted for approval. Grade entry is locked while it is under review.</Text>
+        )}
         <TouchableOpacity
           style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
           onPress={save}
-          disabled={saving}>
+          disabled={saving || (data?.grade_submissions?.[quarter] && !['draft', 'teacher_revision'].includes(data.grade_submissions[quarter].status))}>
           {saving
             ? <ActivityIndicator color="#fff"/>
-            : <Text style={styles.saveBtnText}>💾 Save grades for Q{quarter}</Text>
+            : <Text style={styles.saveBtnText}>Submit Q{quarter} grades to Chair</Text>
           }
         </TouchableOpacity>
       </View>
@@ -208,6 +219,7 @@ const styles = StyleSheet.create({
   studentId:       { fontSize:11, color:'#999', marginTop:1 },
   scoreInput:      { width:64, borderWidth:0.5, borderColor:'#ddd', borderRadius:10, padding:10, fontSize:16, textAlign:'center', color:'#333', backgroundColor:'#fafafa' },
   footer:          { padding:16, backgroundColor:'#fff', borderTopWidth:0.5, borderColor:'#eee' },
+  lockedNotice:    { color:'#8a5a00', fontSize:12, fontWeight:'600', marginBottom:10, textAlign:'center' },
   saveBtn:         { backgroundColor:'#378ADD', borderRadius:12, padding:15, alignItems:'center' },
   saveBtnDisabled: { opacity:0.6 },
   saveBtnText:     { color:'#fff', fontWeight:'600', fontSize:15 },

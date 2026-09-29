@@ -23,9 +23,10 @@ class PointsService
         ?User $awardedBy = null,
         ?string $schoolYear = null,
         ?string $semester = null,
-        array $meta = []
+        array $meta = [],
+        bool $collegeScale = false
     ): ?StudentReward {
-        $points = $this->pointsForGrade($score);
+        $points = $collegeScale ? $this->pointsForCollegeGrade($score) : $this->pointsForGrade($score);
 
         if ($points <= 0) {
             StudentReward::where('student_id', $student->id)->where('source_key', $sourceKey)->delete();
@@ -246,6 +247,14 @@ class PointsService
         if ($score >= 90) return 15;
         if ($score >= 85) return 8;
         if ($score >= 75) return 3;
+        return 0;
+    }
+
+    private function pointsForCollegeGrade(float $score): int
+    {
+        if ($score <= 1.75) return 15;
+        if ($score <= 2.5) return 8;
+        if ($score <= 3) return 3;
         return 0;
     }
 
