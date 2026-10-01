@@ -36,17 +36,19 @@ class SubjectSeeder extends Seeder
         ];
 
         foreach ($subjects as $subject) {
+            $course = str_starts_with($subject['code'], 'GE') ? null : 'BS Information Technology';
+
             Subject::updateOrCreate(
                 [
                     'code' => $subject['code'],
-                    'course' => 'BS Information Technology',
+                    'course' => $course,
                     'year_level' => $subject['year_level'],
                     'semester' => $subject['semester'],
                 ],
                 [
                     ...$subject,
                     'program_type' => 'college',
-                    'course' => 'BS Information Technology',
+                    'course' => $course,
                     'strand' => null,
                     'is_active' => true,
                 ]

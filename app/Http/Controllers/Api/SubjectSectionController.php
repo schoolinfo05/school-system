@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AcademicTerm;
 use App\Models\EnrollmentApplication;
 use App\Models\Fee;
 use App\Models\SchoolClass;
@@ -465,6 +466,8 @@ class SubjectSectionController extends Controller
     public function mySubjects(Request $request)
     {
         $user = $request->user();
+        $activeTerm = AcademicTerm::query()->latest('updated_at')->first();
+        $view = $request->query('view') === 'past' ? 'past' : 'current';
         $overrides = StudentSubject::query()
             ->where('user_id', $user->id)
             ->get()
@@ -477,9 +480,21 @@ class SubjectSectionController extends Controller
             ->unique()
             ->values();
 
-        $sections = Section::whereHas('students', fn($q) =>
-                        $q->where('user_id', $user->id)->where('status', 'enrolled')
+        $sections = Section::query()
+                    ->whereHas('students', fn($q) => $q
+                        ->where('user_id', $user->id)
+                        ->whereIn('section_students.status', $view === 'past' ? ['enrolled', 'completed'] : ['enrolled'])
                     )
+                    ->when($activeTerm, fn ($query) => $query->where(function ($termQuery) use ($activeTerm, $view) {
+                        if ($view === 'past') {
+                            $termQuery->where('school_year', '!=', $activeTerm->school_year)
+                                ->orWhere('semester', '!=', $activeTerm->semester);
+                        } else {
+                            $termQuery->where('school_year', $activeTerm->school_year)
+                                ->where('semester', $activeTerm->semester);
+                        }
+                    }))
+                    ->when(!$activeTerm && $view === 'current', fn ($query) => $query->whereRaw('1 = 0'))
                     ->with(['sectionSubjects' => fn($q) =>
                         $q->with(['subject', 'teacher:id,name'])
                     ])
@@ -492,6 +507,8 @@ class SubjectSectionController extends Controller
             ->map(fn($ss) => [
                 'section_id'   => $section->id,
                 'section_name' => $section->name,
+                'school_year'  => $section->school_year,
+                'semester'     => $section->semester,
                 'subject_id'   => $ss->subject->id,
                 'code'         => $ss->subject->code,
                 'name'         => $ss->subject->name,
@@ -509,6 +526,18 @@ class SubjectSectionController extends Controller
         $directSectionSubjects = StudentSubject::query()
             ->where('user_id', $user->id)
             ->whereNotNull('section_id')
+            ->whereIn('status', $view === 'past' ? ['enrolled', 'completed'] : ['enrolled'])
+            ->whereHas('section', fn ($query) => $query
+                ->when($activeTerm, fn ($termQuery) => $termQuery->where(function ($semesterQuery) use ($activeTerm, $view) {
+                    if ($view === 'past') {
+                        $semesterQuery->where('school_year', '!=', $activeTerm->school_year)
+                            ->orWhere('semester', '!=', $activeTerm->semester);
+                    } else {
+                        $semesterQuery->where('school_year', $activeTerm->school_year)
+                            ->where('semester', $activeTerm->semester);
+                    }
+                }))
+                ->when(!$activeTerm && $view === 'current', fn ($termQuery) => $termQuery->whereRaw('1 = 0')))
             ->with(['subject', 'section.sectionSubjects.teacher:id,name'])
             ->get()
             ->reject(fn (StudentSubject $record) => in_array((int) $record->subject_id, $sectionSubjectIds, true))
@@ -520,6 +549,8 @@ class SubjectSectionController extends Controller
                 return [
                     'section_id'   => $record->section_id,
                     'section_name' => $record->section?->name ?? 'Irregular enrollment',
+                    'school_year'  => $record->section?->school_year,
+                    'semester'     => $record->section?->semester,
                     'subject_id'   => $record->subject?->id,
                     'code'         => $record->subject?->code,
                     'name'         => $record->subject?->name,
@@ -538,45 +569,79 @@ class SubjectSectionController extends Controller
             $sectionSubjectIds = $subjects->pluck('subject_id')->unique()->all();
         }
 
-        $application = EnrollmentApplication::where('user_id', $user->id)
+        $applications = EnrollmentApplication::query()
+            ->where('user_id', $user->id)
             ->where('status', 'approved')
-            ->latest()
-            ->first();
+            ->when($activeTerm, fn ($query) => $query->where(function ($termQuery) use ($activeTerm, $view) {
+                if ($view === 'past') {
+                    $termQuery->where('school_year', '!=', $activeTerm->school_year)
+                        ->orWhere('semester', '!=', $activeTerm->semester);
+                } else {
+                    $termQuery->where('school_year', $activeTerm->school_year)
+                        ->where('semester', $activeTerm->semester);
+                }
+            }))
+            ->when(!$activeTerm && $view === 'current', fn ($query) => $query->whereRaw('1 = 0'))
+            ->get(['subject_ids', 'school_year', 'semester']);
 
-        $selectedSubjectIds = collect($application?->subject_ids ?? [])
-            ->map(fn($id) => (int) $id)
-            ->filter()
-            ->diff($sectionSubjectIds)
-            ->diff($droppedSubjectIds)
-            ->filter(fn($id) => ($overrides->get($this->subjectOverrideKey(null, $id))?->status ?? 'enrolled') !== 'dropped')
-            ->values()
-            ->all();
+        $selectedSubjectEntries = $applications
+            ->flatMap(fn (EnrollmentApplication $application) => collect($application->subject_ids ?? [])
+                ->map(fn ($id) => [
+                    'subject_id' => (int) $id,
+                    'school_year' => $application->school_year,
+                    'semester' => $application->semester,
+                ]))
+            ->reject(fn (array $entry) => in_array($entry['subject_id'], $sectionSubjectIds, true)
+                || $droppedSubjectIds->contains($entry['subject_id'])
+                || ($overrides->get($this->subjectOverrideKey(null, $entry['subject_id']))?->status ?? 'enrolled') === 'dropped')
+            ->unique(fn (array $entry) => $entry['subject_id'] . ':' . $entry['school_year'] . ':' . $entry['semester'])
+            ->values();
 
-        if (!empty($selectedSubjectIds)) {
-            $directSubjects = Subject::whereIn('id', $selectedSubjectIds)
-                ->orderBy('code')
+        if ($selectedSubjectEntries->isNotEmpty()) {
+            $directSubjectsById = Subject::query()
+                ->whereIn('id', $selectedSubjectEntries->pluck('subject_id')->unique())
                 ->get()
-                ->map(fn($subject) => [
-                    'section_id'   => null,
-                    'section_name' => 'Direct enrollment',
-                    'subject_id'   => $subject->id,
-                    'code'         => $subject->code,
-                    'name'         => $subject->name,
-                    'units_lec'    => $subject->units_lec,
-                    'units_lab'    => $subject->units_lab,
-                    'day'          => null,
-                    'time_start'   => null,
-                    'time_end'     => null,
-                    'room'         => null,
-                    'teacher'      => null,
-                ]);
+                ->keyBy('id');
+            $directSubjects = $selectedSubjectEntries
+                ->map(function (array $entry) use ($directSubjectsById) {
+                    $subject = $directSubjectsById->get($entry['subject_id']);
+                    if (!$subject) {
+                        return null;
+                    }
+
+                    return [
+                        'section_id'   => null,
+                        'section_name' => 'Direct enrollment',
+                        'school_year'  => $entry['school_year'],
+                        'semester'     => $entry['semester'],
+                        'subject_id'   => $subject->id,
+                        'code'         => $subject->code,
+                        'name'         => $subject->name,
+                        'units_lec'    => $subject->units_lec,
+                        'units_lab'    => $subject->units_lab,
+                        'day'          => null,
+                        'time_start'   => null,
+                        'time_end'     => null,
+                        'room'         => null,
+                        'teacher'      => null,
+                    ];
+                })
+                ->filter();
 
             $subjects = $subjects->concat($directSubjects);
         }
 
         $student = Student::where('user_id', $user->id)->first();
 
-        if ($subjects->isEmpty() && $student && $student->section && $student->section !== 'TBA') {
+        $hasCurrentLegacySection = $activeTerm && $student?->section
+            ? Section::query()
+                ->where('name', $student->section)
+                ->where('school_year', $activeTerm->school_year)
+                ->where('semester', $activeTerm->semester)
+                ->exists()
+            : false;
+
+        if ($view === 'current' && $hasCurrentLegacySection && $subjects->isEmpty() && $student && $student->section !== 'TBA') {
             $legacyClasses = SchoolClass::query()
                 ->where('grade_level', $student->grade_level)
                 ->where('section', $student->section)
@@ -610,7 +675,14 @@ class SubjectSectionController extends Controller
             : collect();
 
         return response()->json([
-            'sections' => $sections->map(fn($s) => ['id' => $s->id, 'name' => $s->name]),
+            'view' => $view,
+            'active_term' => $activeTerm,
+            'sections' => $sections->map(fn($s) => [
+                'id' => $s->id,
+                'name' => $s->name,
+                'school_year' => $s->school_year,
+                'semester' => $s->semester,
+            ]),
             'subjects' => $subjects->values(),
             'fees' => $fees->values(),
             'fee_summary' => [

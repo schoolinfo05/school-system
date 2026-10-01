@@ -24,16 +24,17 @@ export default function StudyLoad() {
   const [fees, setFees] = useState({ fees: [], total_due: 0, total_paid: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [view, setView] = useState('current');
   const [paymentFee, setPaymentFee] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('gcash');
   const [paymentReference, setPaymentReference] = useState('');
   const [paying, setPaying] = useState(false);
 
-  const loadStudyLoad = async () => {
+  const loadStudyLoad = async (selectedView) => {
     try {
       const [subjectsRes, feesRes] = await Promise.all([
-        api.get('/my-subjects'),
+        api.get('/my-subjects', { params: { view: selectedView } }),
         api.get('/my-fees'),
       ]);
       setData(subjectsRes.data);
@@ -47,8 +48,8 @@ export default function StudyLoad() {
   };
 
   useEffect(() => {
-    loadStudyLoad();
-  }, []);
+    Promise.resolve().then(() => loadStudyLoad(view));
+  }, [view]);
 
   const openPayment = (fee) => {
     const remaining = Math.max(0, Number(fee.amount || 0) - Number(fee.paid_amount || 0));
@@ -73,7 +74,7 @@ export default function StudyLoad() {
         payment_reference: paymentReference,
       });
       setPaymentFee(null);
-      await loadStudyLoad();
+      await loadStudyLoad(view);
       Alert.alert('Payment recorded', 'Your tuition payment has been recorded.');
     } catch (error) {
       Alert.alert('Payment failed', error.response?.data?.message || 'Could not record payment.');
@@ -101,7 +102,9 @@ export default function StudyLoad() {
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <HeaderGradient
         title="Study Load"
-        subtitle={sections[0]?.name ?? 'Current enrolled subjects'}
+        subtitle={view === 'current'
+          ? `${data?.active_term?.semester?.toUpperCase() || ''} Semester · A.Y. ${data?.active_term?.school_year || ''}`
+          : 'Previous enrollments'}
         initials="SL"
         stats={[
           { label: 'Subjects', value: subjects.length, accent: '#FDE68A' },
@@ -122,7 +125,7 @@ export default function StudyLoad() {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                loadStudyLoad();
+                loadStudyLoad(view);
               }}
             />
           }
@@ -144,6 +147,28 @@ export default function StudyLoad() {
             </View>
           </View>
 
+          <View style={[styles.viewSwitcher, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            {[
+              { value: 'current', label: 'Current' },
+              { value: 'past', label: 'Past' },
+            ].map(option => (
+              <TouchableOpacity
+                key={option.value}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: view === option.value }}
+                style={[styles.viewTab, view === option.value && { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  if (view === option.value) return;
+                  setLoading(true);
+                  setView(option.value);
+                }}
+              >
+                <Text style={[styles.viewTabText, { color: view === option.value ? '#fff' : theme.textSub }]}>{option.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {view === 'current' ? (
           <View style={[styles.tuitionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Tuition & Fees</Text>
@@ -179,6 +204,7 @@ export default function StudyLoad() {
               })
             )}
           </View>
+          ) : null}
 
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Enrolled Subjects</Text>
@@ -189,9 +215,11 @@ export default function StudyLoad() {
 
           {subjects.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.emptyTitle, { color: theme.text }]}>No study load yet</Text>
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>{view === 'past' ? 'No past subjects' : 'No study load yet'}</Text>
               <Text style={[styles.emptyText, { color: theme.textSub }]}>
-                Your enrolled subjects will appear here after your section or direct enrollment is assigned.
+                {view === 'past'
+                  ? 'Previous enrolled subjects will appear here after your past term records are available.'
+                  : 'Your enrolled subjects will appear here after your section or direct enrollment is assigned.'}
               </Text>
             </View>
           ) : (
@@ -207,6 +235,7 @@ export default function StudyLoad() {
                       <Text style={[styles.subjectName, { color: theme.text }]}>{subject.name}</Text>
                       <Text style={[styles.subjectSection, { color: theme.textSub }]}>
                         {subject.section_name || 'No section'}
+                        {view === 'past' ? ` · ${subject.semester?.toUpperCase()} Semester, A.Y. ${subject.school_year}` : ''}
                       </Text>
                     </View>
                     <View style={[styles.unitsBox, { backgroundColor: theme.bg }]}>
@@ -311,6 +340,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4,
   },
+  viewSwitcher: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 14, padding: 4, borderWidth: 1, borderRadius: 10 },
+  viewTab: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 7 },
+  viewTabText: { fontSize: 13, fontWeight: '700' },
   sectionTitle: { fontSize: 16, fontWeight: '900' },
   sectionMeta: { fontSize: 12, fontWeight: '700' },
   subjectCard: {

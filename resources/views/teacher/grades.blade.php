@@ -8,11 +8,17 @@
     <p class="mt-1 text-sm text-slate-500">{{ $class->subject }} · Grade {{ $class->grade_level }} - {{ $class->section }} · {{ $isCollege ? 'College scale: 1.00–5.00 (1 is highest)' : 'SHS scale: 1–100' }}</p>
 </div>
 
+@php
+    $quarterLabels = $isCollege
+        ? ['Prelim', 'Midterm', 'Prefinal', 'Final']
+        : ['Quarter 1', 'Quarter 2', 'Quarter 3', 'Quarter 4'];
+@endphp
+
 <div class="mb-6 flex flex-wrap gap-2" id="quarter-tabs">
     @foreach([1,2,3,4] as $q)
         <button type="button" onclick="switchQuarter({{ $q }})" id="tab-{{ $q }}"
             class="rounded-xl border px-5 py-2 text-sm font-bold transition {{ $q === 1 ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-violet-100 hover:bg-violet-50' }}">
-            Quarter {{ $q }}
+            {{ $quarterLabels[$q - 1] ?? 'Quarter ' . $q }}
         </button>
     @endforeach
 </div>

@@ -28,16 +28,17 @@
         <label class="course-wrap text-xs font-bold uppercase text-slate-500">
             College course
             <select name="course" class="course-field mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
-                <option value="">Select course</option>
+                <option value="">General (all college courses)</option>
                 @foreach($courses as $course)
                     <option value="{{ $course->name }}">{{ $course->name }}</option>
                 @endforeach
             </select>
+            <span class="mt-1 block text-[11px] font-normal normal-case text-slate-400">General subjects are available to every college course at the matching year and semester.</span>
         </label>
         <label class="strand-wrap text-xs font-bold uppercase text-slate-500">
             SHS strand
             <select name="strand" class="strand-field mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
-                <option value="">Select strand</option>
+                <option value="">General (all SHS strands)</option>
                 @foreach(['STEM', 'ABM', 'HUMSS', 'TVL', 'GAS'] as $strand)
                     <option value="{{ $strand }}">{{ $strand }}</option>
                 @endforeach
@@ -184,7 +185,7 @@
                     <label class="course-wrap text-xs font-bold uppercase text-slate-500 md:col-span-2">
                         College course
                         <select name="course" class="course-field mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
-                            <option value="">Select course</option>
+                            <option value="" @selected(!$subject->course)>General (all college courses)</option>
                             @foreach($courses as $course)
                                 <option value="{{ $course->name }}" @selected($subject->course === $course->name)>{{ $course->name }}</option>
                             @endforeach
@@ -193,7 +194,7 @@
                     <label class="strand-wrap text-xs font-bold uppercase text-slate-500 md:col-span-2">
                         SHS strand
                         <select name="strand" class="strand-field mt-1 w-full rounded-lg border-slate-300 text-sm normal-case text-slate-900">
-                            <option value="">Select strand</option>
+                            <option value="" @selected(!$subject->strand)>General (all SHS strands)</option>
                             @foreach(['STEM', 'ABM', 'HUMSS', 'TVL', 'GAS'] as $strand)
                                 <option value="{{ $strand }}" @selected($subject->strand === $strand)>{{ $strand }}</option>
                             @endforeach

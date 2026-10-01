@@ -1,7 +1,7 @@
 // @ts-nocheck
 // app/(tabs)/subjects.tsx — Student: view enrolled subjects
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   RefreshControl, Platform, StatusBar, TouchableOpacity, Modal, TextInput, Alert,
@@ -36,12 +36,19 @@ export default function MySubjects() {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchSubjects = async () => {
+  const fetchSubjects = useCallback(async () => {
     try {
+      const settingsRes = await api.get('/enrollment/settings').catch(() => ({ data: null }));
+      const activeTerm = settingsRes.data?.term;
       const [subjectsRes, requestsRes, sectionsRes] = await Promise.all([
         api.get('/my-subjects'),
         api.get('/my-subject-change-requests'),
-        api.get('/sections'),
+        api.get('/sections', {
+          params: activeTerm ? {
+            school_year: activeTerm.school_year,
+            semester: activeTerm.semester,
+          } : undefined,
+        }),
       ]);
       setData(subjectsRes.data);
       setRequests(requestsRes.data || []);
@@ -60,9 +67,11 @@ export default function MySubjects() {
       ));
     } catch (e) { console.log(e.message); }
     finally { setLoading(false); setRefreshing(false); }
-  };
+  }, []);
 
-  useEffect(() => { fetchSubjects(); }, []);
+  useEffect(() => {
+    Promise.resolve().then(fetchSubjects);
+  }, [fetchSubjects]);
 
   const totalUnits = data?.subjects?.reduce((sum, s) => sum + s.units_lec + s.units_lab, 0) ?? 0;
   const enrolledSubjectIds = new Set((data?.subjects || []).map(subject => subject.subject_id));

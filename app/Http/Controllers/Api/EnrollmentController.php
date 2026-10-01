@@ -15,6 +15,7 @@ use App\Models\StudentSubject;
 use App\Models\Subject;
 use App\Models\User;
 use App\Services\PointsService;
+use App\Services\SemesterProgressionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,7 @@ class EnrollmentController extends Controller
     // ── PUBLIC ──────────────────────────────────────────────────
 
     // POST /api/enrollment
-    public function store(Request $request)
+    public function store(Request $request, SemesterProgressionService $progression)
     {
         $studentUser = $request->user();
         if (! $studentUser) {
@@ -198,6 +199,17 @@ class EnrollmentController extends Controller
             return response()->json(['message' => $message], 422);
         }
 
+        $evaluation = ['requires_irregular' => false];
+        if (strtolower($request->semester) === '2nd') {
+            $evaluation = $progression->evaluateFirstSemester($studentUser, $request->school_year);
+            if (!$evaluation['can_proceed']) {
+                return response()->json(['message' => $evaluation['message']], 422);
+            }
+            if ($evaluation['requires_irregular']) {
+                $request->merge(['academic_status' => 'Irregular']);
+            }
+        }
+
         // Normalize gender
         $genderMap = [
             'm' => 'male', 'f' => 'female',
@@ -208,11 +220,23 @@ class EnrollmentController extends Controller
         $hashedPassword = $studentUser->password;
 
         $sectionSubjectIds = $this->sectionSubjectIdsForApplication($request);
+        $requestedSectionSubjectCount = collect($request->section_subject_ids ?? [])->map(fn ($id) => (int) $id)->unique()->count();
+        if ($requestedSectionSubjectCount !== count($sectionSubjectIds)) {
+            return response()->json([
+                'message' => 'Some selected subjects are not offered for this school year and semester. Refresh the subject list and try again.',
+            ], 422);
+        }
+
         $subjectIds = $this->subjectIdsForApplication($request, $sectionSubjectIds);
         if ($request->academic_status === 'Regular' && empty($subjectIds)) {
             return response()->json([
                 'message' => 'No regular subjects are available for this program and semester.',
             ], 422);
+        }
+
+        $prerequisiteMessage = $this->prerequisiteFailureMessage($subjectIds, $studentUser->id, $progression);
+        if ($prerequisiteMessage) {
+            return response()->json(['message' => $prerequisiteMessage], 422);
         }
 
         $documentUrls = $this->storeDocuments($request);
@@ -254,6 +278,8 @@ class EnrollmentController extends Controller
             'message'        => 'Application submitted successfully.',
             'application_id' => $application->id,
             'email'          => $application->email,
+            'academic_status' => $application->academic_status,
+            'irregular_due_to_failed_subjects' => $evaluation['requires_irregular'] ?? false,
         ], 201);
     }
 
@@ -277,6 +303,35 @@ class EnrollmentController extends Controller
         }
 
         return response()->json($app);
+    }
+
+    public function prerequisiteStatus(Request $request, SemesterProgressionService $progression)
+    {
+        $data = $request->validate([
+            'subject_ids' => ['required', 'array', 'max:200'],
+            'subject_ids.*' => ['integer', 'distinct', 'exists:subjects,id'],
+        ]);
+
+        $student = Student::query()->where('user_id', $request->user()->id)->first();
+        $subjects = Subject::query()
+            ->with('prerequisites:id,code,name,program_type,semester')
+            ->whereIn('id', $data['subject_ids'])
+            ->get();
+
+        return response()->json([
+            'subjects' => $subjects->map(fn (Subject $subject) => [
+                'subject_id' => $subject->id,
+                'unmet_prerequisites' => $student
+                    ? $subject->prerequisites
+                        ->reject(fn (Subject $prerequisite) => $progression->studentPassedSubject($student, $prerequisite))
+                        ->map(fn (Subject $prerequisite) => [
+                            'code' => $prerequisite->code,
+                            'name' => $prerequisite->name,
+                        ])
+                        ->values()
+                    : [],
+            ])->values(),
+        ]);
     }
 
     // GET /api/enrollment/lookup?id_no=xxx
@@ -380,7 +435,7 @@ class EnrollmentController extends Controller
     }
 
     // POST /api/registrar/enrollments/{id}/approve
-    public function approve(Request $request, $id, PointsService $points)
+    public function approve(Request $request, $id, PointsService $points, SemesterProgressionService $progression)
     {
         $this->authorizeRegistrar($request);
         $request->validate(['remarks' => 'nullable|string|max:500']);
@@ -405,7 +460,19 @@ class EnrollmentController extends Controller
             }
         }
 
-        $prerequisiteMessage = $this->prerequisiteFailureMessage($app);
+        $progressionEvaluation = null;
+        if (strtolower((string) $app->semester) === '2nd' && $app->student) {
+            $progressionEvaluation = $progression->evaluateFirstSemester($app->student, $app->school_year);
+            if (!$progressionEvaluation['can_proceed']) {
+                return response()->json(['message' => $progressionEvaluation['message']], 422);
+            }
+        }
+
+        $prerequisiteMessage = $this->prerequisiteFailureMessage(
+            $app->subject_ids ?? [],
+            $app->user_id,
+            $progression
+        );
         if ($prerequisiteMessage) {
             return response()->json(['message' => $prerequisiteMessage], 422);
         }
@@ -417,9 +484,22 @@ class EnrollmentController extends Controller
             }
         }
 
-        $parentDefaultPassword = null;
+        $studentId = $app->id_no ?: self::generateStudentId($app->id);
+        $existingStudentById = Student::query()->where('student_id', $studentId)->first();
+        $existingUser = User::query()->where('email', $app->email)->first();
+        if ($existingStudentById?->user_id && !in_array((int) $existingStudentById->user_id, array_filter([
+            (int) $app->user_id,
+            (int) $existingUser?->id,
+        ]), true)) {
+            return response()->json(['message' => 'This student ID is already linked to another student account.'], 422);
+        }
 
-        DB::transaction(function () use ($app, $request, $points, &$parentDefaultPassword) {
+        $parentDefaultPassword = null;
+        $academicStatus = ($progressionEvaluation['requires_irregular'] ?? false)
+            ? 'Irregular'
+            : $app->academic_status;
+
+        DB::transaction(function () use ($app, $request, $points, &$parentDefaultPassword, $studentId, $academicStatus) {
             // Reuse existing user account if one already exists for this email
             $user = User::where('email', $app->email)->first();
 
@@ -453,10 +533,9 @@ class EnrollmentController extends Controller
                 }
             }
 
-            $studentId = $app->id_no ?: self::generateStudentId($app->id);
-
             $app->update([
                 'status'      => 'approved',
+                'academic_status' => $academicStatus,
                 'remarks'     => $request->remarks,
                 'user_id'     => $user->id,
                 'reviewed_by' => $request->user()->id,
@@ -483,7 +562,7 @@ class EnrollmentController extends Controller
                 'prev_school' => $app->prev_school,
                 'prev_school_address' => $app->prev_school_address,
                 'student_type' => $app->student_type,
-                'academic_status' => $app->academic_status,
+                'academic_status' => $academicStatus,
                 'grade_level' => $app->program_type === 'college' ? $app->year_level : $app->grade_level,
                 'section'     => $section?->name ?? 'TBA',
                 'school_year' => $app->school_year,
@@ -494,10 +573,11 @@ class EnrollmentController extends Controller
                 $studentValues['parent_user_id'] = $parent->id;
             }
 
-            $student = Student::updateOrCreate(
-                ['user_id' => $user->id],
-                $studentValues
-            );
+            $student = Student::query()->where('user_id', $user->id)->first()
+                ?? Student::query()->where('student_id', $studentId)->first()
+                ?? new Student();
+            $student->fill($studentValues + ['user_id' => $user->id]);
+            $student->save();
 
             if ($section) {
                 $section->students()->syncWithoutDetaching([
@@ -612,6 +692,13 @@ class EnrollmentController extends Controller
         }
 
         $sectionSubjectIds = $this->sectionSubjectIdsForApplication($request);
+        $requestedSectionSubjectCount = collect($request->section_subject_ids ?? [])->map(fn ($id) => (int) $id)->unique()->count();
+        if ($requestedSectionSubjectCount !== count($sectionSubjectIds)) {
+            return response()->json([
+                'message' => 'Some selected subjects are not offered for this school year and semester.',
+            ], 422);
+        }
+
         $subjectIds = $this->subjectIdsForApplication($request, $sectionSubjectIds);
         if ($request->academic_status === 'Regular' && empty($subjectIds)) {
             return response()->json([
@@ -776,7 +863,20 @@ class EnrollmentController extends Controller
 
     private function sectionSubjectIdsForApplication(Request $request): array
     {
-        return collect($request->section_subject_ids ?? [])
+        $semester = strtolower((string) $request->semester);
+
+        return SectionSubject::query()
+            ->whereIn('id', collect($request->section_subject_ids ?? [])->map(fn ($id) => (int) $id)->filter()->unique())
+            ->whereHas('section', fn ($query) => $query
+                ->where('school_year', $request->school_year)
+                ->where('semester', $semester)
+                ->where('is_active', true))
+            ->whereHas('subject', fn ($query) => $query->where(function ($subjectQuery) use ($semester) {
+                $subjectQuery->where('semester', $semester)
+                    ->orWhereNull('semester')
+                    ->orWhere('semester', '');
+            }))
+            ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->filter()
             ->unique()
@@ -1005,14 +1105,14 @@ class EnrollmentController extends Controller
         return $sections->count() === 1 ? $sections->first() : null;
     }
 
-    private function prerequisiteFailureMessage(EnrollmentApplication $app): ?string
+    private function prerequisiteFailureMessage(array $subjectIds, ?int $userId, SemesterProgressionService $progression): ?string
     {
-        $subjectIds = collect($app->subject_ids ?? [])->map(fn ($id) => (int) $id)->filter()->values();
-        if ($subjectIds->isEmpty() || !$app->user_id) {
+        $subjectIds = collect($subjectIds)->map(fn ($id) => (int) $id)->filter()->values();
+        if ($subjectIds->isEmpty() || !$userId) {
             return null;
         }
 
-        $student = Student::where('user_id', $app->user_id)->first();
+        $student = Student::where('user_id', $userId)->first();
         if (!$student) {
             return null;
         }
@@ -1024,7 +1124,7 @@ class EnrollmentController extends Controller
         $missing = [];
         foreach ($subjects as $subject) {
             foreach ($subject->prerequisites as $prerequisite) {
-                if (!$this->studentPassedSubject($student, $prerequisite)) {
+                if (!$progression->studentPassedSubject($student, $prerequisite)) {
                     $missing[] = "{$subject->code} requires {$prerequisite->code}";
                 }
             }
@@ -1032,27 +1132,7 @@ class EnrollmentController extends Controller
 
         return empty($missing)
             ? null
-            : 'Prerequisite check failed: ' . implode('; ', array_unique($missing)) . '.';
-    }
-
-    private function studentPassedSubject(Student $student, Subject $subject): bool
-    {
-        $completed = StudentSubject::where('user_id', $student->user_id)
-            ->where('subject_id', $subject->id)
-            ->where('status', 'completed')
-            ->exists();
-
-        if ($completed) {
-            return true;
-        }
-
-        return \App\Models\Grade::where('student_id', $student->id)
-            ->where('score', '>=', 75)
-            ->whereHas('schoolClass', function ($query) use ($subject) {
-                $query->where('subject', $subject->name)
-                    ->orWhere('subject', $subject->code);
-            })
-            ->exists();
+            : 'Prerequisite check failed: ' . implode('; ', array_unique($missing)) . '. Select Irregular and remove those subjects to continue.';
     }
 
     private function awardEarlyEnrollmentIfEligible(EnrollmentApplication $app, Student $student, PointsService $points, ?User $awardedBy = null): void

@@ -588,6 +588,7 @@ export default function StudentManagement({ role }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
     </View>
   );
 }

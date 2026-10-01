@@ -11,6 +11,7 @@ use App\Models\Student;
 use App\Services\GradeWorkflowService;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class GradeController extends Controller
 {
@@ -117,6 +118,89 @@ class GradeController extends Controller
             ->get();
 
         return response()->json($grades);
+    }
+
+    public function mine(Request $request)
+    {
+        $student = Student::query()->where('user_id', $request->user()->id)->first();
+        if (!$student) {
+            return response()->json(['active_term' => null, 'view' => 'current', 'grades' => (object) []]);
+        }
+
+        $activeTerm = AcademicTerm::query()->latest('updated_at')->first();
+        $view = $request->query('view') === 'past' ? 'past' : 'current';
+        $grades = Grade::query()
+            ->with('schoolClass')
+            ->where('student_id', $student->id)
+            ->whereHas('schoolClass', function ($classQuery) use ($activeTerm, $view) {
+                $classQuery->whereExists(function ($sectionQuery) use ($activeTerm, $view) {
+                    $sectionQuery->selectRaw('1')
+                        ->from('sections')
+                        ->join('section_subjects', 'section_subjects.section_id', '=', 'sections.id')
+                        ->join('subjects', 'subjects.id', '=', 'section_subjects.subject_id')
+                        ->whereColumn('sections.name', 'school_classes.section')
+                        ->whereColumn('sections.year_level', 'school_classes.grade_level')
+                        ->whereColumn('sections.school_year', 'school_classes.school_year')
+                        ->whereColumn('sections.program_type', 'subjects.program_type')
+                        ->whereColumn('section_subjects.section_id', 'sections.id')
+                        ->whereColumn('section_subjects.subject_id', 'subjects.id')
+                        ->where(function ($semesterQuery) {
+                            $semesterQuery->whereColumn('sections.semester', 'subjects.semester')
+                                ->orWhereNull('subjects.semester')
+                                ->orWhere('subjects.semester', '');
+                        })
+                        ->where(function ($subjectQuery) {
+                            $subjectQuery->whereColumn('subjects.name', 'school_classes.subject')
+                                ->orWhereColumn('subjects.code', 'school_classes.subject');
+                        })
+                        ->when($activeTerm, fn ($query) => $query->where(function ($termQuery) use ($activeTerm, $view) {
+                            if ($view === 'past') {
+                                $termQuery->where('sections.school_year', '!=', $activeTerm->school_year)
+                                    ->orWhere('sections.semester', '!=', $activeTerm->semester);
+                            } else {
+                                $termQuery->where('sections.school_year', $activeTerm->school_year)
+                                    ->where('sections.semester', $activeTerm->semester);
+                            }
+                        }))
+                        ->when(!$activeTerm && $view === 'current', fn ($query) => $query->whereRaw('1 = 0'));
+                });
+            })
+            ->orderBy('quarter')
+            ->get();
+
+        $classIds = $grades->pluck('school_class_id')->unique()->values();
+        $semesterByClass = DB::table('school_classes')
+            ->join('sections', function ($join) {
+                $join->on('sections.name', '=', 'school_classes.section')
+                    ->on('sections.year_level', '=', 'school_classes.grade_level')
+                    ->on('sections.school_year', '=', 'school_classes.school_year');
+            })
+            ->join('section_subjects', 'section_subjects.section_id', '=', 'sections.id')
+            ->join('subjects', 'subjects.id', '=', 'section_subjects.subject_id')
+            ->whereIn('school_classes.id', $classIds)
+            ->where(function ($semesterQuery) {
+                $semesterQuery->whereColumn('sections.semester', 'subjects.semester')
+                    ->orWhereNull('subjects.semester')
+                    ->orWhere('subjects.semester', '');
+            })
+            ->where(function ($subjectQuery) {
+                $subjectQuery->whereColumn('subjects.name', 'school_classes.subject')
+                    ->orWhereColumn('subjects.code', 'school_classes.subject');
+            })
+            ->select('school_classes.id as school_class_id', 'sections.semester')
+            ->get()
+            ->groupBy('school_class_id')
+            ->map(fn ($rows) => $rows->first()->semester);
+
+        $grades->each(function (Grade $grade) use ($semesterByClass) {
+            $grade->schoolClass?->setAttribute('semester', $semesterByClass->get($grade->school_class_id));
+        });
+
+        return response()->json([
+            'view' => $view,
+            'active_term' => $activeTerm,
+            'grades' => $grades->groupBy('quarter')->map(fn ($quarterGrades) => $quarterGrades->values()),
+        ]);
     }
 
     private function gradeDeadlineMessage(string $schoolYear, ?string $semester): ?string

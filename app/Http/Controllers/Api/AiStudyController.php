@@ -16,7 +16,7 @@ class AiStudyController extends Controller
             'Authorization' => 'Bearer ' . config('services.groq.key'),
             'Content-Type'  => 'application/json',
         ])->post('https://api.groq.com/openai/v1/chat/completions', [
-            'model'       => 'llama-3.3-70b-versatile',
+            'model'       => 'openai/gpt-oss-20b',
             'max_tokens'  => 1024,
             'temperature' => 0.7,
             'messages'    => [
@@ -82,7 +82,8 @@ Your role:
                 'reply'   => $reply,
                 'student' => $student->first_name,
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            logger()->error('Groq study chat request failed.', ['exception' => $e]);
             return response()->json(['message' => 'AI service unavailable'], 503);
         }
     }
@@ -123,7 +124,8 @@ Your role:
                 'quiz'    => $quiz,
                 'subject' => $request->subject,
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            logger()->error('Groq quick quiz request failed.', ['exception' => $e]);
             return response()->json(['message' => 'AI service unavailable'], 503);
         }
     }

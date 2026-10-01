@@ -103,9 +103,16 @@
                 <h2 class="text-xs font-black uppercase text-slate-400">Submitted Documents</h2>
                 @if(!empty($application->document_urls))
                     <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        @foreach($application->document_urls as $index => $url)
-                            <a href="{{ asset('storage/'.$url) }}" target="_blank" class="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50">
-                                Document {{ $index + 1 }}
+                        @foreach($application->document_urls as $index => $document)
+                            @php
+                                $documentPath = is_array($document) ? ($document['url'] ?? '') : $document;
+                                $documentName = is_array($document) ? ($document['name'] ?? 'Document '.($index + 1)) : basename((string) $document);
+                                $documentHref = str_starts_with((string) $documentPath, 'http')
+                                    ? $documentPath
+                                    : asset('storage/'.ltrim((string) $documentPath, '/'));
+                            @endphp
+                            <a href="{{ $documentHref }}" target="_blank" rel="noopener noreferrer" class="rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50">
+                                {{ $documentName }}
                             </a>
                         @endforeach
                     </div>

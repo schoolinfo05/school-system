@@ -57,13 +57,7 @@ class AdminStudentController extends Controller
             'student_id'  => ['required', 'string', 'max:255', Rule::unique('students', 'student_id')->ignore($student->id)],
             'first_name'  => ['required', 'string', 'max:255'],
             'last_name'   => ['required', 'string', 'max:255'],
-            'email'       => [
-                'required',
-                'email',
-                'max:255',
-                Rule::unique('students', 'email')->ignore($student->id),
-                Rule::unique('users', 'email')->ignore($student->user_id),
-            ],
+            'email'       => ['nullable', 'email', 'max:255', Rule::unique('students', 'email')->ignore($student->id), Rule::unique('users', 'email')->ignore($student->user_id)],
             'phone'       => ['nullable', 'string', 'max:50'],
             'birthdate'   => ['nullable', 'date'],
             'gender'      => ['required', 'in:male,female'],
@@ -105,10 +99,7 @@ class AdminStudentController extends Controller
             'parent_user_id' => $parentId,
         ])->all());
 
-        $application = EnrollmentApplication::query()
-            ->where('user_id', $student->user_id)
-            ->latest()
-            ->first();
+        $application = $this->applicationForStudent($student);
 
         if ($application) {
             $application->update(collect($data)->only([
@@ -118,11 +109,14 @@ class AdminStudentController extends Controller
         }
 
         if ($student->user) {
-            $student->user->update([
-                'name'  => trim($data['first_name'] . ' ' . $data['last_name']),
-                'email' => $data['email'],
-                'role'  => 'student',
-            ]);
+            $userValues = [
+                'name' => trim($data['first_name'] . ' ' . $data['last_name']),
+                'role' => 'student',
+            ];
+            if (!empty($data['email'])) {
+                $userValues['email'] = $data['email'];
+            }
+            $student->user->update($userValues);
             Role::findOrCreate('student', 'web');
             $student->user->syncRoles(['student']);
         }
@@ -243,10 +237,7 @@ class AdminStudentController extends Controller
 
     private function studentPayload(Student $student): array
     {
-        $application = EnrollmentApplication::query()
-            ->where('user_id', $student->user_id)
-            ->latest()
-            ->first();
+        $application = $this->applicationForStudent($student);
 
         $payload = $student->toArray();
         $payload['parent'] = $student->parent ? [
@@ -274,6 +265,15 @@ class AdminStudentController extends Controller
         $payload['subjects'] = $this->subjectsForStudent($student, $application);
 
         return $payload;
+    }
+
+    private function applicationForStudent(Student $student): ?EnrollmentApplication
+    {
+        return EnrollmentApplication::query()
+            ->when($student->user_id, fn ($query, $userId) => $query->where('user_id', $userId))
+            ->when(!$student->user_id, fn ($query) => $query->where('id_no', $student->student_id))
+            ->latest()
+            ->first();
     }
 
     private function subjectsForStudent(Student $student, ?EnrollmentApplication $application): array

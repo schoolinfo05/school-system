@@ -9,6 +9,7 @@ use App\Models\EnrollmentApplication;
 use App\Models\CourseShiftRequest;
 use App\Models\CourseShiftCreditEvaluation;
 use App\Models\Subject;
+use App\Services\SemesterProgressionService;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
 
@@ -51,11 +52,11 @@ class EnrollmentReviewController extends Controller
         return view('registrar.enrollments.show', compact('application', 'selectedSubjects'));
     }
 
-    public function approve(Request $request, EnrollmentApplication $enrollment, ApiEnrollmentController $controller, PointsService $points)
+    public function approve(Request $request, EnrollmentApplication $enrollment, ApiEnrollmentController $controller, PointsService $points, SemesterProgressionService $progression)
     {
         $this->requireAnyRole($request, ['admin', 'registrar']);
 
-        $response = $controller->approve($request, $enrollment->id, $points);
+        $response = $controller->approve($request, $enrollment->id, $points, $progression);
 
         if ($response->getStatusCode() >= 400) {
             return redirect()

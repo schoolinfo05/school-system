@@ -13,6 +13,11 @@ import { Colors, Font, Radius, Shadow, HEADER_TOP } from '../../src/theme';
 import { useTheme } from '../../src/theme-context';
 
 const QUARTERS = ['1', '2', '3', '4'];
+const getQuarterLabel = (quarter, isCollege) => {
+  const labels = isCollege ? ['Prelim', 'Midterm', 'Prefinal', 'Final'] : ['Q1', 'Q2', 'Q3', 'Q4'];
+  return labels[Number(quarter) - 1] ?? `Q${quarter}`;
+};
+
 function getRemark(score, theme, isCollege) {
   if (isCollege) {
     if (score <= 1.5) return { text: 'Outstanding', color: theme.green };
@@ -35,9 +40,11 @@ export default function Grades() {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeQ, setActiveQ] = useState('4');
+  const [view, setView] = useState('current');
   const ACCENT = [theme.green, theme.primary, theme.orange, theme.purple];
 
   useEffect(() => {
+    let cancelled = false;
     AsyncStorage.multiGet(['role', 'position']).then(pairs => {
       const role = pairs[0][1];
       const position = pairs[1][1];
@@ -49,11 +56,19 @@ export default function Grades() {
         router.replace('/(teacher)/grades');
         return;
       }
-      api.get('/dashboard/student')
-        .then(res => setData(res.data))
-        .finally(() => setLoading(false));
+      Promise.all([
+        api.get('/my-grades', { params: { view } }),
+        api.get('/dashboard/student'),
+      ])
+        .then(([gradesRes, dashboardRes]) => {
+          if (!cancelled) setData({ ...gradesRes.data, student: dashboardRes.data?.student });
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
     });
-  }, []);
+    return () => { cancelled = true; };
+  }, [router, view]);
 
   if (loading) return (
     <View style={[styles.center, { backgroundColor: theme.bg }]}> 
@@ -74,7 +89,11 @@ export default function Grades() {
       {/* ── Header ── */}
       <View style={[styles.header, { backgroundColor: theme.primary }]}> 
         <Text style={styles.title}>My Grades</Text>
-        <Text style={styles.sub}>S.Y. {data?.student?.school_year}</Text>
+        <Text style={styles.sub}>
+          {view === 'current'
+            ? `${data?.active_term?.semester?.toUpperCase() || ''} Semester · A.Y. ${data?.active_term?.school_year || data?.student?.school_year || ''}`
+            : 'Past grade records'}
+        </Text>
         <View style={styles.gwaRow}>
           <View>
             <Text style={styles.gwaNum}>{gwa}</Text>
@@ -91,6 +110,27 @@ export default function Grades() {
         </View>
       </View>
 
+      <View style={[styles.viewTabs, { borderColor: theme.border, backgroundColor: theme.card }]}>
+        {[
+          { value: 'current', label: 'Current' },
+          { value: 'past', label: 'Past' },
+        ].map(option => (
+          <TouchableOpacity
+            key={option.value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: view === option.value }}
+            style={[styles.viewTab, view === option.value && { backgroundColor: theme.primary }]}
+            onPress={() => {
+              if (view === option.value) return;
+              setLoading(true);
+              setView(option.value);
+            }}
+          >
+            <Text style={[styles.viewTabText, { color: view === option.value ? '#fff' : theme.textSub }]}>{option.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       {/* ── Quarter tabs ── */}
       <View style={styles.tabs}>
         {QUARTERS.map(q => (
@@ -100,7 +140,7 @@ export default function Grades() {
             onPress={() => setActiveQ(q)}
           >
             <Text style={[styles.tabText, activeQ === q && styles.tabTextActive]}>
-              Q{q}
+              {getQuarterLabel(q, isCollege)}
             </Text>
           </TouchableOpacity>
         ))}
@@ -112,7 +152,7 @@ export default function Grades() {
           ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyIcon}>📋</Text>
-              <Text style={styles.emptyText}>No grades for Quarter {activeQ} yet.</Text>
+              <Text style={styles.emptyText}>No grades for {getQuarterLabel(activeQ, isCollege)} yet.</Text>
             </View>
           )
           : grades.map((g, i) => {
@@ -126,7 +166,14 @@ export default function Grades() {
                 <View style={[styles.accentBar, { backgroundColor: ACCENT[i % ACCENT.length] }]} />
                 <View style={styles.subjectBody}>
                   <View style={styles.subjectTop}>
-                    <Text style={styles.subjectName}>{g.school_class?.subject ?? '—'}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.subjectName}>{g.school_class?.subject ?? '—'}</Text>
+                      {view === 'past' ? (
+                        <Text style={[styles.termMeta, { color: theme.textSub }]}>
+                          {g.school_class?.semester?.toUpperCase() || 'Past'} Semester · A.Y. {g.school_year}
+                        </Text>
+                      ) : null}
+                    </View>
                     <Text style={[styles.score, { color: rem.color }]}>{g.score}</Text>
                   </View>
                   <View style={[styles.barTrack, { backgroundColor: theme.border }]}> 
@@ -175,11 +222,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   gwaBadgeText:   { color: '#fff', fontSize: Font.xs, fontWeight: '600' },
+  viewTabs:       { flexDirection: 'row', marginHorizontal: 16, marginTop: 14, marginBottom: 0, borderWidth: 1, borderRadius: Radius.md, padding: 4, gap: 4 },
+  viewTab:        { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: Radius.sm },
+  viewTabText:    { fontSize: Font.sm, fontWeight: '700' },
+  termMeta:       { fontSize: Font.xs, marginTop: 4 },
 
   tabs:           {
     flexDirection: 'row',
     marginHorizontal: 16,
-    marginTop: -16,
+    marginTop: 10,
     gap: 8,
     marginBottom: 16,
   },

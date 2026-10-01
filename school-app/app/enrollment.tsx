@@ -167,6 +167,7 @@ export default function EnrollmentScreen() {
   const [loadingSubjects, setLoadingSubjects] = useState(false);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [enrollmentSettings, setEnrollmentSettings] = useState(null);
+  const [prerequisiteStatuses, setPrerequisiteStatuses] = useState({});
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [subjects, setSubjects]         = useState([]);
   const [sections, setSections]         = useState([]);
@@ -328,7 +329,6 @@ export default function EnrollmentScreen() {
       parent_email: student.parent_email || prev.parent_email,
       prev_school: student.prev_school || prev.prev_school,
       prev_school_address: student.prev_school_address || prev.prev_school_address,
-      student_type: student.student_type || prev.student_type,
       academic_status: student.academic_status || prev.academic_status,
       shiftee_from: student.shiftee_from || prev.shiftee_from,
       shiftee_to: student.shiftee_to || prev.shiftee_to,
@@ -338,8 +338,6 @@ export default function EnrollmentScreen() {
       course_id: student.course_id || prev.course_id,
       course_program: student.course || prev.course_program,
       year_level: student.year_level || prev.year_level,
-      school_year: student.school_year || prev.school_year,
-      semester: student.semester || prev.semester,
     }));
   };
 
@@ -461,14 +459,15 @@ export default function EnrollmentScreen() {
 
           setSubjects((selectedSection.section_subjects || [])
             .map(offeringFromSection(selectedSection))
-            .filter(subject => subject?.id));
+            .filter(subject => subject?.id)
+            .filter(subject => !subject.semester || String(subject.semester).toLowerCase() === form.semester.toLowerCase()));
         } else if (form.academic_status === 'Irregular') {
           const offerings = matchingSections
             .flatMap(section => (section.section_subjects || []).map(offeringFromSection(section)))
             .filter(subject => {
               if (!subject?.id) return false;
               if (subject.program_type && subject.program_type !== form.program_type) return false;
-              if (subject.semester && subject.semester !== form.semester.toLowerCase()) return false;
+              if (subject.semester && String(subject.semester).toLowerCase() !== form.semester.toLowerCase()) return false;
               if (form.program_type === 'college' && form.course_program && subject.course && subject.course !== form.course_program) return false;
               if (form.program_type === 'shs' && form.strand && subject.strand && subject.strand !== form.strand) return false;
               return true;
@@ -503,6 +502,28 @@ export default function EnrollmentScreen() {
     loadSubjects();
     loadCourses();
   }, [form.program_type, form.course_id, form.course_program, form.strand, form.year_level, form.semester, form.school_year, form.academic_status, form.section_id, courseSearch]);
+
+  useEffect(() => {
+    const subjectIds = [...new Set(subjects.map(subject => Number(subject.id)).filter(Boolean))];
+    if (!authenticatedUser || subjectIds.length === 0) {
+      setPrerequisiteStatuses({});
+      return;
+    }
+
+    let cancelled = false;
+    api.post('/enrollment/prerequisites', { subject_ids: subjectIds })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setPrerequisiteStatuses(Object.fromEntries(
+          (data.subjects || []).map(item => [item.subject_id, item.unmet_prerequisites || []])
+        ));
+      })
+      .catch(() => {
+        if (!cancelled) setPrerequisiteStatuses({});
+      });
+
+    return () => { cancelled = true; };
+  }, [authenticatedUser, subjects]);
 
   useEffect(() => {
     if (form.academic_status === 'Regular') {
@@ -609,12 +630,15 @@ export default function EnrollmentScreen() {
 
     setLoading(true);
     try {
-      await api.post('/enrollment', body, {
+      const response = await api.post('/enrollment', body, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
+      const irregularNotice = response.data?.irregular_due_to_failed_subjects
+        ? '\nYour finalized failed subject means this application is marked Irregular.'
+        : '';
       Alert.alert(
         '🎉 Application Submitted!',
-        `Your registration has been submitted.\nTrack using: ${authenticatedUser.email}`,
+        `Your registration has been submitted.${irregularNotice}\nTrack using: ${authenticatedUser.email}`,
         [{ text: 'OK', onPress: () => router.replace('/enrollment-status') }]
       );
     } catch (e) {
@@ -738,6 +762,9 @@ export default function EnrollmentScreen() {
       ? form.section_subject_ids.includes(sub.offering_id)
       : form.subject_ids.includes(sub.id))
     .reduce((acc, sub) => acc + (sub.units_lab || 0) + (sub.units_lec || 0), 0);
+  const blockedRegularSubjects = form.academic_status === 'Regular'
+    ? subjects.filter(subject => (prerequisiteStatuses[subject.id] || []).length > 0)
+    : [];
 
   const isSHS = form.program_type === 'shs';
   const cityOptions = PH_CITIES_BY_PROVINCE[form.province] || [];
@@ -1275,6 +1302,19 @@ export default function EnrollmentScreen() {
               ? `Regular load for ${form.semester} Semester, A.Y. ${form.school_year}`
               : `Select subject offerings from available sections for ${form.semester} Semester, A.Y. ${form.school_year}`}
           </Text>
+          {blockedRegularSubjects.length > 0 ? (
+            <View style={{ marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
+              <Text style={{ color: '#991B1B', fontWeight: '700' }}>
+                Prerequisites are not met for {blockedRegularSubjects.map(subject => subject.code || subject.name).join(', ')}. Those subjects cannot be selected.
+              </Text>
+              <TouchableOpacity
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, backgroundColor: C.primary }}
+                onPress={() => set('academic_status', 'Irregular')}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Switch to Irregular subjects</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           <View style={s.tableHeader}>
             <Text style={[s.thCell, { flex: 1.4 }]}>Code</Text>
@@ -1295,18 +1335,27 @@ export default function EnrollmentScreen() {
                 const active = form.academic_status === 'Irregular'
                   ? form.section_subject_ids.includes(subject.offering_id)
                   : form.subject_ids.includes(subject.id);
+                const unmetPrerequisites = prerequisiteStatuses[subject.id] || [];
+                const blockedByPrerequisite = unmetPrerequisites.length > 0;
                 return (
                   <TouchableOpacity
                     key={subject.offering_id || subject.id}
-                    style={[s.tableRow, active && s.tableRowActive]}
+                    style={[s.tableRow, active && s.tableRowActive, blockedByPrerequisite && { opacity: 0.55 }]}
                     onPress={() => toggleSubject(subject)}
-                    disabled={form.academic_status === 'Regular'}
+                    disabled={form.academic_status === 'Regular' || blockedByPrerequisite}
                   >
                     <View style={[s.checkBox, { marginRight: 6 }, active && s.checkBoxActive]}>
                       {active && <Text style={s.checkMark}>✓</Text>}
                     </View>
                     <Text style={[s.tdCell, { flex: 1.2 }]}>{subject.code}</Text>
-                    <Text style={[s.tdCell, { flex: 2.5 }]}>{subject.name}</Text>
+                    <View style={{ flex: 2.5 }}>
+                      <Text style={s.tdCell}>{subject.name}</Text>
+                      {blockedByPrerequisite ? (
+                        <Text style={{ marginTop: 3, color: '#B91C1C', fontSize: 11, fontWeight: '600' }}>
+                          Prerequisite not met: {unmetPrerequisites.map(item => item.code || item.name).join(', ')}
+                        </Text>
+                      ) : null}
+                    </View>
                     <Text style={[s.tdCell, { flex: 0.7 }]}>{subject.units_lab ?? '-'}</Text>
                     <Text style={[s.tdCell, { flex: 0.7 }]}>{subject.units_lec ?? '-'}</Text>
                     <Text style={[s.tdCell, { flex: 1.2 }]}>{subject.days ?? '-'}</Text>

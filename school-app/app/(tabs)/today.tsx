@@ -32,6 +32,7 @@ export default function Today() {
   const [data, setData]             = useState(null);
   const [notifications, setNotifications] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
+  const [enrollmentSettings, setEnrollmentSettings] = useState(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -61,14 +62,16 @@ export default function Today() {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const [dashboardRes, notificationsRes, meRes] = await Promise.all([
+      const [dashboardRes, notificationsRes, meRes, enrollmentRes] = await Promise.all([
         api.get('/dashboard/student'),
         api.get('/notifications'),
         api.get('/me'),
+        api.get('/enrollment/settings').catch(() => ({ data: null })),
       ]);
       setData(dashboardRes.data);
       setNotifications(notificationsRes.data);
       setUser(meRes.data?.user || meRes.data);
+      setEnrollmentSettings(enrollmentRes.data);
     } catch (e) {
       console.log('Dashboard error:', e.message);
     } finally {
@@ -113,6 +116,12 @@ export default function Today() {
   const rewardSummary = data?.reward_summary ?? {};
   const redeemablePoints = rewardSummary.redeemable_points ?? rewardSummary.points ?? 0;
   const enrollmentApplication = data?.enrollment_application;
+  const activeTerm = enrollmentSettings?.term;
+  const applicationForActiveTerm = activeTerm
+    && enrollmentApplication?.school_year === activeTerm.school_year
+    && enrollmentApplication?.semester?.toLowerCase() === activeTerm.semester?.toLowerCase();
+  const applicationAlreadySubmitted = applicationForActiveTerm
+    && ['pending', 'approved'].includes(enrollmentApplication?.status);
   const enrollment = student?.enrollment;
   const yearLevelLabel = (value) => {
     const year = String(value || '').replace(/[^0-9]/g, '');
@@ -276,6 +285,23 @@ export default function Today() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {enrollmentSettings?.enrollment_open && activeTerm ? (
+        <View style={[styles.card, { backgroundColor: theme.card }]}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Enrollment is open</Text>
+          <Text style={[styles.emptyStateText, { color: theme.textSub, marginTop: 6 }]}>
+            {activeTerm.semester?.toUpperCase()} Semester - A.Y. {activeTerm.school_year}
+          </Text>
+          <TouchableOpacity
+            style={[styles.emptyStateAction, { backgroundColor: theme.primary, marginTop: 12 }]}
+            onPress={() => router.push(applicationAlreadySubmitted ? '/enrollment-status' : '/enrollment')}
+          >
+            <Text style={styles.emptyStateActionText}>
+              {applicationAlreadySubmitted ? 'View Application' : 'Enroll for This Term'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* ── Stat cards ── */}
       <View style={styles.statsRow}>

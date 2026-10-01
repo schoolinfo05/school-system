@@ -22,11 +22,12 @@
 <div class="space-y-4">
     @forelse($submissions as $submission)
         @php($schoolClass = $submission->schoolClass)
+        @php($quarterLabel = $schoolClass?->is_college ? ['Prelim', 'Midterm', 'Prefinal', 'Final'][(int) $submission->quarter - 1] ?? 'Q' . $submission->quarter : 'Q' . $submission->quarter)
         <details class="portal-card group overflow-hidden">
             <summary class="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div class="min-w-0">
                     <p class="truncate font-black text-slate-900">{{ $schoolClass?->subject ?? 'Class' }} · {{ $schoolClass?->section ?? 'Section unavailable' }}</p>
-                    <p class="mt-1 text-sm text-slate-500">Teacher: {{ $submission->teacher?->name ?? 'Account unavailable' }} · Q{{ $submission->quarter }} · {{ $submission->school_year }} · {{ $schoolClass?->is_college ? 'College 1–5, 1 highest' : 'SHS 1–100' }} · Revision {{ $submission->revision }}@if($showApproved) · Approved {{ $submission->finalized_at?->format('M d, Y h:i A') ?? 'date unavailable' }}@endif</p>
+                    <p class="mt-1 text-sm text-slate-500">Teacher: {{ $submission->teacher?->name ?? 'Account unavailable' }} · {{ $quarterLabel }} · {{ $submission->school_year }} · {{ $schoolClass?->is_college ? 'College 1–5, 1 highest' : 'SHS 1–100' }} · Revision {{ $submission->revision }}@if($showApproved) · Approved {{ $submission->finalized_at?->format('M d, Y h:i A') ?? 'date unavailable' }}@endif</p>
                 </div>
                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 font-black text-violet-700" aria-hidden="true">
                     <span class="group-open:hidden">+</span>
@@ -106,11 +107,12 @@
             @forelse($changeRequests as $changeRequest)
                 @php($submission = $changeRequest->submission)
                 @php($schoolClass = $submission->schoolClass)
+                @php($quarterLabel = $schoolClass?->is_college ? ['Prelim', 'Midterm', 'Prefinal', 'Final'][(int) $submission->quarter - 1] ?? 'Q' . $submission->quarter : 'Q' . $submission->quarter)
                 <details class="portal-card group overflow-hidden">
                     <summary class="flex cursor-pointer flex-wrap items-center justify-between gap-3 px-5 py-4">
                         <div>
                             <p class="font-black text-slate-900">{{ $schoolClass?->subject ?? 'Class' }} · {{ $schoolClass?->section ?? 'Section unavailable' }}</p>
-                            <p class="mt-1 text-sm text-slate-500">{{ $changeRequest->teacher?->name ?? 'Account unavailable' }} · Q{{ $submission->quarter }} · {{ $submission->school_year }} · Chair approved {{ $changeRequest->chair_reviewed_at?->format('M d, Y h:i A') }}</p>
+                            <p class="mt-1 text-sm text-slate-500">{{ $changeRequest->teacher?->name ?? 'Account unavailable' }} · {{ $quarterLabel }} · {{ $submission->school_year }} · Chair approved {{ $changeRequest->chair_reviewed_at?->format('M d, Y h:i A') }}</p>
                         </div>
                         <span class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">Grade change</span>
                     </summary>

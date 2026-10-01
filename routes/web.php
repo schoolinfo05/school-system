@@ -107,6 +107,9 @@ Route::get('/dashboard', function () use ($redirectToPortalDashboard) {
 Route::middleware(['auth', 'web.roles:admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/students', [StudentManageController::class, 'index'])->name('students.index');
+    Route::get('/students/template', [StudentManageController::class, 'template'])->name('students.template');
+    Route::get('/students/export', [StudentManageController::class, 'export'])->name('students.export');
+    Route::post('/students/import', [StudentManageController::class, 'import'])->name('students.import');
     Route::get('/students/{student}', [StudentManageController::class, 'show'])->name('students.show');
     Route::put('/students/{student}', [StudentManageController::class, 'update'])->name('students.update');
     Route::put('/students/{student}/parent', [StudentManageController::class, 'updateParent'])->name('students.parent.update');
@@ -137,6 +140,9 @@ Route::middleware(['auth', 'web.roles:admin,registrar'])->prefix('registrar')->n
     Route::get('/enrollments/{enrollment}/reject', [EnrollmentReviewController::class, 'rejectRequiresPost'])->name('enrollments.reject.get');
     Route::post('/enrollments/{enrollment}/reject', [EnrollmentReviewController::class, 'reject'])->name('enrollments.reject');
     Route::get('/students', [StudentManageController::class, 'index'])->name('students.index');
+    Route::get('/students/template', [StudentManageController::class, 'template'])->name('students.template');
+    Route::get('/students/export', [StudentManageController::class, 'export'])->name('students.export');
+    Route::post('/students/import', [StudentManageController::class, 'import'])->name('students.import');
     Route::get('/students/{student}', [StudentManageController::class, 'show'])->name('students.show');
     Route::put('/students/{student}', [StudentManageController::class, 'update'])->name('students.update');
     Route::put('/students/{student}/parent', [StudentManageController::class, 'updateParent'])->name('students.parent.update');

@@ -14,6 +14,7 @@ use App\Models\Subject;
 use App\Services\PointsService;
 use Illuminate\Http\Request;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class StudentManageController extends Controller
@@ -37,6 +38,425 @@ class StudentManageController extends Controller
         return view('admin.students.index', compact('students', 'routePrefix'));
     }
 
+    public function template()
+    {
+        $headers = $this->studentCsvHeaders();
+        $rows = [
+            $headers,
+            array_replace(array_fill_keys($headers, ''), [
+                'student_id' => 'ST-001',
+                'first_name' => 'Jane',
+                'last_name' => 'Doe',
+                'middle_name' => 'Sample',
+                'birthdate' => '2009-04-01',
+                'gender' => 'female',
+                'address' => 'Sample Address',
+                'father_name' => 'Juan Doe',
+                'mother_name' => 'Maria Doe',
+                'student_type' => 'new_student',
+                'academic_status' => 'Regular',
+                'program_type' => 'shs',
+                'grade_level' => '11',
+                'strand' => 'STEM',
+                'school_year' => '2026-2027',
+                'semester' => '1st',
+                'section' => 'Section A',
+                'status' => 'active',
+                'application_status' => 'approved',
+            ]),
+        ];
+
+        return $this->downloadCsv($rows, 'students-template.csv');
+    }
+
+    public function export()
+    {
+        $headers = $this->studentCsvHeaders();
+        $rows = [$headers];
+
+        Student::query()->orderBy('last_name')->orderBy('first_name')->each(function (Student $student) use (&$rows, $headers) {
+            $application = $this->applicationForStudent($student);
+            $data = [
+                'student_id' => $student->student_id,
+                'first_name' => $student->first_name,
+                'last_name' => $student->last_name,
+                'middle_name' => $application?->middle_name,
+                'birthdate' => $student->birthdate,
+                'gender' => $application?->gender ?: $student->gender,
+                'religion' => $application?->religion,
+                'civil_status' => $application?->civil_status,
+                'citizenship' => $application?->citizenship,
+                'place_of_birth' => $application?->place_of_birth,
+                'contact_number' => $student->phone ?: $application?->contact_number,
+                'address' => $student->address,
+                'father_name' => $student->father_name ?: $application?->father_name,
+                'father_occupation' => $student->father_occupation ?: $application?->father_occupation,
+                'mother_name' => $student->mother_name ?: $application?->mother_name,
+                'mother_occupation' => $student->mother_occupation ?: $application?->mother_occupation,
+                'parent_email' => $application?->parent_email ?: $student->parent?->email,
+                'prev_school' => $student->prev_school ?: $application?->prev_school,
+                'prev_school_address' => $student->prev_school_address ?: $application?->prev_school_address,
+                'student_type' => $student->student_type ?: $application?->student_type,
+                'academic_status' => $student->academic_status ?: $application?->academic_status,
+                'shiftee_from' => $application?->shiftee_from,
+                'shiftee_to' => $application?->shiftee_to,
+                'id_no' => $application?->id_no ?: $student->student_id,
+                'program_type' => $application?->program_type ?: (in_array((string) $student->grade_level, ['11', '12'], true) ? 'shs' : 'college'),
+                'course_id' => $application?->course_id,
+                'course' => $application?->course,
+                'year_level' => $application?->year_level ?: (!in_array((string) $student->grade_level, ['11', '12'], true) ? $student->grade_level : ''),
+                'grade_level' => $application?->grade_level ?: $student->grade_level,
+                'strand' => $application?->strand,
+                'school_year' => $student->school_year ?: $application?->school_year,
+                'semester' => $application?->semester ?: '1st',
+                'subject_ids' => json_encode($application?->subject_ids ?? []),
+                'section_subject_ids' => json_encode($application?->section_subject_ids ?? []),
+                'document_urls' => json_encode($application?->document_urls ?? []),
+                'section' => $student->section,
+                'status' => $student->status,
+                'application_status' => $application?->status,
+                'remarks' => $application?->remarks,
+            ];
+
+            $rows[] = array_map(fn ($header) => $data[$header] ?? '', $headers);
+        });
+
+        return $this->downloadCsv($rows, 'students-export.csv');
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
+        ]);
+
+        $handle = fopen($request->file('file')->getRealPath(), 'r');
+        if ($handle === false) {
+            return back()->withErrors(['file' => 'The CSV file could not be read.']);
+        }
+
+        $headers = fgetcsv($handle);
+        if (!$headers) {
+            fclose($handle);
+            return back()->withErrors(['file' => 'The CSV file is empty or missing its header row.']);
+        }
+
+        $headers = array_map(fn ($header) => strtolower(trim(ltrim((string) $header, "\xEF\xBB\xBF"))), $headers);
+        $required = ['student_id', 'first_name', 'last_name', 'program_type', 'school_year', 'semester'];
+        $missing = array_values(array_diff($required, $headers));
+        if ($missing) {
+            fclose($handle);
+            return back()->withErrors(['file' => 'Missing required columns: ' . implode(', ', $missing)]);
+        }
+
+        $rows = [];
+        $rowNumber = 1;
+        while (($values = fgetcsv($handle)) !== false) {
+            $rowNumber++;
+            if ($values === [null] || (count($values) === 1 && trim((string) $values[0]) === '')) {
+                continue;
+            }
+
+            $row = [];
+            foreach ($headers as $index => $header) {
+                $row[$header] = trim((string) ($values[$index] ?? ''));
+            }
+            $row += [
+                'middle_name' => '',
+                'birthdate' => '',
+                'gender' => '',
+                'religion' => '',
+                'civil_status' => '',
+                'citizenship' => '',
+                'place_of_birth' => '',
+                'contact_number' => '',
+                'address' => '',
+                'father_name' => '',
+                'father_occupation' => '',
+                'mother_name' => '',
+                'mother_occupation' => '',
+                'parent_email' => '',
+                'prev_school' => '',
+                'prev_school_address' => '',
+                'student_type' => '',
+                'academic_status' => '',
+                'shiftee_from' => '',
+                'shiftee_to' => '',
+                'id_no' => '',
+                'course_id' => '',
+                'course' => '',
+                'year_level' => '',
+                'grade_level' => '',
+                'strand' => '',
+                'semester' => '',
+                'subject_ids' => '[]',
+                'section_subject_ids' => '[]',
+                'document_urls' => '[]',
+                'section' => 'TBA',
+                'status' => '',
+                'application_status' => 'approved',
+                'remarks' => '',
+            ];
+
+            $row['grade_level'] = $row['grade_level'] ?: ($row['program_type'] === 'college' ? $row['year_level'] : '');
+            $row['id_no'] = $row['id_no'] ?: $row['student_id'];
+            $row['gender'] = $row['gender'] ?: 'male';
+            $row['status'] = $row['status'] ?: 'active';
+            $row['application_status'] = $row['application_status'] ?: 'approved';
+            $row['section'] = $row['section'] ?: 'TBA';
+
+            if ($row['birthdate'] !== '') {
+                $row['birthdate'] = $this->normalizeCsvBirthdate($row['birthdate']);
+                if ($row['birthdate'] === null) {
+                    fclose($handle);
+                    return back()->withErrors(['file' => "Row {$rowNumber}: birthdate must use YYYY-MM-DD or MM/DD/YYYY format."]);
+                }
+            }
+
+            if (preg_match('/^[+-]?\d+(?:\.\d+)?[eE][+-]?\d+$/', $row['contact_number'])) {
+                fclose($handle);
+                return back()->withErrors(['file' => "Row {$rowNumber}: contact number is in scientific notation. Format that spreadsheet column as text and export the CSV again."]);
+            }
+
+            foreach ([
+                'middle_name', 'birthdate', 'religion', 'civil_status', 'citizenship',
+                'place_of_birth', 'contact_number', 'address', 'father_name',
+                'father_occupation', 'mother_name', 'mother_occupation', 'parent_email',
+                'prev_school', 'prev_school_address', 'student_type', 'academic_status',
+                'shiftee_from', 'shiftee_to', 'course_id', 'course', 'year_level',
+                'strand', 'remarks',
+            ] as $optionalField) {
+                if ($row[$optionalField] === '') {
+                    $row[$optionalField] = null;
+                }
+            }
+
+            foreach (['subject_ids', 'section_subject_ids', 'document_urls'] as $jsonField) {
+                $row[$jsonField] = $row[$jsonField] ?: '[]';
+                $decoded = json_decode($row[$jsonField], true);
+                if (!is_array($decoded)) {
+                    fclose($handle);
+                    return back()->withErrors(['file' => "Row {$rowNumber}: {$jsonField} must contain a valid JSON array."]);
+                }
+                $row[$jsonField] = $decoded;
+            }
+
+            $existingStudent = Student::query()->where('student_id', $row['student_id'])->first();
+
+            $validator = validator($row, [
+                'student_id' => ['required', 'string', 'max:255'],
+                'first_name' => ['required', 'string', 'max:255'],
+                'last_name' => ['required', 'string', 'max:255'],
+                'middle_name' => ['nullable', 'string', 'max:100'],
+                'birthdate' => ['nullable', 'date'],
+                'gender' => ['required', 'in:male,female,other'],
+                'religion' => ['nullable', 'string', 'max:100'],
+                'civil_status' => ['nullable', 'string', 'max:50'],
+                'citizenship' => ['nullable', 'string', 'max:100'],
+                'place_of_birth' => ['nullable', 'string', 'max:255'],
+                'contact_number' => ['nullable', 'string', 'max:20'],
+                'address' => ['nullable', 'string', 'max:500'],
+                'father_name' => ['nullable', 'string', 'max:255'],
+                'father_occupation' => ['nullable', 'string', 'max:255'],
+                'mother_name' => ['nullable', 'string', 'max:255'],
+                'mother_occupation' => ['nullable', 'string', 'max:255'],
+                'parent_email' => ['nullable', 'email', 'max:255'],
+                'prev_school' => ['nullable', 'string', 'max:255'],
+                'prev_school_address' => ['nullable', 'string', 'max:255'],
+                'student_type' => ['nullable', 'in:new_student,old_student,transferee,shiftee,returnee'],
+                'academic_status' => ['nullable', 'in:Regular,Irregular'],
+                'shiftee_from' => ['nullable', 'string', 'max:255'],
+                'shiftee_to' => ['nullable', 'string', 'max:255'],
+                'id_no' => ['nullable', 'string', 'max:50'],
+                'program_type' => ['required', 'in:shs,college'],
+                'course_id' => ['nullable', 'integer', 'exists:courses,id'],
+                'course' => ['nullable', 'string', 'max:100'],
+                'year_level' => ['nullable', 'in:1,2,3,4'],
+                'grade_level' => ['required', 'string', 'max:255'],
+                'strand' => ['nullable', 'in:STEM,ABM,HUMSS,TVL,GAS'],
+                'section' => ['required', 'string', 'max:255'],
+                'school_year' => ['required', 'string', 'max:255'],
+                'semester' => ['required', 'in:1st,2nd,summer'],
+                'status' => ['nullable', 'in:active,inactive,graduated'],
+                'application_status' => ['nullable', 'in:pending,approved,rejected'],
+                'remarks' => ['nullable', 'string', 'max:5000'],
+            ]);
+
+            if ($validator->fails()) {
+                fclose($handle);
+                return back()->withErrors(['file' => "Row {$rowNumber}: " . $validator->errors()->first()]);
+            }
+
+            $row['_existing_student_id'] = $existingStudent?->id;
+            $rows[] = $row;
+        }
+        fclose($handle);
+
+        if (!$rows) {
+            return back()->withErrors(['file' => 'The CSV contains no student rows.']);
+        }
+
+        $seenStudentIds = [];
+        foreach ($rows as $index => $row) {
+            if (isset($seenStudentIds[$row['student_id']])) {
+                return back()->withErrors(['file' => 'The CSV contains duplicate student IDs.']);
+            }
+            $seenStudentIds[$row['student_id']] = true;
+
+            foreach (['subject_ids' => Subject::class, 'section_subject_ids' => \App\Models\SectionSubject::class] as $field => $model) {
+                $ids = array_values(array_unique(array_filter(array_map('intval', $row[$field]))));
+                if ($ids && $model::query()->whereIn('id', $ids)->count() !== count($ids)) {
+                    return back()->withErrors(['file' => "A row contains invalid {$field}; use IDs from this school system."]);
+                }
+                $rows[$index][$field] = $ids;
+            }
+        }
+
+        DB::transaction(function () use ($rows) {
+            foreach ($rows as $row) {
+                $student = $row['_existing_student_id']
+                    ? Student::findOrFail($row['_existing_student_id'])
+                    : new Student();
+                $studentGradeLevel = $row['program_type'] === 'college'
+                    ? ($row['year_level'] ?: $row['grade_level'])
+                    : $row['grade_level'];
+
+                $student->fill([
+                    'student_id' => $row['student_id'],
+                    'first_name' => $row['first_name'],
+                    'last_name' => $row['last_name'],
+                    'email' => $student->email,
+                    'phone' => $row['contact_number'] ?: null,
+                    'birthdate' => $row['birthdate'] ?: null,
+                    'gender' => in_array($row['gender'], ['male', 'female'], true) ? $row['gender'] : 'male',
+                    'address' => $row['address'] ?: null,
+                    'father_name' => $row['father_name'] ?: null,
+                    'father_occupation' => $row['father_occupation'] ?: null,
+                    'mother_name' => $row['mother_name'] ?: null,
+                    'mother_occupation' => $row['mother_occupation'] ?: null,
+                    'prev_school' => $row['prev_school'] ?: null,
+                    'prev_school_address' => $row['prev_school_address'] ?: null,
+                    'student_type' => $row['student_type'] ?: null,
+                    'academic_status' => $row['academic_status'] ?: null,
+                    'grade_level' => $studentGradeLevel,
+                    'section' => $row['section'] ?: 'TBA',
+                    'school_year' => $row['school_year'],
+                    'status' => $row['status'],
+                ])->save();
+
+                $application = $this->applicationForStudent($student) ?? new EnrollmentApplication();
+                $application->fill([
+                    'email' => $application->email,
+                    'password' => $application->password,
+                    'first_name' => $row['first_name'],
+                    'last_name' => $row['last_name'],
+                    'middle_name' => $row['middle_name'] ?: null,
+                    'birthdate' => $row['birthdate'] ?: null,
+                    'gender' => $row['gender'],
+                    'religion' => $row['religion'] ?: null,
+                    'civil_status' => $row['civil_status'] ?: null,
+                    'citizenship' => $row['citizenship'] ?: null,
+                    'place_of_birth' => $row['place_of_birth'] ?: null,
+                    'contact_number' => $row['contact_number'] ?: null,
+                    'address' => $row['address'] ?: null,
+                    'father_name' => $row['father_name'] ?: null,
+                    'father_occupation' => $row['father_occupation'] ?: null,
+                    'mother_name' => $row['mother_name'] ?: null,
+                    'mother_occupation' => $row['mother_occupation'] ?: null,
+                    'parent_email' => $row['parent_email'] ?: null,
+                    'prev_school' => $row['prev_school'] ?: null,
+                    'prev_school_address' => $row['prev_school_address'] ?: null,
+                    'student_type' => $row['student_type'] ?: null,
+                    'academic_status' => $row['academic_status'] ?: null,
+                    'shiftee_from' => $row['shiftee_from'] ?: null,
+                    'shiftee_to' => $row['shiftee_to'] ?: null,
+                    'id_no' => $row['id_no'] ?: $row['student_id'],
+                    'program_type' => $row['program_type'],
+                    'course_id' => $row['course_id'] ?: null,
+                    'course' => $row['course'] ?: null,
+                    'year_level' => $row['year_level'] ?: null,
+                    'grade_level' => $row['grade_level'] ?: null,
+                    'strand' => $row['strand'] ?: null,
+                    'school_year' => $row['school_year'],
+                    'semester' => $row['semester'],
+                    'subject_ids' => $row['subject_ids'],
+                    'section_subject_ids' => $row['section_subject_ids'],
+                    'document_urls' => $row['document_urls'],
+                    'status' => $row['application_status'],
+                    'remarks' => $row['remarks'] ?: null,
+                    'user_id' => $student->user_id,
+                    'reviewed_by' => in_array($row['application_status'], ['approved', 'rejected'], true)
+                        ? ($application->reviewed_by ?: auth()->id())
+                        : null,
+                    'reviewed_at' => in_array($row['application_status'], ['approved', 'rejected'], true)
+                        ? ($application->reviewed_at ?: now())
+                        : null,
+                ]);
+                $application->save();
+            }
+        });
+
+        $routePrefix = $request->routeIs('registrar.*') ? 'registrar' : 'admin';
+
+        return redirect()->route($routePrefix . '.students.index')
+            ->with('status', count($rows) . ' student record(s) imported successfully.');
+    }
+
+    private function downloadCsv(array $rows, string $filename)
+    {
+        $stream = fopen('php://temp', 'r+');
+        foreach ($rows as $row) {
+            fputcsv($stream, array_map(function ($value) {
+                $value = (string) ($value ?? '');
+                return preg_match('/^[=+@\-]/', $value) ? "'{$value}" : $value;
+            }, $row));
+        }
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    private function normalizeCsvBirthdate(string $value): ?string
+    {
+        foreach (['!Y-m-d', '!m/d/Y', '!n/j/Y', '!m-d-Y', '!n-j-Y'] as $format) {
+            $date = \DateTimeImmutable::createFromFormat($format, $value);
+            $errors = \DateTimeImmutable::getLastErrors();
+
+            if ($date && (!$errors || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
+                return $date->format('Y-m-d');
+            }
+        }
+
+        return null;
+    }
+
+    private function studentCsvHeaders(): array
+    {
+        return [
+            'student_id', 'first_name', 'last_name', 'middle_name', 'birthdate', 'gender',
+            'religion', 'civil_status', 'citizenship', 'place_of_birth', 'contact_number', 'address',
+            'father_name', 'father_occupation', 'mother_name', 'mother_occupation',
+            'parent_email', 'prev_school', 'prev_school_address', 'student_type', 'academic_status', 'shiftee_from', 'shiftee_to',
+            'id_no', 'program_type', 'course_id', 'course', 'year_level', 'grade_level', 'strand',
+            'school_year', 'semester', 'subject_ids', 'section_subject_ids', 'document_urls',
+            'section', 'status', 'application_status', 'remarks',
+        ];
+    }
+
+    private function applicationForStudent(Student $student): ?EnrollmentApplication
+    {
+        return EnrollmentApplication::query()
+            ->when($student->user_id, fn ($query, $userId) => $query->where('user_id', $userId))
+            ->when(!$student->user_id, fn ($query) => $query->where('id_no', $student->student_id))
+            ->latest()
+            ->first();
+    }
+
     public function show(Request $request, Student $student)
     {
         $grades = Grade::where('student_id', $student->id)
@@ -52,10 +472,7 @@ class StudentManageController extends Controller
             ? round(($attendance->where('status', 'present')->count() / $attendance->count()) * 100, 1)
             : 0;
 
-        $application = EnrollmentApplication::query()
-            ->where('user_id', $student->user_id)
-            ->latest()
-            ->first();
+        $application = $this->applicationForStudent($student);
         $subjects = $this->subjectsForStudent($student, $application);
 
         $routePrefix = $request->routeIs('registrar.*') ? 'registrar' : 'admin';
@@ -69,13 +486,7 @@ class StudentManageController extends Controller
             'student_id' => ['required', 'string', 'max:255', Rule::unique('students', 'student_id')->ignore($student->id)],
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
-            'email' => [
-                'required',
-                'email',
-                'max:255',
-                Rule::unique('students', 'email')->ignore($student->id),
-                Rule::unique('users', 'email')->ignore($student->user_id),
-            ],
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('students', 'email')->ignore($student->id), Rule::unique('users', 'email')->ignore($student->user_id)],
             'phone' => ['nullable', 'string', 'max:50'],
             'birthdate' => ['nullable', 'date'],
             'gender' => ['required', 'in:male,female'],
@@ -96,10 +507,7 @@ class StudentManageController extends Controller
 
         $student->update($data);
 
-        $application = EnrollmentApplication::query()
-            ->where('user_id', $student->user_id)
-            ->latest()
-            ->first();
+        $application = $this->applicationForStudent($student);
 
         if ($application) {
             $application->update(collect($data)->only([
@@ -115,10 +523,13 @@ class StudentManageController extends Controller
         }
 
         if ($student->user) {
-            $student->user->update([
+            $userValues = [
                 'name' => trim($data['first_name'] . ' ' . $data['last_name']),
-                'email' => $data['email'],
-            ]);
+            ];
+            if (!empty($data['email'])) {
+                $userValues['email'] = $data['email'];
+            }
+            $student->user->update($userValues);
         }
 
         return back()->with('status', 'Student information updated.');

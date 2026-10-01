@@ -5,6 +5,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import api from '../../src/api';
 
 const QUARTERS = ['1','2','3','4'];
+const getQuarterLabel = (quarter, isCollege) => {
+  const labels = isCollege ? ['Prelim', 'Midterm', 'Prefinal', 'Final'] : ['Q1', 'Q2', 'Q3', 'Q4'];
+  return labels[Number(quarter) - 1] ?? `Q${quarter}`;
+};
 
 export default function TeacherGrades() {
   const { classId, subject } = useLocalSearchParams();
@@ -85,7 +89,7 @@ export default function TeacherGrades() {
       }
 
       await api.post(`/teacher/class/${activeClassId}/grades`, { grades });
-      Alert.alert('Submitted', `Grades for Q${quarter} were submitted to the Department Chair.`);
+      Alert.alert('Submitted', `Grades for ${getQuarterLabel(quarter, data?.class?.is_college)} were submitted to the Department Chair.`);
     } catch (e) {
       Alert.alert('Error', 'Could not save grades. Please try again.');
       console.log(e.message);
@@ -141,7 +145,7 @@ export default function TeacherGrades() {
           <TouchableOpacity key={q}
             style={[styles.qBtn, quarter === q && styles.qBtnActive]}
             onPress={() => setQuarter(q)}>
-            <Text style={[styles.qText, quarter === q && styles.qTextActive]}>Q{q}</Text>
+            <Text style={[styles.qText, quarter === q && styles.qTextActive]}>{getQuarterLabel(q, data?.class?.is_college)}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -184,7 +188,7 @@ export default function TeacherGrades() {
           disabled={saving || (data?.grade_submissions?.[quarter] && !['draft', 'teacher_revision'].includes(data.grade_submissions[quarter].status))}>
           {saving
             ? <ActivityIndicator color="#fff"/>
-            : <Text style={styles.saveBtnText}>Submit Q{quarter} grades to Chair</Text>
+            : <Text style={styles.saveBtnText}>Submit {getQuarterLabel(quarter, data?.class?.is_college)} grades to Chair</Text>
           }
         </TouchableOpacity>
       </View>

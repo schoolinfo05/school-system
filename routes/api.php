@@ -46,6 +46,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me',      [AuthController::class, 'me']);
     Route::post('/enrollment', [EnrollmentController::class, 'store']);
+    Route::post('/enrollment/prerequisites', [EnrollmentController::class, 'prerequisiteStatus']);
     Route::get('/my-course-shift-requests', [CourseShiftRequestController::class, 'mine']);
     Route::post('/my-course-shift-requests', [CourseShiftRequestController::class, 'store']);
     Route::post('/me/profile-photo', [AuthController::class, 'updateProfilePhoto']);
@@ -67,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/students/{student}/attendance', [AttendanceController::class, 'byStudent']);
     Route::get('/students/{student}/fees',       [FeeController::class, 'byStudent']);
     Route::get('/dashboard/student',             [StudentController::class, 'dashboard']);
+    Route::get('/my-grades', [GradeController::class, 'mine']);
     Route::get('/dashboard/parent',              [ParentController::class, 'dashboard']);
     Route::get('/my-subjects', [SubjectSectionController::class, 'mySubjects']);
     Route::get('/my-subject-change-requests', [SubjectChangeRequestController::class, 'mine']);
